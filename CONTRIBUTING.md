@@ -22,7 +22,7 @@ This project adheres to a [Code of Conduct](CODE_OF_CONDUCT.md). By participatin
 ### Reporting Bugs
 
 **Before submitting:**
-- Check [existing issues](https://github.com/iamdevnd/contextcache/issues)
+- Check [existing issues](https://github.com/thecontextcache/contextcache/issues)
 - Use the bug report template
 - Include reproduction steps, expected vs actual behavior, environment details
 
@@ -64,7 +64,7 @@ We accept contributions in these areas:
 ### Local Environment
 ```bash
 # Clone your fork
-git clone https://github.com/iamdevnd/contextcache.git
+git clone https://github.com/thecontextcache/contextcache.git
 cd contextcache
 
 # Create environment file

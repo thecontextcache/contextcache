@@ -24,7 +24,7 @@ gsutil cp /tmp/redis-$DATE.rdb $BACKUP_BUCKET/
 
 # Backup secrets (encrypted)
 gcloud secrets versions list DATABASE_URL --limit=1 > /tmp/secrets-$DATE.txt
-gpg --encrypt --recipient ops@contextcache.com /tmp/secrets-$DATE.txt
+gpg --encrypt --recipient thecontextcache@gmail.com /tmp/secrets-$DATE.txt
 gsutil cp /tmp/secrets-$DATE.txt.gpg $BACKUP_BUCKET/
 
 # Cleanup old backups (keep 30 days)
@@ -144,8 +144,8 @@ gcloud run services update contextcache-api \
 TLS Certificates
 Renew certificates (automatic with Cloud Run):
 bash# Verify certificate expiry
-echo | openssl s_client -servername api.contextcache.dev \
-  -connect api.contextcache.dev:443 2>/dev/null | \
+echo | openssl s_client -servername api.thecontextcache.com \
+  -connect api.thecontextcache.com:443 2>/dev/null | \
   openssl x509 -noout -dates
 
 Database Maintenance

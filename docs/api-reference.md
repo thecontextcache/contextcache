@@ -13,14 +13,14 @@ ContextCache exposes both REST and MCP (Model Context Protocol) interfaces. This
 http://localhost:8000
 
 **Production:**
-https://api.contextcache.dev
+https://api.thecontextcache.com
 
 ## Authentication
 
 All requests require authentication via Bearer token:
 ```bash
 curl -H "Authorization: Bearer YOUR_API_KEY" \
-  https://api.contextcache.dev/projects
+  https://api.thecontextcache.com/projects
 Headers:
 
 Authorization: Bearer <token> (required)
@@ -166,7 +166,7 @@ bashcurl -X POST \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "X-Project-ID: 550e8400-..." \
   -F "file=@paper.pdf" \
-  https://api.contextcache.dev/documents/ingest
+  https://api.thecontextcache.com/documents/ingest
 Response:
 json{
   "job_id": "job-123",
@@ -476,7 +476,7 @@ bashcurl -X POST \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "X-Project-ID: 550e8400-..." \
   -F "pack=@memory-pack.json" \
-  https://api.contextcache.dev/packs/import
+  https://api.thecontextcache.com/packs/import
 Response:
 json{
   "job_id": "job-456",

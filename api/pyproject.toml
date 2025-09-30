@@ -81,7 +81,7 @@ test = [
 
 [project.urls]
 Homepage = "https://github.com/yourusername/contextcache"
-Documentation = "https://docs.contextcache.dev"
+Documentation = "https://docs.thecontextcache.com"
 Repository = "https://github.com/yourusername/contextcache"
 Issues = "https://github.com/yourusername/contextcache/issues"
 
