@@ -1,0 +1,148 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: contextcache-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: contextcache
+      POSTGRES_PASSWORD: devpassword
+      POSTGRES_DB: contextcache_dev
+      POSTGRES_INITDB_ARGS: "-E UTF8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../api/cc_core/storage/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U contextcache"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - contextcache-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: contextcache-redis-dev
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - contextcache-network
+
+  api:
+    build:
+      context: ..
+      dockerfile: infra/api.Dockerfile
+      target: development
+      args:
+        PYTHON_VERSION: 3.13
+    container_name: contextcache-api-dev
+    restart: unless-stopped
+    env_file:
+      - ../.env.local
+    environment:
+      - PYTHON_ENV=development
+      - DATABASE_URL=postgresql://contextcache:devpassword@postgres:5432/contextcache_dev
+      - REDIS_URL=redis://redis:6379/0
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - API_RELOAD=true
+      - LOG_LEVEL=DEBUG
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../api:/app/api:cached
+      - api_cache:/app/.cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - contextcache-network
+
+  worker:
+    build:
+      context: ..
+      dockerfile: infra/worker.Dockerfile
+      target: development
+      args:
+        PYTHON_VERSION: 3.13
+    container_name: contextcache-worker-dev
+    restart: unless-stopped
+    env_file:
+      - ../.env.local
+    environment:
+      - PYTHON_ENV=development
+      - DATABASE_URL=postgresql://contextcache:devpassword@postgres:5432/contextcache_dev
+      - REDIS_URL=redis://redis:6379/0
+      - WORKER_CONCURRENCY=2
+      - LOG_LEVEL=DEBUG
+    volumes:
+      - ../api:/app/api:cached
+      - worker_cache:/app/.cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - contextcache-network
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: ../infra/frontend.Dockerfile
+      target: development
+      args:
+        NODE_VERSION: 20
+    container_name: contextcache-frontend-dev
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_APP_ENV=development
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../frontend:/app:cached
+      - /app/node_modules
+      - /app/.next
+      - frontend_cache:/app/.cache
+    depends_on:
+      - api
+    networks:
+      - contextcache-network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  api_cache:
+    driver: local
+  worker_cache:
+    driver: local
+  frontend_cache:
+    driver: local
+
+networks:
+  contextcache-network:
+    driver: bridge

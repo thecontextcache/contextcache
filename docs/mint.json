@@ -1,0 +1,114 @@
+{
+    "$schema": "https://mintlify.com/schema.json",
+    "name": "ContextCache",
+    "logo": {
+      "dark": "/logo/dark.svg",
+      "light": "/logo/light.svg"
+    },
+    "favicon": "/favicon.svg",
+    "colors": {
+      "primary": "#0D9373",
+      "light": "#07C983",
+      "dark": "#0D9373",
+      "anchors": {
+        "from": "#0D9373",
+        "to": "#07C983"
+      }
+    },
+    "topbarLinks": [
+      {
+        "name": "GitHub",
+        "url": "https://github.com/thecontextcache/contextcache"
+      }
+    ],
+    "topbarCtaButton": {
+      "name": "Get Started",
+      "url": "https://github.com/thecontextcache/contextcache"
+    },
+    "tabs": [
+      {
+        "name": "API Reference",
+        "url": "api-reference"
+      },
+      {
+        "name": "Cookbook",
+        "url": "cookbook"
+      }
+    ],
+    "anchors": [
+      {
+        "name": "GitHub",
+        "icon": "github",
+        "url": "https://github.com/thecontextcache/contextcache"
+      },
+      {
+        "name": "Discussions",
+        "icon": "comments",
+        "url": "https://github.com/thecontextcache/contextcache/discussions"
+      },
+      {
+        "name": "Report Issue",
+        "icon": "bug",
+        "url": "https://github.com/thecontextcache/contextcache/issues"
+      }
+    ],
+    "navigation": [
+      {
+        "group": "Getting Started",
+        "pages": [
+          "overview",
+          "quickstart"
+        ]
+      },
+      {
+        "group": "Core Concepts",
+        "pages": [
+          "data-model",
+          "security",
+          "threat-model"
+        ]
+      },
+      {
+        "group": "Architecture",
+        "pages": [
+          "mcp"
+        ]
+      },
+      {
+        "group": "Operations",
+        "pages": [
+          "runbooks",
+          "benchmarks"
+        ]
+      },
+      {
+        "group": "API Documentation",
+        "pages": [
+          "api-reference"
+        ]
+      },
+      {
+        "group": "Guides",
+        "pages": [
+          "cookbook"
+        ]
+      }
+    ],
+    "footerSocials": {
+      "github": "https://github.com/thecontextcache/contextcache",
+      "BlueSky Social": "https://thecontextcache.bsky.social"
+      
+    },
+    "api": {
+      "baseUrl": "http://localhost:8000",
+      "auth": {
+        "method": "bearer"
+      }
+    },
+    "openapi": "/openapi.json",
+    "analytics": {
+      "plausible": {
+        "domain": "docs.thecontextcache.com"
+      }
+    }
+  }

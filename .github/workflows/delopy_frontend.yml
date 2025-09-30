@@ -1,0 +1,145 @@
+name: Deploy Frontend
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-frontend-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Cloudflare Pages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          pnpm install --frozen-lockfile
+
+      - name: Run tests
+        run: |
+          cd frontend
+          pnpm test
+
+      - name: Build
+        env:
+          NEXT_PUBLIC_API_URL: ${{ secrets.PRODUCTION_API_URL }}
+          NEXT_PUBLIC_APP_ENV: production
+          NEXT_PUBLIC_ENABLE_ANALYTICS: true
+          NEXT_PUBLIC_ENABLE_EXPORT: true
+          NEXT_PUBLIC_ENABLE_GRAPH_VIEW: true
+        run: |
+          cd frontend
+          pnpm build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: contextcache-frontend
+          directory: frontend/.next
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          branch: main
+          wranglerVersion: '3'
+
+      - name: Create deployment notification
+        if: success()
+        run: |
+          echo "Frontend deployed successfully to Cloudflare Pages"
+          echo "URL: example(still in devlopement)"
+
+      - name: Notify on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Frontend deployment failed',
+              body: `Deployment failed for commit ${context.sha}\n\nWorkflow: ${context.workflow}\nRun: ${context.runId}`,
+              labels: ['deployment', 'bug', 'priority:high']
+            })
+
+  verify-deployment:
+    name: Verify Deployment
+    runs-on: ubuntu-latest
+    needs: deploy
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          pnpm install --frozen-lockfile
+
+      - name: Install Playwright
+        run: |
+          cd frontend
+          pnpm exec playwright install --with-deps chromium
+
+      - name: Run smoke tests
+        env:
+          PLAYWRIGHT_BASE_URL: example(still in devlopement)
+        run: |
+          cd frontend
+          pnpm exec playwright test --grep @smoke
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-test-results
+          path: frontend/playwright-report/
+          retention-days: 7
+
+  rollback:
+    name: Rollback on Failure
+    runs-on: ubuntu-latest
+    needs: verify-deployment
+    if: failure()
+    steps:
+      - name: Trigger rollback
+        uses: actions/github-script@v7
+        with:
+          script: |
+            console.log('Deployment verification failed. Manual rollback required.');
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Frontend deployment verification failed - Rollback needed',
+              body: `Smoke tests failed after deployment.\n\nCommit: ${context.sha}\nWorkflow: ${context.workflow}\n\nPlease rollback to previous version in Cloudflare Pages dashboard.`,
+              labels: ['deployment', 'bug', 'priority:critical']
+            })

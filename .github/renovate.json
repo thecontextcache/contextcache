@@ -1,0 +1,295 @@
+{
+    "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+    "extends": [
+      "config:base",
+      ":dependencyDashboard",
+      ":semanticCommits",
+      ":separateMajorReleases",
+      ":combinePatchMinorReleases",
+      ":ignoreUnstable",
+      ":prImmediately",
+      ":updateNotScheduled",
+      ":automergeDisabled",
+      ":ignoreModulesAndTests",
+      ":autodetectPinVersions",
+      ":prHourlyLimit2",
+      ":prConcurrentLimit10"
+    ],
+    "timezone": "UTC",
+    "schedule": [
+      "before 6am on monday"
+    ],
+    "labels": [
+      "dependencies",
+      "renovate"
+    ],
+    "assignees": [],
+    "reviewers": [],
+    "commitMessagePrefix": "chore(deps):",
+    "commitMessageAction": "update",
+    "commitMessageTopic": "{{depName}}",
+    "commitMessageExtra": "to {{newVersion}}",
+    "rangeStrategy": "bump",
+    "bumpVersion": null,
+    "semanticCommits": "enabled",
+    "configMigration": true,
+    "dependencyDashboard": true,
+    "dependencyDashboardTitle": "🤖 Dependency Updates",
+    "dependencyDashboardHeader": "This dashboard tracks all dependency updates managed by Renovate.",
+    "dependencyDashboardFooter": "All updates require passing CI checks and security scans before merge.",
+    "packageRules": [
+      {
+        "description": "Automerge non-major updates for development dependencies",
+        "matchDepTypes": [
+          "devDependencies"
+        ],
+        "matchUpdateTypes": [
+          "minor",
+          "patch"
+        ],
+        "automerge": true,
+        "automergeType": "pr",
+        "automergeStrategy": "squash"
+      },
+      {
+        "description": "Group all lint and format tools together",
+        "matchPackagePatterns": [
+          "^ruff$",
+          "^mypy$",
+          "^black$",
+          "^isort$",
+          "^eslint",
+          "^prettier",
+          "@typescript-eslint"
+        ],
+        "groupName": "linters and formatters",
+        "automerge": true
+      },
+      {
+        "description": "Group all testing tools together",
+        "matchPackagePatterns": [
+          "^pytest",
+          "^hypothesis$",
+          "^schemathesis$",
+          "^vitest$",
+          "^@playwright",
+          "^@testing-library"
+        ],
+        "groupName": "testing tools",
+        "automerge": true
+      },
+      {
+        "description": "Group GitHub Actions updates",
+        "matchManagers": [
+          "github-actions"
+        ],
+        "groupName": "GitHub Actions",
+        "automerge": true,
+        "pinDigests": true
+      },
+      {
+        "description": "Separate major updates for review",
+        "matchUpdateTypes": [
+          "major"
+        ],
+        "labels": [
+          "dependencies",
+          "major-update",
+          "needs-review"
+        ],
+        "automerge": false,
+        "schedule": [
+          "before 6am on the first day of the month"
+        ]
+      },
+      {
+        "description": "High priority security updates",
+        "matchDatasources": [
+          "npm",
+          "pypi"
+        ],
+        "matchUpdateTypes": [
+          "patch"
+        ],
+        "matchCurrentVersion": "!/^0/",
+        "automerge": true,
+        "labels": [
+          "dependencies",
+          "security"
+        ],
+        "prPriority": 10
+      },
+      {
+        "description": "Python dependencies",
+        "matchManagers": [
+          "pip_requirements",
+          "pip_setup",
+          "pipenv",
+          "poetry"
+        ],
+        "groupName": "Python dependencies",
+        "schedule": [
+          "before 6am on monday"
+        ]
+      },
+      {
+        "description": "JavaScript dependencies",
+        "matchManagers": [
+          "npm"
+        ],
+        "groupName": "JavaScript dependencies",
+        "schedule": [
+          "before 6am on monday"
+        ]
+      },
+      {
+        "description": "FastAPI and related",
+        "matchPackagePatterns": [
+          "^fastapi$",
+          "^uvicorn",
+          "^pydantic",
+          "^starlette"
+        ],
+        "groupName": "FastAPI ecosystem",
+        "schedule": [
+          "before 6am on monday"
+        ]
+      },
+      {
+        "description": "Next.js and React",
+        "matchPackagePatterns": [
+          "^next$",
+          "^react",
+          "^react-dom"
+        ],
+        "groupName": "Next.js and React",
+        "schedule": [
+          "before 6am on monday"
+        ]
+      },
+      {
+        "description": "Database drivers",
+        "matchPackagePatterns": [
+          "^psycopg",
+          "^asyncpg",
+          "^sqlalchemy",
+          "^alembic"
+        ],
+        "groupName": "Database drivers",
+        "automerge": false,
+        "labels": [
+          "dependencies",
+          "database"
+        ]
+      },
+      {
+        "description": "Cryptography libraries - require careful review",
+        "matchPackagePatterns": [
+          "^cryptography$",
+          "^pynacl$",
+          "^argon2-cffi$",
+          "^blake3$"
+        ],
+        "groupName": "Cryptography",
+        "automerge": false,
+        "labels": [
+          "dependencies",
+          "security",
+          "needs-review"
+        ],
+        "prPriority": 20,
+        "reviewers": []
+      },
+      {
+        "description": "Docker base images",
+        "matchDatasources": [
+          "docker"
+        ],
+        "groupName": "Docker base images",
+        "automerge": false,
+        "schedule": [
+          "before 6am on the 15th day of the month"
+        ]
+      },
+      {
+        "description": "Pin Python to minor version",
+        "matchPackageNames": [
+          "python"
+        ],
+        "matchDatasources": [
+          "docker"
+        ],
+        "versioning": "python",
+        "allowedVersions": ">=3.13.0 <3.14.0"
+      },
+      {
+        "description": "Pin Node to LTS",
+        "matchPackageNames": [
+          "node"
+        ],
+        "matchDatasources": [
+          "docker",
+          "node-version"
+        ],
+        "allowedVersions": "20.x"
+      },
+      {
+        "description": "Disable updates for packages with known issues",
+        "matchPackagePatterns": [],
+        "enabled": false
+      }
+    ],
+    "vulnerabilityAlerts": {
+      "enabled": true,
+      "labels": [
+        "security",
+        "priority:critical"
+      ],
+      "automerge": false,
+      "schedule": [
+        "at any time"
+      ]
+    },
+    "lockFileMaintenance": {
+      "enabled": true,
+      "schedule": [
+        "before 6am on the first day of the month"
+      ],
+      "commitMessageAction": "update",
+      "commitMessageTopic": "lock file",
+      "automerge": true
+    },
+    "prCreation": "immediate",
+    "prHourlyLimit": 2,
+    "prConcurrentLimit": 10,
+    "rebaseWhen": "behind-base-branch",
+    "ignoreDeps": [],
+    "ignorePresets": [],
+    "python": {
+      "enabled": true
+    },
+    "pip_requirements": {
+      "fileMatch": [
+        "(^|/)([\\w-]*)requirements\\.(txt|pip)$",
+        "(^|/)requirements/.*\\.txt$"
+      ]
+    },
+    "pip_setup": {
+      "fileMatch": [
+        "(^|/)setup\\.py$",
+        "(^|/)pyproject\\.toml$"
+      ]
+    },
+    "npm": {
+      "enabled": true,
+      "rangeStrategy": "bump"
+    },
+    "docker": {
+      "enabled": true,
+      "pinDigests": false
+    },
+    "github-actions": {
+      "enabled": true,
+      "pinDigests": true
+    }
+  }

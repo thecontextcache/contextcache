@@ -1,0 +1,320 @@
+name: Security
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  aikido-scan:
+    name: Aikido Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Aikido Security Scan
+        uses: AikidoSec/github-actions-workflow@v1
+        with:
+          secret-key: ${{ secrets.AIKIDO_SECRET_KEY }}
+        continue-on-error: false
+
+  trivy-backend:
+    name: Trivy - Backend Container Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image for scanning
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./infra/api.Dockerfile
+          load: true
+          tags: contextcache-api:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: contextcache-api:scan
+          format: 'sarif'
+          output: 'trivy-backend-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-backend-results.sarif'
+          category: 'trivy-backend'
+
+  trivy-frontend:
+    name: Trivy - Frontend Container Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build frontend image for scanning
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./infra/frontend.Dockerfile
+          load: true
+          tags: contextcache-frontend:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: contextcache-frontend:scan
+          format: 'sarif'
+          output: 'trivy-frontend-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-frontend-results.sarif'
+          category: 'trivy-frontend'
+
+  trivy-repo:
+    name: Trivy - Repository Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner in repo mode
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-repo-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-repo-results.sarif'
+          category: 'trivy-repo'
+
+  trivy-sbom:
+    name: Trivy - SBOM Generation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./infra/api.Dockerfile
+          load: true
+          tags: contextcache-api:sbom
+          cache-from: type=gha
+
+      - name: Generate SBOM
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: contextcache-api:sbom
+          format: 'cyclonedx'
+          output: 'sbom-backend.json'
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-backend
+          path: sbom-backend.json
+          retention-days: 90
+
+  secret-scan:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog Secret Scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified
+
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          deny-licenses: GPL-3.0, AGPL-3.0
+
+  semgrep:
+    name: Semgrep SAST
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/security-audit
+            p/secrets
+            p/owasp-top-ten
+            p/python
+            p/typescript
+        env:
+          SEMGREP_RULES: >-
+            r/python.django.security
+            r/python.flask.security
+            r/javascript.react.security
+
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ['python', 'javascript']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  license-check:
+    name: License Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install pip-licenses
+        run: pip install pip-licenses
+
+      - name: Check Python licenses
+        run: |
+          cd api
+          pip install -e .
+          pip-licenses --format=json --output-file=../licenses-python.json
+          pip-licenses --fail-on="GPL;AGPL"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10
+
+      - name: Check Node licenses
+        run: |
+          cd frontend
+          pnpm install --frozen-lockfile
+          pnpm licenses list --json > ../licenses-node.json
+
+      - name: Upload license reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: license-reports
+          path: |
+            licenses-python.json
+            licenses-node.json
+          retention-days: 30
+
+  docker-bench:
+    name: Docker Security Benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Hadolint on api.Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: infra/api.Dockerfile
+          failure-threshold: warning
+
+      - name: Run Hadolint on frontend.Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: infra/frontend.Dockerfile
+          failure-threshold: warning
+
+      - name: Run Hadolint on worker.Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: infra/worker.Dockerfile
+          failure-threshold: warning
+
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs:
+      - aikido-scan
+      - trivy-backend
+      - trivy-frontend
+      - trivy-repo
+      - secret-scan
+      - semgrep
+      - codeql
+      - license-check
+      - docker-bench
+    if: always()
+    steps:
+      - name: Security checks summary
+        run: |
+          echo "Security scan completed"
+          echo "Review results in Security tab"

@@ -1,0 +1,325 @@
+name: Deploy API
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to deploy'
+        required: true
+        type: string
+
+concurrency:
+  group: deploy-api-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-push:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      image-tag: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: gcr.io/${{ secrets.GCP_PROJECT_ID }}/contextcache-api
+          tags: |
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix={{branch}}-
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./infra/api.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ steps.meta.outputs.version }}
+
+      - name: Build and push Worker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./infra/worker.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: gcr.io/${{ secrets.GCP_PROJECT_ID }}/contextcache-worker:${{ steps.meta.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-api:
+    name: Deploy API to Cloud Run
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy contextcache-api \
+            --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/contextcache-api:${{ needs.build-and-push.outputs.image-tag }} \
+            --platform managed \
+            --region ${{ secrets.GCP_REGION }} \
+            --allow-unauthenticated \
+            --min-instances 1 \
+            --max-instances 10 \
+            --memory 2Gi \
+            --cpu 2 \
+            --timeout 300 \
+            --concurrency 80 \
+            --set-env-vars "PYTHON_ENV=production" \
+            --set-secrets "DATABASE_URL=DATABASE_URL:latest,REDIS_URL=REDIS_URL:latest,API_INTERNAL_KEY=API_INTERNAL_KEY:latest" \
+            --service-account ${{ secrets.GCP_SERVICE_ACCOUNT }} \
+            --vpc-connector ${{ secrets.GCP_VPC_CONNECTOR }} \
+            --ingress all \
+            --port 8000
+
+      - name: Get service URL
+        id: service-url
+        run: |
+          URL=$(gcloud run services describe contextcache-api \
+            --platform managed \
+            --region ${{ secrets.GCP_REGION }} \
+            --format 'value(status.url)')
+          echo "url=$URL" >> $GITHUB_OUTPUT
+          echo "API deployed to: $URL"
+
+      - name: Deploy MCP Servers
+        run: |
+          # Deploy each MCP server as separate Cloud Run service
+          for server in docs extractor memory audit policy-gate; do
+            gcloud run deploy contextcache-mcp-$server \
+              --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/contextcache-api:${{ needs.build-and-push.outputs.image-tag }} \
+              --platform managed \
+              --region ${{ secrets.GCP_REGION }} \
+              --allow-unauthenticated \
+              --min-instances 0 \
+              --max-instances 5 \
+              --memory 1Gi \
+              --cpu 1 \
+              --timeout 120 \
+              --set-env-vars "PYTHON_ENV=production,MCP_SERVER=$server" \
+              --set-secrets "DATABASE_URL=DATABASE_URL:latest,REDIS_URL=REDIS_URL:latest" \
+              --service-account ${{ secrets.GCP_SERVICE_ACCOUNT }} \
+              --vpc-connector ${{ secrets.GCP_VPC_CONNECTOR }} \
+              --port 800$(($(echo $server | wc -c) % 10))
+          done
+
+      - name: Output deployment info
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **API URL**: ${{ steps.service-url.outputs.url }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ needs.build-and-push.outputs.image-tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Region**: ${{ secrets.GCP_REGION }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+
+  deploy-worker:
+    name: Deploy Worker
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy Worker to Cloud Run
+        run: |
+          gcloud run deploy contextcache-worker \
+            --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/contextcache-worker:${{ needs.build-and-push.outputs.image-tag }} \
+            --platform managed \
+            --region ${{ secrets.GCP_REGION }} \
+            --no-allow-unauthenticated \
+            --min-instances 1 \
+            --max-instances 5 \
+            --memory 2Gi \
+            --cpu 2 \
+            --timeout 600 \
+            --set-env-vars "PYTHON_ENV=production,WORKER_CONCURRENCY=4" \
+            --set-secrets "DATABASE_URL=DATABASE_URL:latest,REDIS_URL=REDIS_URL:latest" \
+            --service-account ${{ secrets.GCP_SERVICE_ACCOUNT }} \
+            --vpc-connector ${{ secrets.GCP_VPC_CONNECTOR }}
+
+  run-migrations:
+    name: Run Database Migrations
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Run migrations via Cloud Run Job
+        run: |
+          gcloud run jobs create contextcache-migrate-${{ github.run_number }} \
+            --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/contextcache-api:${{ needs.build-and-push.outputs.image-tag }} \
+            --region ${{ secrets.GCP_REGION }} \
+            --command python \
+            --args "-m,alembic,upgrade,head" \
+            --set-secrets "DATABASE_URL=DATABASE_URL:latest" \
+            --service-account ${{ secrets.GCP_SERVICE_ACCOUNT }} \
+            --vpc-connector ${{ secrets.GCP_VPC_CONNECTOR }} \
+            --task-timeout 10m \
+            --max-retries 3
+
+          gcloud run jobs execute contextcache-migrate-${{ github.run_number }} \
+            --region ${{ secrets.GCP_REGION }} \
+            --wait
+
+  verify-deployment:
+    name: Verify Deployment
+    runs-on: ubuntu-latest
+    needs: [deploy-api, deploy-worker, run-migrations]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: |
+          pip install requests pytest
+
+      - name: Health check
+        run: |
+          response=$(curl -f -s -o /dev/null -w "%{http_code}" ${{ needs.deploy-api.outputs.url }}/health)
+          if [ $response -eq 200 ]; then
+            echo "✅ Health check passed"
+          else
+            echo "❌ Health check failed with status $response"
+            exit 1
+          fi
+
+      - name: Smoke tests
+        env:
+          API_URL: ${{ needs.deploy-api.outputs.url }}
+        run: |
+          cd api
+          pytest tests/smoke/ -v
+
+      - name: Notify on success
+        if: success()
+        run: |
+          echo "## ✅ Deployment Successful" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All services deployed and verified." >> $GITHUB_STEP_SUMMARY
+
+      - name: Notify on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 API deployment verification failed',
+              body: `Deployment verification failed for tag ${context.ref}\n\nWorkflow: ${context.workflow}\nRun: ${context.runId}`,
+              labels: ['deployment', 'bug', 'priority:critical']
+            })
+
+  rollback:
+    name: Rollback on Failure
+    runs-on: ubuntu-latest
+    needs: verify-deployment
+    if: failure()
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Rollback API
+        run: |
+          # Get previous revision
+          PREV_REVISION=$(gcloud run revisions list \
+            --service contextcache-api \
+            --region ${{ secrets.GCP_REGION }} \
+            --format 'value(name)' \
+            --limit 2 | tail -n 1)
+
+          echo "Rolling back to revision: $PREV_REVISION"
+
+          gcloud run services update-traffic contextcache-api \
+            --region ${{ secrets.GCP_REGION }} \
+            --to-revisions $PREV_REVISION=100
+
+      - name: Create rollback issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🔄 API deployment rolled back',
+              body: `Automatic rollback triggered due to verification failure.\n\nTag: ${context.ref}\nWorkflow: ${context.workflow}\nRun: ${context.runId}`,
+              labels: ['deployment', 'rollback', 'priority:high']
+            })

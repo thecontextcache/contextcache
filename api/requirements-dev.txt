@@ -1,0 +1,58 @@
+# Include base requirements
+-r requirements.txt
+
+# Testing
+pytest>=8.3.0
+pytest-asyncio>=0.24.0
+pytest-cov>=6.0.0
+pytest-mock>=3.14.0
+pytest-xdist>=3.6.0
+pytest-timeout>=2.3.0
+pytest-benchmark>=5.1.0
+hypothesis>=6.122.0
+schemathesis>=3.40.0
+faker>=33.0.0
+factory-boy>=3.3.0
+freezegun>=1.5.0
+responses>=0.25.0
+
+# Code Quality
+ruff>=0.8.0
+mypy>=1.13.0
+black>=24.10.0
+isort>=5.13.0
+pre-commit>=4.0.0
+pylint>=3.3.0
+bandit>=1.7.10
+
+# Type stubs
+types-redis>=4.6.0
+types-pyyaml>=6.0.0
+types-passlib>=1.7.0
+types-orjson>=3.6.0
+
+# Documentation
+mkdocs>=1.6.0
+mkdocs-material>=9.5.0
+mkdocstrings[python]>=0.26.0
+
+# Debugging
+ipython>=8.30.0
+ipdb>=0.13.13
+rich>=13.9.0
+
+# Database tools
+psycopg-pool>=3.2.0
+
+# Load testing
+locust>=2.32.0
+
+# API testing
+tavern>=2.11.0
+
+# Profiling
+py-spy>=0.3.14
+memory-profiler>=0.61.0
+
+# Documentation generation
+pdoc>=15.0.0

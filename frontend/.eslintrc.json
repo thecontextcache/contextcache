@@ -1,0 +1,42 @@
+{
+    "extends": [
+      "next/core-web-vitals",
+      "next/typescript",
+      "prettier"
+    ],
+    "rules": {
+      "no-console": [
+        "warn",
+        {
+          "allow": ["warn", "error"]
+        }
+      ],
+      "prefer-const": "error",
+      "no-var": "error",
+      "no-unused-vars": "off",
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          "argsIgnorePattern": "^_",
+          "varsIgnorePattern": "^_"
+        }
+      ],
+      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/consistent-type-imports": [
+        "error",
+        {
+          "prefer": "type-imports"
+        }
+      ],
+      "react/jsx-curly-brace-presence": [
+        "error",
+        {
+          "props": "never",
+          "children": "never"
+        }
+      ],
+      "react/self-closing-comp": "error",
+      "react-hooks/rules-of-hooks": "error",
+      "react-hooks/exhaustive-deps": "warn"
+    }
+  }
