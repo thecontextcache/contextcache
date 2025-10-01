@@ -1,6 +1,7 @@
 """
 Policy Gate Server - Rate limits, allowlists, abuse controls
 """
+import time
 from typing import Any, Dict, List
 
 from cc_core.mcp.base import MCPServer
@@ -99,25 +100,39 @@ class PolicyGateServer(MCPServer):
         if key not in self.rate_limits:
             self.rate_limits[key] = {
                 "tokens": limit,
-                "last_refill": None
+                "last_refill": time.time()
             }
         
         bucket = self.rate_limits[key]
+        current_time = time.time()
         
-        # Simple check (production would use proper token bucket with refill)
+        # Refill tokens based on time elapsed (1 token per second for 60rpm = 1/sec)
+        time_passed = current_time - bucket["last_refill"]
+        refill_rate = limit / 60.0  # tokens per second
+        tokens_to_add = time_passed * refill_rate
+        
+        if tokens_to_add > 0:
+            bucket["tokens"] = min(limit, bucket["tokens"] + tokens_to_add)
+            bucket["last_refill"] = current_time
+        
+        # Check if enough tokens available
         if bucket["tokens"] >= tokens:
             bucket["tokens"] -= tokens
             return {
                 "allowed": True,
-                "remaining": bucket["tokens"],
+                "remaining": int(bucket["tokens"]),
                 "limit": limit
             }
         else:
+            # Calculate retry time
+            tokens_needed = tokens - bucket["tokens"]
+            retry_after = int(tokens_needed / refill_rate)
+            
             return {
                 "allowed": False,
-                "remaining": bucket["tokens"],
+                "remaining": int(bucket["tokens"]),
                 "limit": limit,
-                "retry_after": 60  # seconds
+                "retry_after": retry_after
             }
     
     async def _check_domain(self, arguments: Dict[str, Any]) -> Dict[str, Any]:

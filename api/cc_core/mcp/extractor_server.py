@@ -5,10 +5,9 @@ import json
 from datetime import datetime
 from typing import Any, Dict, List
 from uuid import uuid4
-
 from cc_core.mcp.base import MCPServer
 from cc_core.models import Fact, Provenance
-
+from uuid import UUID, uuid4
 
 class ExtractorServer(MCPServer):
     """
@@ -123,7 +122,7 @@ class ExtractorServer(MCPServer):
                 # Create fact
                 fact = Fact(
                     id=fact_id,
-                    project_id=project_id,
+                    project_id=UUID(project_id),
                     subject=subject,
                     predicate=predicate,
                     object=obj,
@@ -149,7 +148,7 @@ class ExtractorServer(MCPServer):
                     extracted_at=datetime.utcnow()
                 )
                 
-                facts.append(fact.model_dump())
+                facts.append(fact.model_dump(mode='json'))
                 provenance_records.append(prov.model_dump(mode='json'))
         
         return {
