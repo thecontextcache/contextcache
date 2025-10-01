@@ -4,7 +4,6 @@ Extractor Server - Text → quads extraction with provenance
 import json
 from datetime import datetime
 from typing import Any, Dict, List
-from uuid import uuid4
 from cc_core.mcp.base import MCPServer
 from cc_core.models import Fact, Provenance
 from uuid import UUID, uuid4
