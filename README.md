@@ -1,3 +1,18 @@
+<p align="center">
+  <img src="docs/assets/logo.png" alt="ContextCache" width="200"/>
+</p>
+
+<h1 align="center">ContextCache</h1>
+<p align="center">Privacy-first memory engine for AI research</p>
+
+<p align="center">
+  <a href="https://thecontextcache.bsky.social">Website</a> •
+  <a href="https://github.com/thecontextcache/contextcache/blob/main/docs/quickstart.md">Quickstart</a> •
+  <a href="https://github.com/thecontextcache/contextcache/blob/main/docs/overview.md">Docs</a>
+</p>
+
+---
+
 # ContextCache
 
 A privacy-first, local-first memory engine for AI research. Ingest documents, extract knowledge quads, rank them with explainable algorithms, and get traceable answers with full audit chains.
