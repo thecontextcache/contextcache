@@ -33,7 +33,9 @@ class RankingService:
         Returns:
             Dict with ranking results
         """
+        
         # Fetch all facts
+        # TODO(v0.2.0): Implement pagination for projects with >10K facts
         facts = await self.storage.list_facts(project_id, limit=10000)
         
         if not facts:
@@ -79,6 +81,7 @@ class RankingService:
         Returns:
             Dict with decay results
         """
+        # TODO(v0.2.0): Implement pagination for projects with >10K facts
         facts = await self.storage.list_facts(project_id, limit=10000)
         
         if not facts:

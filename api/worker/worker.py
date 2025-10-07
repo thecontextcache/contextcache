@@ -27,6 +27,8 @@ async def rank_facts_job(project_id: str, storage_url: str, encryption_key: byte
     
     try:
         # Fetch all facts for project
+        # TODO(v0.2.0): Implement pagination for projects with >10K facts
+
         facts = await storage.list_facts(project_uuid, limit=10000)
         
         if not facts:
@@ -73,6 +75,8 @@ async def apply_decay_job(project_id: str, storage_url: str, encryption_key: byt
     analyzer = PPRTimeDecayAnalyzer()
     
     try:
+        # TODO(v0.2.0): Implement pagination for projects with >10K facts
+
         facts = await storage.list_facts(project_uuid, limit=10000)
         
         if not facts:
