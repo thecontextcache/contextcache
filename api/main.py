@@ -12,6 +12,10 @@ app = FastAPI(
     description="Privacy-first memory engine for AI research",
     version="0.1.0"
 )
+MOCK_PROJECTS = []
+
+
+
 #CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -66,11 +70,37 @@ async def list_projects():
     
     TODO: Implement real project storage in Phase 5
     """
-    # Mock data for development
     return {
-        "projects": [],
-        "total": 0
+        "projects": MOCK_PROJECTS,
+        "total": len(MOCK_PROJECTS)
     }
+
+@app.post("/projects")
+async def create_project(request: dict):
+    """
+    Create a new project.
+    
+    TODO: Implement real project creation with database storage
+    """
+    from datetime import datetime
+    from uuid import uuid4
+    
+    project_id = str(uuid4())
+    now = datetime.utcnow().isoformat()
+    
+    # Create project and store in memory
+    project = {
+        "id": project_id,
+        "name": request.get("name"),
+        "fact_count": 0,
+        "entity_count": 0,
+        "created_at": now,
+        "updated_at": now
+    }
+    
+    MOCK_PROJECTS.append(project)
+    
+    return project
 
 @app.post("/ranking/compute", response_model=RankResponse)
 async def compute_ranking(request: RankRequest):
