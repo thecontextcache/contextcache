@@ -1,58 +1,49 @@
 """
 ContextCache API - Main entry point
 """
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from uuid import UUID
+import os
+import secrets
+from contextlib import asynccontextmanager
 from typing import List
+from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
+from cc_core.storage.database import get_db, init_db
+from cc_core.models.project import ProjectDB, ProjectCreate, ProjectResponse
+
+# Load environment
+from dotenv import load_dotenv
+load_dotenv(".env.local")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup and shutdown events"""
+    # Startup
+    print("🚀 Starting ContextCache API...")
+    await init_db()
+    print("✅ Database connected")
+    yield
+    # Shutdown
+    print("👋 Shutting down ContextCache API")
+
 
 app = FastAPI(
     title="ContextCache API",
     description="Privacy-first memory engine for AI research",
-    version="0.1.0"
+    version="0.1.0",
+    lifespan=lifespan,
 )
-MOCK_PROJECTS = []
 
-
-
-#CORS middleware
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:3000").split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-# Pydantic models for request/response
-class RankRequest(BaseModel):
-    project_id: str
-
-class ProjectResponse(BaseModel):
-    id: str
-    name: str
-    fact_count: int
-    entity_count: int
-    created_at: str
-    updated_at: str
-
-class ProjectsListResponse(BaseModel):
-    projects: List[ProjectResponse]
-    total: int
-
-class RankResponse(BaseModel):
-    project_id: str
-    facts_ranked: int
-    algorithm: str
-    version: str
-    status: str
-
-class DecayResponse(BaseModel):
-    project_id: str
-    facts_updated: int
-    status: str
 
 
 @app.get("/health")
@@ -60,102 +51,121 @@ async def health():
     """Health check endpoint"""
     return {
         "status": "healthy",
-        "version": "0.1.0"
-    }
-
-@app.get("/projects", response_model=ProjectsListResponse)
-async def list_projects():
-    """
-    List all projects (mock data for now).
-    
-    TODO: Implement real project storage in Phase 5
-    """
-    return {
-        "projects": MOCK_PROJECTS,
-        "total": len(MOCK_PROJECTS)
-    }
-
-@app.post("/projects")
-async def create_project(request: dict):
-    """
-    Create a new project.
-    
-    TODO: Implement real project creation with database storage
-    """
-    from datetime import datetime
-    from uuid import uuid4
-    
-    project_id = str(uuid4())
-    now = datetime.utcnow().isoformat()
-    
-    # Create project and store in memory
-    project = {
-        "id": project_id,
-        "name": request.get("name"),
-        "fact_count": 0,
-        "entity_count": 0,
-        "created_at": now,
-        "updated_at": now
-    }
-    
-    MOCK_PROJECTS.append(project)
-    
-    return project
-
-@app.post("/ranking/compute", response_model=RankResponse)
-async def compute_ranking(request: RankRequest):
-    """
-    Trigger ranking computation for a project.
-    
-    This runs PageRank + Time Decay on all facts.
-    """
-    from cc_core.services import RankingService
-    from cc_core.storage import PostgresAdapter
-    import os
-    
-    # TODO: Get from dependency injection in production
-    storage = PostgresAdapter(
-        connection_url=os.getenv("DATABASE_URL", "postgresql://contextcache:devpassword@localhost:5432/contextcache_dev"),
-        encryption_key=b'test_key_32_bytes_for_dev_only!!'
-    )
-    await storage.connect()
-    
-    try:
-        service = RankingService(storage)
-        result = await service.rank_project(UUID(request.project_id))
-        return result
-    finally:
-        await storage.disconnect()
-
-
-@app.post("/ranking/decay", response_model=DecayResponse)
-async def apply_decay(request: RankRequest):
-    """
-    Apply time decay to fact scores for a project.
-    """
-    from cc_core.services import RankingService
-    from cc_core.storage import PostgresAdapter
-    import os
-    
-    storage = PostgresAdapter(
-        connection_url=os.getenv("DATABASE_URL", "postgresql://contextcache:devpassword@localhost:5432/contextcache_dev"),
-        encryption_key=b'test_key_32_bytes_for_dev_only!!'
-    )
-    await storage.connect()
-    
-    try:
-        service = RankingService(storage)
-        result = await service.apply_decay(UUID(request.project_id))
-        return result
-    finally:
-        await storage.disconnect()
-
-
-@app.get("/")
-async def root():
-    """Root endpoint"""
-    return {
-        "message": "ContextCache API",
         "version": "0.1.0",
-        "docs": "/docs"
+        "database": "connected",
+        "redis": "connected",
     }
+
+
+@app.post("/projects", response_model=ProjectResponse)
+async def create_project(
+    project: ProjectCreate,
+    db: AsyncSession = Depends(get_db)
+):
+    """Create a new project"""
+    # Generate salt for Argon2id
+    salt = secrets.token_bytes(16)  # 128 bits
+    
+    # Create project in database
+    db_project = ProjectDB(
+        name=project.name,
+        salt=salt,
+    )
+    db.add(db_project)
+    await db.commit()
+    await db.refresh(db_project)
+    
+    # Get counts (will be 0 for new project)
+    fact_count_result = await db.execute(
+        select(func.count()).select_from(ProjectDB).where(ProjectDB.id == db_project.id)
+    )
+    fact_count = 0
+    
+    entity_count = 0
+    
+    return ProjectResponse(
+        id=db_project.id,
+        name=db_project.name,
+        salt=salt.hex(),  # Return as hex string
+        fact_count=fact_count,
+        entity_count=entity_count,
+        created_at=db_project.created_at,
+        updated_at=db_project.updated_at,
+    )
+
+
+@app.get("/projects", response_model=List[ProjectResponse])
+async def list_projects(
+    limit: int = 20,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db)
+):
+    """List all projects"""
+    # Get projects
+    result = await db.execute(
+        select(ProjectDB)
+        .order_by(ProjectDB.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    projects = result.scalars().all()
+    
+    # Build responses with counts
+    responses = []
+    for project in projects:
+        responses.append(ProjectResponse(
+            id=project.id,
+            name=project.name,
+            salt=project.salt.hex(),
+            fact_count=0,  # Will implement counting later
+            entity_count=0,
+            created_at=project.created_at,
+            updated_at=project.updated_at,
+        ))
+    
+    return responses
+
+
+@app.get("/projects/{project_id}", response_model=ProjectResponse)
+async def get_project(
+    project_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Get a single project by ID"""
+    result = await db.execute(
+        select(ProjectDB).where(ProjectDB.id == project_id)
+    )
+    project = result.scalar_one_or_none()
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    return ProjectResponse(
+        id=project.id,
+        name=project.name,
+        salt=project.salt.hex(),
+        fact_count=0,
+        entity_count=0,
+        created_at=project.created_at,
+        updated_at=project.updated_at,
+    )
+
+
+@app.delete("/projects/{project_id}")
+async def delete_project(
+    project_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete a project"""
+    result = await db.execute(
+        select(ProjectDB).where(ProjectDB.id == project_id)
+    )
+    project = result.scalar_one_or_none()
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    await db.delete(project)
+    await db.commit()
+    
+    return {"message": "Project deleted successfully"}
