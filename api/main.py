@@ -2,18 +2,41 @@
 ContextCache API - Main entry point
 """
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from uuid import UUID
+from typing import List
 
 app = FastAPI(
     title="ContextCache API",
     description="Privacy-first memory engine for AI research",
     version="0.1.0"
 )
+#CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # Pydantic models for request/response
 class RankRequest(BaseModel):
     project_id: str
+
+class ProjectResponse(BaseModel):
+    id: str
+    name: str
+    fact_count: int
+    entity_count: int
+    created_at: str
+    updated_at: str
+
+class ProjectsListResponse(BaseModel):
+    projects: List[ProjectResponse]
+    total: int
 
 class RankResponse(BaseModel):
     project_id: str
@@ -36,6 +59,18 @@ async def health():
         "version": "0.1.0"
     }
 
+@app.get("/projects", response_model=ProjectsListResponse)
+async def list_projects():
+    """
+    List all projects (mock data for now).
+    
+    TODO: Implement real project storage in Phase 5
+    """
+    # Mock data for development
+    return {
+        "projects": [],
+        "total": 0
+    }
 
 @app.post("/ranking/compute", response_model=RankResponse)
 async def compute_ranking(request: RankRequest):
