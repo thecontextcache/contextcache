@@ -22,6 +22,9 @@ from cc_core.services.embedding_service import EmbeddingService
 from datetime import datetime
 from dotenv import load_dotenv
 from cc_core.crypto import Hasher
+from arq import create_pool
+from arq.connections import RedisSettings
+
 
 
 # Load environment
@@ -31,10 +34,21 @@ load_dotenv(".env.local")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
+    # Startup
     print("🚀 Starting ContextCache API...")
     await init_db()
     print("✅ Database connected")
+    
+    # Create Redis pool for job queue (optional, for local testing only)
+    # In production, use environment-based Redis
+    # app.state.redis_pool = await create_pool(
+    #     RedisSettings(host='localhost', port=6379)
+    # )
+    # print("✅ Job queue connected")
+    
     yield
+    
+    # Shutdown
     print("👋 Shutting down ContextCache API")
 
 
@@ -451,3 +465,33 @@ async def get_project_stats(
         "storage_bytes": storage_bytes,
         "storage_mb": round(storage_bytes / (1024 * 1024), 2),
     }
+
+
+    @app.post("/projects/{project_id}/compute-ranking")
+    async def trigger_ranking(
+        project_id: str,
+        db: AsyncSession = Depends(get_db)
+    ):
+        """Trigger background ranking computation"""
+        # Check project exists
+        result = await db.execute(
+            select(ProjectDB).where(ProjectDB.id == project_id)
+        )
+        project = result.scalar_one_or_none()
+    
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+    
+        # In production, enqueue job:
+        # job = await app.state.redis_pool.enqueue_job(
+        # 'compute_ranking_task', 
+        #     project_id
+        # )
+        # return {"job_id": job.job_id, "status": "queued"}
+    
+        # For now, return mock response
+        return {
+            "message": "Ranking computation would be queued here",
+            "project_id": project_id,
+            "status": "mock"
+        }
