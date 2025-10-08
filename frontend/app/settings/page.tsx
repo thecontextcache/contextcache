@@ -4,20 +4,38 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useProjectStore } from '@/lib/store/project';
 import { useRouter } from 'next/navigation';
+import { api } from '@/lib/api';
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { currentProject } = useProjectStore();
+  const { currentProject, projects, setProjects, setCurrentProject } = useProjectStore();
   const [projectName, setProjectName] = useState(currentProject?.name || '');
   const [saving, setSaving] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteInput, setDeleteInput] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   const handleSave = async () => {
+    if (!currentProject || projectName === currentProject.name) return;
+
     setSaving(true);
-    // Simulate save
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setSaving(false);
+    try {
+      const updated = await api.updateProject(currentProject.id, projectName);
+      
+      // Update in store
+      const updatedProjects = projects.map(p => 
+        p.id === currentProject.id ? { ...p, name: projectName } : p
+      );
+      setProjects(updatedProjects);
+      setCurrentProject({ ...currentProject, name: projectName });
+      
+      alert('Project name updated successfully!');
+    } catch (err) {
+      console.error('Failed to update project:', err);
+      alert('Failed to update project. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleRotatePassphrase = () => {
@@ -51,12 +69,31 @@ export default function SettingsPage() {
   const handleDeleteProject = async () => {
     if (deleteInput !== currentProject?.name) return;
 
-    // Simulate delete
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    
-    alert('Project deleted (mock). Will redirect to dashboard.');
-    router.push('/dashboard');
+    setDeleting(true);
+    try {
+      console.log('🗑️ Deleting project:', currentProject.id);
+      
+      await api.deleteProject(currentProject.id);
+      
+      console.log('✅ Project deleted successfully');
+      
+      // Remove from store
+      const updatedProjects = projects.filter(p => p.id !== currentProject.id);
+      setProjects(updatedProjects);
+      setCurrentProject(null);
+      
+      // Redirect to dashboard
+      setTimeout(() => {
+        router.push('/dashboard');
+      }, 100);
+      
+    } catch (err) {
+      console.error('❌ Failed to delete project:', err);
+      alert('Failed to delete project. Please try again.');
+      setDeleting(false);
+    }
   };
+
 
   if (!currentProject) {
     return (

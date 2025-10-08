@@ -22,6 +22,8 @@ from cc_core.services.embedding_service import EmbeddingService
 from datetime import datetime
 from dotenv import load_dotenv
 
+
+
 # Load environment
 load_dotenv(".env.local")
 
@@ -357,3 +359,95 @@ async def query_documents(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
+
+@app.put("/projects/{project_id}", response_model=ProjectResponse)
+async def update_project(
+    project_id: str,
+    name: str = Form(...),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update project name"""
+    result = await db.execute(
+        select(ProjectDB).where(ProjectDB.id == project_id)
+    )
+    project = result.scalar_one_or_none()
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    project.name = name
+    await db.commit()
+    await db.refresh(project)
+    
+    # Get counts
+    doc_count_result = await db.execute(
+        select(func.count()).select_from(DocumentDB).where(DocumentDB.project_id == project_id)
+    )
+    doc_count = doc_count_result.scalar() or 0
+    
+    chunk_count_result = await db.execute(
+        select(func.count())
+        .select_from(DocumentChunkDB)
+        .join(DocumentDB, DocumentChunkDB.document_id == DocumentDB.id)
+        .where(DocumentDB.project_id == project_id)
+    )
+    chunk_count = chunk_count_result.scalar() or 0
+    
+    return ProjectResponse(
+        id=project.id,
+        name=project.name,
+        salt=project.salt.hex(),
+        fact_count=chunk_count,
+        entity_count=doc_count,
+        created_at=project.created_at,
+        updated_at=project.updated_at,
+    )
+
+
+@app.get("/projects/{project_id}/stats")
+async def get_project_stats(
+    project_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Get project statistics"""
+    # Check project exists
+    result = await db.execute(
+        select(ProjectDB).where(ProjectDB.id == project_id)
+    )
+    project = result.scalar_one_or_none()
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Document count
+    doc_count_result = await db.execute(
+        select(func.count()).select_from(DocumentDB).where(DocumentDB.project_id == project_id)
+    )
+    doc_count = doc_count_result.scalar() or 0
+    
+    # Chunk count (facts)
+    chunk_count_result = await db.execute(
+        select(func.count())
+        .select_from(DocumentChunkDB)
+        .join(DocumentDB, DocumentChunkDB.document_id == DocumentDB.id)
+        .where(DocumentDB.project_id == project_id)
+    )
+    chunk_count = chunk_count_result.scalar() or 0
+    
+    # Storage size estimate (sum of text lengths)
+    size_result = await db.execute(
+        select(func.sum(func.length(DocumentChunkDB.text)))
+        .select_from(DocumentChunkDB)
+        .join(DocumentDB, DocumentChunkDB.document_id == DocumentDB.id)
+        .where(DocumentDB.project_id == project_id)
+    )
+    total_chars = size_result.scalar() or 0
+    storage_bytes = total_chars * 2  # Rough estimate
+    
+    return {
+        "project_id": project_id,
+        "document_count": doc_count,
+        "chunk_count": chunk_count,
+        "storage_bytes": storage_bytes,
+        "storage_mb": round(storage_bytes / (1024 * 1024), 2),
+    }

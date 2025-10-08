@@ -18,7 +18,25 @@ export default function DashboardPage() {
       setError(null);
       try {
         const data = await api.listProjects();
-        setProjects(data);
+        
+        // Fetch stats for each project
+        const projectsWithStats = await Promise.all(
+          data.map(async (project) => {
+            try {
+              const stats = await api.getProjectStats(project.id);
+              return {
+                ...project,
+                fact_count: stats.chunk_count,
+                entity_count: stats.document_count,
+              };
+            } catch (err) {
+              console.error(`Failed to fetch stats for ${project.id}:`, err);
+              return project;
+            }
+          })
+        );
+        
+        setProjects(projectsWithStats);
       } catch (err) {
         console.error('Failed to fetch projects:', err);
         setError(err instanceof Error ? err.message : 'Failed to load projects');
