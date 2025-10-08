@@ -102,4 +102,5 @@ playwright/.cache/
 # Misc
 *.bak
 *.tmp
-.temp/
+.temp/*.txt
+test_recovery_kit.json
