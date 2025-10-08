@@ -5,11 +5,14 @@ import os
 import secrets
 from contextlib import asynccontextmanager
 from typing import List
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+import time
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text
 from fastapi import File, UploadFile, Form
+from pydantic import BaseModel, Field, HttpUrl, validator
+import re
 from cc_core.storage.database import get_db, init_db
 from cc_core.models.project import ProjectDB, ProjectCreate, ProjectResponse
 from cc_core.models.document import (
@@ -26,6 +29,20 @@ from arq import create_pool
 from arq.connections import RedisSettings
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
+from cc_core.rate_limit import RateLimitMiddleware
+
+# Sentry initialization (optional)
+try:
+    import sentry_sdk
+    if os.getenv("SENTRY_DSN"):
+        sentry_sdk.init(
+            dsn=os.getenv("SENTRY_DSN"),
+            traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+            environment=os.getenv("ENVIRONMENT", "development"),
+        )
+        print("✅ Sentry monitoring enabled")
+except ImportError:
+    print("ℹ️ Sentry SDK not installed (pip install sentry-sdk[fastapi])")
 
 # Thread pool for CPU-intensive tasks
 executor = ThreadPoolExecutor(max_workers=4)
@@ -35,6 +52,9 @@ MAX_FILE_SIZE_MB = 50
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 MAX_URL_SIZE_MB = 10
 MAX_URL_SIZE_BYTES = MAX_URL_SIZE_MB * 1024 * 1024
+MAX_PROJECT_NAME_LENGTH = 200
+MAX_SOURCE_URL_LENGTH = 2000
+ALLOWED_FILE_EXTENSIONS = {".pdf", ".txt"}
 
 # Load environment
 load_dotenv(".env.local")
@@ -47,11 +67,19 @@ async def lifespan(app: FastAPI):
     await init_db()
     print("✅ Database connected")
     
-    # Redis pool disabled for local dev (enable in production)
-    # app.state.redis_pool = await create_pool(
-    #     RedisSettings(host='localhost', port=6379)
-    # )
-    # print("✅ Job queue connected")
+    # Enable Redis pool if configured
+    if os.getenv("REDIS_URL"):
+        try:
+            app.state.redis_pool = await create_pool(
+                RedisSettings.from_dsn(os.getenv("REDIS_URL"))
+            )
+            print("✅ Job queue connected")
+        except Exception as e:
+            print(f"⚠️ Failed to connect to Redis: {e}")
+            app.state.redis_pool = None
+    else:
+        app.state.redis_pool = None
+        print("ℹ️ Redis not configured (jobs will run inline)")
     
     yield
     
@@ -74,18 +102,98 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Rate limiting middleware
+if os.getenv("REDIS_URL"):
+    app.add_middleware(
+        RateLimitMiddleware,
+        redis_url=os.getenv("REDIS_URL"),
+        requests_per_minute=60,
+        requests_per_hour=1000,
+    )
+    print("✅ Rate limiting enabled")
+
+# Request logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Log all requests with timing information"""
+    start_time = time.time()
+    
+    # Process request
+    response = await call_next(request)
+    
+    # Calculate duration
+    duration = time.time() - start_time
+    
+    # Log request details
+    print(
+        f"{request.method} {request.url.path} - "
+        f"Status: {response.status_code} - "
+        f"Duration: {duration:.2f}s - "
+        f"Client: {request.client.host if request.client else 'unknown'}"
+    )
+    
+    # Add custom headers
+    response.headers["X-Process-Time"] = f"{duration:.2f}"
+    
+    return response
+
 # ============================================================================
 # HEALTH
 # ============================================================================
 @app.get("/health")
-async def health():
-    """Health check endpoint"""
-    return {
+async def health(db: AsyncSession = Depends(get_db)):
+    """Health check endpoint with detailed status"""
+    health_status = {
         "status": "healthy",
         "version": "0.1.0",
-        "database": "connected",
-        "redis": "connected",
+        "timestamp": datetime.utcnow().isoformat(),
+        "checks": {}
     }
+    
+    # Database check
+    try:
+        await db.execute(text("SELECT 1"))
+        health_status["checks"]["database"] = {
+            "status": "connected",
+            "type": "postgresql"
+        }
+    except Exception as e:
+        health_status["status"] = "degraded"
+        health_status["checks"]["database"] = {
+            "status": "disconnected",
+            "error": str(e)
+        }
+    
+    # Redis check
+    if hasattr(app.state, 'redis_pool') and app.state.redis_pool:
+        try:
+            # Try to get pool info
+            health_status["checks"]["redis"] = {
+                "status": "connected",
+                "type": "redis"
+            }
+        except Exception as e:
+            health_status["checks"]["redis"] = {
+                "status": "degraded",
+                "error": str(e)
+            }
+    else:
+        health_status["checks"]["redis"] = {
+            "status": "not_configured"
+        }
+    
+    # Sentry check
+    if os.getenv("SENTRY_DSN"):
+        health_status["checks"]["monitoring"] = {
+            "status": "enabled",
+            "type": "sentry"
+        }
+    else:
+        health_status["checks"]["monitoring"] = {
+            "status": "not_configured"
+        }
+    
+    return health_status
 
 # ============================================================================
 # PROJECTS
@@ -96,6 +204,19 @@ async def create_project(
     db: AsyncSession = Depends(get_db)
 ):
     """Create a new project"""
+    # Validate project name length
+    if len(project.name) > MAX_PROJECT_NAME_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Project name too long. Maximum length is {MAX_PROJECT_NAME_LENGTH} characters"
+        )
+    
+    if len(project.name.strip()) < 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Project name cannot be empty"
+        )
+    
     salt = secrets.token_bytes(16)
     db_project = ProjectDB(name=project.name, salt=salt)
     db.add(db_project)
@@ -120,6 +241,12 @@ async def list_projects(
     db: AsyncSession = Depends(get_db)
 ):
     """List all projects"""
+    # Validate pagination parameters
+    if limit < 1 or limit > 100:
+        raise HTTPException(status_code=400, detail="Limit must be between 1 and 100")
+    if offset < 0:
+        raise HTTPException(status_code=400, detail="Offset must be non-negative")
+    
     result = await db.execute(
         select(ProjectDB)
         .order_by(ProjectDB.created_at.desc())
@@ -180,6 +307,19 @@ async def update_project(
     db: AsyncSession = Depends(get_db)
 ):
     """Update project name"""
+    # Validate name
+    if len(name) > MAX_PROJECT_NAME_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Project name too long. Maximum length is {MAX_PROJECT_NAME_LENGTH} characters"
+        )
+    
+    if len(name.strip()) < 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Project name cannot be empty"
+        )
+    
     result = await db.execute(
         select(ProjectDB).where(ProjectDB.id == project_id)
     )
@@ -426,16 +566,18 @@ async def trigger_ranking(
 # DOCUMENTS
 # ============================================================================
 
-@app.post("/documents/ingest", response_model=DocumentResponse)
+@app.post("/documents/ingest")
 async def ingest_document(
     project_id: str = Form(...),
     source_type: str = Form(...),
     source_url: str = Form(None),
     file: UploadFile = File(None),
+    background: bool = Form(False),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Ingest a document (file or URL) and create chunks with embeddings
+    Ingest a document (file or URL) and create chunks with embeddings.
+    If background=True and Redis is configured, queues the job.
     """
     doc_service = DocumentService()
     embedding_service = EmbeddingService()
@@ -449,6 +591,20 @@ async def ingest_document(
         if source_type == "url":
             if not source_url:
                 raise HTTPException(status_code=400, detail="source_url required for URL type")
+            
+            # Validate URL length
+            if len(source_url) > MAX_SOURCE_URL_LENGTH:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"URL too long. Maximum length is {MAX_SOURCE_URL_LENGTH} characters"
+                )
+            
+            # Validate URL format
+            if not source_url.startswith(('http://', 'https://')):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid URL. Must start with http:// or https://"
+                )
             
             print(f"📥 Fetching URL: {source_url}")
             text, title = await doc_service.fetch_url_content(source_url)
@@ -467,6 +623,18 @@ async def ingest_document(
             if not file:
                 raise HTTPException(status_code=400, detail="file required for file type")
 
+            # Validate filename
+            if not file.filename:
+                raise HTTPException(status_code=400, detail="Invalid file: no filename")
+            
+            # Validate file extension
+            file_ext = os.path.splitext(file.filename)[1].lower()
+            if file_ext not in ALLOWED_FILE_EXTENSIONS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unsupported file type '{file_ext}'. Allowed types: {', '.join(ALLOWED_FILE_EXTENSIONS)}"
+                )
+
             print(f"📥 Reading file: {file.filename}")
             file_content = await file.read()
             
@@ -477,14 +645,27 @@ async def ingest_document(
                     detail=f"File too large. Maximum size is {MAX_FILE_SIZE_MB}MB"
                 )
             
+            # Validate file is not empty
+            if len(file_content) == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="File is empty"
+                )
+            
             print(f"✅ File read: {len(file_content)} bytes")
             
             # Extract text based on file type
-            if file.filename.endswith(".pdf"):
+            if file_ext == ".pdf":
                 print("📄 Extracting PDF text...")
                 text = await doc_service.extract_text_from_pdf(file_content)
-            elif file.filename.endswith(".txt"):
-                text = file_content.decode("utf-8")
+            elif file_ext == ".txt":
+                try:
+                    text = file_content.decode("utf-8")
+                except UnicodeDecodeError:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid text file encoding. Must be UTF-8"
+                    )
             else:
                 raise HTTPException(
                     status_code=400,
@@ -529,13 +710,35 @@ async def ingest_document(
             source_type=source_type,
             source_url=source_url,
             content_hash=content_hash,
-            status=DocumentStatus.processing.value,
+            status=DocumentStatus.queued.value if background else DocumentStatus.processing.value,
         )
         db.add(document)
         await db.commit()
         await db.refresh(document)
         print(f"✅ Document created: {document.id}")
 
+        # Check if we should queue this job
+        if background and hasattr(app.state, 'redis_pool') and app.state.redis_pool:
+            try:
+                job = await app.state.redis_pool.enqueue_job(
+                    'process_document_task',
+                    str(document.id)
+                )
+                print(f"✅ Job queued: {job.job_id}")
+                return {
+                    "id": str(document.id),
+                    "project_id": document.project_id,
+                    "source_type": document.source_type,
+                    "source_url": document.source_url,
+                    "status": "queued",
+                    "job_id": job.job_id,
+                    "created_at": document.created_at.isoformat(),
+                }
+            except Exception as e:
+                print(f"⚠️ Failed to queue job, processing inline: {e}")
+                # Fall through to inline processing
+
+        # Process inline (default)
         # Chunk the text
         print("✂️ Chunking text...")
         chunks = doc_service.chunk_text(text, chunk_size=1000, overlap=200)
@@ -608,6 +811,12 @@ async def list_documents(
     db: AsyncSession = Depends(get_db)
 ):
     """List documents for a project"""
+    # Validate pagination parameters
+    if limit < 1 or limit > 100:
+        raise HTTPException(status_code=400, detail="Limit must be between 1 and 100")
+    if offset < 0:
+        raise HTTPException(status_code=400, detail="Offset must be non-negative")
+    
     result = await db.execute(
         select(DocumentDB)
         .where(DocumentDB.project_id == project_id)
@@ -643,6 +852,17 @@ async def query_documents(
     db: AsyncSession = Depends(get_db)
 ):
     """Semantic search across document chunks"""
+    # Validate query
+    if not query or len(query.strip()) < 1:
+        raise HTTPException(status_code=400, detail="Query cannot be empty")
+    
+    if len(query) > 1000:
+        raise HTTPException(status_code=400, detail="Query too long. Maximum length is 1000 characters")
+    
+    # Validate limit
+    if limit < 1 or limit > 50:
+        raise HTTPException(status_code=400, detail="Limit must be between 1 and 50")
+    
     embedding_service = EmbeddingService()
 
     try:

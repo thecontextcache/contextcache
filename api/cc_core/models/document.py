@@ -15,6 +15,7 @@ import uuid
 class DocumentStatus(str, Enum):
     """Document processing status"""
     pending = "pending"
+    queued = "queued"
     processing = "processing"
     completed = "completed"
     failed = "failed"
