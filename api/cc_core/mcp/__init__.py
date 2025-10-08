@@ -1,6 +1,8 @@
 """
 MCP servers for ContextCache
 """
+
+"""
 from cc_core.mcp.base import MCPServer
 from cc_core.mcp.docs_server import DocsServer
 from cc_core.mcp.extractor_server import ExtractorServer
@@ -15,4 +17,4 @@ __all__ = [
     "MemoryServer",
     "AuditServer",
     "PolicyGateServer",
-]
+] """

@@ -13,89 +13,209 @@
 
 ---
 
-# ContextCache
+# thecontextcache™
 
-A privacy-first, local-first memory engine for AI research. Ingest documents, extract knowledge quads, rank them with explainable algorithms, and get traceable answers with full audit chains.
+**Privacy-first, local-first memory engine for AI research.**
 
-## 🎯 What is ContextCache?
+Ingest documents, extract knowledge quads, and get explainable answers with full audit trails—all with zero-knowledge encryption.
+
+---
+
+## 🎯 What It Does
 
 ContextCache transforms documents into a queryable knowledge graph where every fact is:
-- **Traceable**: Full provenance from source to answer
-- **Explainable**: Confidence scores and reasoning paths
-- **Auditable**: Cryptographically verifiable event chains
-- **Portable**: Export/import signed Memory Packs
-- **Private**: End-to-end encryption, local-first design
+- **Traceable** → Full provenance from source to answer
+- **Explainable** → Confidence scores and reasoning paths  
+- **Auditable** → Cryptographically verifiable event chains
+- **Portable** → Export/import signed Memory Packs
+- **Private** → End-to-end encryption, local-first design
 
-## 🏗️ Architecture
+Built for researchers, students, and analysts who need AI answers they can trust and verify.
 
-- **Frontend**: Next.js (TypeScript, Tailwind) on Cloudflare Pages
-- **Backend**: FastAPI (Python 3.13) with 5 MCP servers on Cloud Run
-- **Database**: Neon Postgres with pgvector
-- **Queue**: Upstash Redis
-- **Crypto**: XChaCha20-Poly1305, Ed25519, Argon2id, BLAKE3
+---
+
+## 🛠 Tech Stack
+
+**Frontend**
+- Next.js 15 (App Router) · TypeScript · Tailwind CSS · Framer Motion
+- Cytoscape.js (interactive knowledge graphs) · Zustand (state) · Axios (API)
+
+**Backend**
+- Python 3.13 · FastAPI · SQLAlchemy (async) · Pydantic v2
+- MCP Protocol (5 specialized servers)
+
+**Database & Infrastructure**
+- Neon Postgres with pgvector (semantic search)
+- Upstash Redis (rate limiting, queues)
+- Cloudflare Pages (frontend hosting)
+- Google Cloud Run (backend containers)
+
+**Security & Cryptography**
+- XChaCha20-Poly1305 (content encryption)
+- Ed25519 (Memory Pack signatures)
+- Argon2id (passphrase KDF)
+- BLAKE3 (audit chain hashing)
+
+**Testing & Quality**
+- pytest · Hypothesis · Schemathesis (backend)
+- vitest · Playwright (frontend + E2E)
+- k6 (load testing) · Great Expectations (data validation)
+
+**Documentation**
+- Mintlify (hosted docs)
+
+---
+
+## ✅ What's Built (v0.1 Alpha)
+
+### Working Features
+- ✅ **Project Management** → Create, list, select projects with zero-knowledge encryption
+- ✅ **Database Integration** → Neon Postgres with pgvector, full schema deployed
+- ✅ **Frontend UI** → 7 pages (Dashboard, Inbox, Ask, Graph, Audit, Export, Settings)
+- ✅ **Interactive Graph** → Cytoscape visualization with zoom, pan, hover, click
+- ✅ **Dark Mode** → Full light/dark theme support
+- ✅ **API Client** → Real-time sync between frontend and backend
+
+### In Progress (Phase 5)
+- 🚧 **Document Import** → PDF/URL ingestion, chunking, deduplication
+- 🚧 **Query/Ask** → Semantic search with pgvector, explainable answers
+- 🚧 **MCP Servers** → 5 specialized servers (docs, extractor, memory, audit, policy-gate)
+- 🚧 **Crypto Layer** → XChaCha20, Ed25519, Argon2id, BLAKE3 implementations
+
+### Planned (v0.2+)
+- 📅 Memory Pack export/import with Ed25519 signatures
+- 📅 Ranking algorithms (PageRank, time decay, novelty detection)
+- 📅 Audit chain verification
+- 📅 Rate limiting and abuse prevention
+- 📅 Background worker for heavy computations
+- 📅 Recovery kit generation
+
+---
 
 ## 🚀 Quick Start
+
+**Prerequisites:** Docker Desktop, Git, 4GB RAM
 ```bash
-# Clone
+# Clone repository
 git clone https://github.com/thecontextcache/contextcache.git
 cd contextcache
 
-# Copy environment template
+# Set up environment
 cp .env.example .env.local
+# Edit .env.local with your Neon and Upstash credentials
 
-# Start local stack (Mac Apple Silicon supported)
-docker-compose -f infra/docker-compose.dev.yml up
+# Start all services
+docker-compose -f infra/docker-compose.dev.yml up -d
 
-# Frontend runs on http://localhost:3000
-# API runs on http://localhost:8000
+# Access
+# Frontend: http://localhost:3000
+# API: http://localhost:8000
+# Docs: http://localhost:8000/docs
+Full guide: docs/quickstart.md
 
-Full Instructions: docs/quickstart.md
+📂 Repository
+Main Project
 
-Documentation
+contextcache → Monorepo with frontend, backend, docs, infra
 
-Overview — Philosophy and features
-Security Model — Cryptography and threat model
-Data Model — Quads, provenance, Memory Packs
-MCP Servers — Tool APIs for agents
-API Reference — REST and GraphQL
-Cookbook — Common workflows
+Structure
+contextcache/
+├── frontend/        # Next.js UI
+├── api/            # FastAPI backend + MCP servers
+├── docs/           # Mintlify documentation
+├── infra/          # Docker, Cloud Run configs
+└── .github/        # CI/CD workflows
 
-Tech Stack
-LayerTechnologyFrontendNext.js 15, TypeScript, Tailwind, Zustand, CytoscapeBackendFastAPI, Pydantic v2, MCP ProtocolDatabaseNeon Postgres (pgvector)Cache/QueueUpstash RedisCryptoPyNaCl, Argon2-CFFI, BLAKE3Testingpytest, Hypothesis, vitest, Playwright, k6SecurityAikido, Trivy, RenovateDocsMintlify
-🔐 Security First
+📖 Documentation
 
-Zero-knowledge: Project keys derived from user passphrases (Argon2id)
-Encrypted at rest: XChaCha20-Poly1305 for all user content
-Signed exports: Ed25519 signatures on Memory Packs
-Audit chains: BLAKE3-linked event logs
-No accounts: Privacy by design
+Overview → docs/overview.md
+Quick Start → docs/quickstart.md
+Security Model → docs/security.md
+Data Model → docs/data-model.md
+API Reference → docs/api-reference.md
 
-Read the full threat model
+
+🌐 Links
+
+Website → thecontextcache.com (coming soon)
+Bluesky → @thecontextcache.bsky.social
+Email → thecontextcache@gmail.com
+Discussions → GitHub Discussions
+Issues → GitHub Issues
+
+
 🤝 Contributing
-We welcome contributions! Please see:
+We welcome contributions! Please read:
 
-CONTRIBUTING.md — Guidelines and workflow
-CODE_OF_CONDUCT.md — Community standards
-SECURITY.md — Report vulnerabilities
+CONTRIBUTING.md → Guidelines and workflow
+CODE_OF_CONDUCT.md → Community standards
+SECURITY.md → Report vulnerabilities
 
-📜 License
+Join the conversation:
+
+Open an issue or discussion
+Submit a PR (must pass CI/CD checks)
+Help with documentation
+
+
+⚖️ License
 Dual-licensed:
 
-Apache 2.0 for non-commercial use
-PolyForm Noncommercial for evaluation
+Apache 2.0 → For non-commercial use (research, education, personal projects)
+PolyForm Noncommercial 1.0.0 → For evaluation in commercial contexts
 
+For commercial production use, please contact: thecontextcache@gmail.com
 See LICENSING.md for details.
-💬 Community
 
-Discussions — Q&A and ideas
-Issues — Bug reports and features
+🔐 Security
+Zero-knowledge architecture:
 
-🙏 Support
-If ContextCache helps your research:
+Your passphrase never leaves your device
+All content encrypted with XChaCha20-Poly1305
+Memory Packs signed with Ed25519
+Audit chains verified with BLAKE3
 
-⭐ Star the repo
-💰 GitHub Sponsors
-🎁 OpenCollective
+Report vulnerabilities: See SECURITY.md
+
+📊 Project Status
+Version: 0.1.0 (Alpha)
+Status: Active Development
+License: Apache 2.0 / PolyForm Noncommercial
+Maintained: Yes
+Roadmap:
+
+v0.1 (Current) → Core foundation, project management, basic UI
+v0.2 (Q2 2025) → Document import, semantic search, Memory Packs
+v0.3 (Q3 2025) → Ranking algorithms, audit chains, rate limiting
+v1.0 (Q4 2025) → Production-ready, full MCP server suite
+
+
+🙏 Acknowledgments
+Built with:
+
+FastAPI · Next.js · SQLAlchemy
+Neon · Upstash · Cloudflare
+Cytoscape.js · Tailwind CSS
+
+Inspired by the need for privacy-first, explainable AI tools in research.
+
+Trademark Notice: thecontextcache™ name and logo are trademarks of the project maintainers.
+
+---
+
+**This README now:**
+1. ✅ Accurately reflects what's **actually built**
+2. ✅ Shows working features vs. in-progress
+3. ✅ Has real Quick Start instructions
+4. ✅ Links to actual docs in the repo
+5. ✅ Updated status (v0.1 alpha, active development)
+6. ✅ Realistic roadmap (v0.1 → v1.0)
+
+**Create this as the organization README:**
+```bash
+# This would be at: https://github.com/thecontextcache/.github/profile/README.md
+# For now, you can update the main repo README
+nano README.md
 
 
 Built for researchers who need answers they can trust.

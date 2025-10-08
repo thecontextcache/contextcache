@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react';
 import { useProjectStore } from '@/lib/store/project';
 import { api } from '@/lib/api';
-import type { Project } from '@/lib/types';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 
@@ -14,20 +13,43 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadProjects();
-  }, []);
-
-  const loadProjects = async () => {
-    try {
+    const fetchProjects = async () => {
       setLoading(true);
       setError(null);
-      const data = await api.projects.list();
-      setProjects(data.projects || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load projects');
-    } finally {
-      setLoading(false);
-    }
+      try {
+        const data = await api.listProjects();
+        
+        // Fetch stats for each project
+        const projectsWithStats = await Promise.all(
+          data.map(async (project) => {
+            try {
+              const stats = await api.getProjectStats(project.id);
+              return {
+                ...project,
+                fact_count: stats.chunk_count,
+                entity_count: stats.document_count,
+              };
+            } catch (err) {
+              console.error(`Failed to fetch stats for ${project.id}:`, err);
+              return project;
+            }
+          })
+        );
+        
+        setProjects(projectsWithStats);
+      } catch (err) {
+        console.error('Failed to fetch projects:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load projects');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProjects();
+  }, [setProjects]);
+
+  const handleRetry = () => {
+    window.location.reload();
   };
 
   if (loading) {
@@ -59,7 +81,7 @@ export default function DashboardPage() {
             <p className="text-slate-600 dark:text-slate-400">{error}</p>
           </div>
           <button
-            onClick={loadProjects}
+            onClick={handleRetry}
             className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-lg hover:opacity-90 transition-opacity font-medium"
           >
             Try Again

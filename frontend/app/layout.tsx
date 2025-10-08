@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { ThemeProvider } from '@/components/theme-provider';
 import { DarkModeToggle } from '@/components/dark-mode-toggle';
+import { NavBar } from '@/components/nav-bar'; 
+import { Disclaimer } from '@/components/disclaimer';
 
 export const metadata: Metadata = {
   title: 'ContextCache - Privacy-first memory engine for AI',
@@ -38,15 +40,21 @@ export default function RootLayout({
             🚧 Alpha Version - Under Active Development
           </div>
 
-          {/* Dark mode toggle - fixed position */}
+          {/* Dark mode toggle */}
           <div className="fixed top-20 right-4 z-50">
             <DarkModeToggle />
           </div>
+
+          {/* Navigation bar - ADD THIS */}
+          <NavBar />
 
           {/* Main content */}
           <div className="min-h-screen">
             {children}
           </div>
+
+          {/* Disclaimer */}
+          <Disclaimer />
         </ThemeProvider>
       </body>
     </html>
