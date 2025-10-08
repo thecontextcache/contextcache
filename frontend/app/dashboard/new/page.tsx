@@ -16,6 +16,19 @@ export default function NewProjectPage() {
   const [error, setError] = useState<string | null>(null);
 
   const handleCreate = async (e: React.FormEvent) => {
+import { api } from '@/lib/api';
+import { useProjectStore } from '@/lib/store/project';
+
+export default function NewProjectPage() {
+  const router = useRouter();
+  const { setCurrentProject } = useProjectStore();
+  const [name, setName] = useState('');
+  const [passphrase, setPassphrase] = useState('');
+  const [confirmPassphrase, setConfirmPassphrase] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
