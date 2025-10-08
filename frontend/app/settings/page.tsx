@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useProjectStore } from '@/lib/store/project';
 import { useRouter } from 'next/navigation';
-import { api } from '@/lib/api';
+import api from '@/lib/api';
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -14,6 +14,34 @@ export default function SettingsPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteInput, setDeleteInput] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [stats, setStats] = useState({
+    storage_mb: 0,
+    document_count: 0,
+    chunk_count: 0,
+  });
+  const [loadingStats, setLoadingStats] = useState(true);
+
+  useEffect(() => {
+    const loadStats = async () => {
+      if (!currentProject) return;
+      
+      setLoadingStats(true);
+      try {
+        const data = await api.getProjectStats(currentProject.id);
+        setStats({
+          storage_mb: data.storage_mb || 0,
+          document_count: data.document_count || 0,
+          chunk_count: data.chunk_count || 0,
+        });
+      } catch (error) {
+        console.error('Failed to load stats:', error);
+      } finally {
+        setLoadingStats(false);
+      }
+    };
+    
+    loadStats();
+  }, [currentProject]);
 
   const handleSave = async () => {
     if (!currentProject || projectName === currentProject.name) return;
@@ -298,53 +326,50 @@ export default function SettingsPage() {
             <h2 className="text-xl font-semibold text-slate-900 dark:text-white mb-6">
               Storage & Usage
             </h2>
-            <div className="space-y-6">
-              {/* Storage Bar */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                    Storage Used
-                  </span>
-                  <span className="text-sm font-semibold text-slate-900 dark:text-white">
-                    2.4 MB / 100 MB
-                  </span>
-                </div>
-                <div className="h-3 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: '2.4%' }}
-                    transition={{ duration: 1 }}
-                    className="h-full bg-gradient-to-r from-cyan-500 to-blue-500"
-                  />
-                </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Free tier: 100 MB per project
-                </p>
+            
+            {loadingStats ? (
+              <div className="text-center py-4">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-500 mx-auto"></div>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">Loading stats...</p>
               </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                      Documents
+                    </label>
+                    <div className="px-4 py-3 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700">
+                      <p className="text-2xl font-bold text-slate-900 dark:text-white">
+                        {stats.document_count.toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
 
-              {/* Rate Limits */}
-              <div>
-                <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
-                  Rate Limits (per minute)
-                </h3>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50 dark:bg-slate-900/50">
-                    <span className="text-sm text-slate-600 dark:text-slate-400">
-                      Document Import
-                    </span>
-                    <span className="text-sm font-semibold text-slate-900 dark:text-white">
-                      30 / 30
-                    </span>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                      Facts
+                    </label>
+                    <div className="px-4 py-3 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700">
+                      <p className="text-2xl font-bold text-slate-900 dark:text-white">
+                        {stats.chunk_count.toLocaleString()}
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50 dark:bg-slate-900/50">
-                    <span className="text-sm text-slate-600 dark:text-slate-400">Queries</span>
-                    <span className="text-sm font-semibold text-slate-900 dark:text-white">
-                      120 / 120
-                    </span>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                    Storage Used
+                  </label>
+                  <div className="px-4 py-3 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700">
+                    <p className="text-2xl font-bold text-slate-900 dark:text-white">
+                      {stats.storage_mb.toFixed(2)} MB
+                    </p>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
           </motion.div>
 
           {/* Danger Zone */}
