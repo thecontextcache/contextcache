@@ -141,6 +141,15 @@ async def list_projects(
         for p in projects
     ]
 
+    return ProjectResponse(
+        id=project.id,
+        name=project.name,
+        salt=project.salt.hex(),
+        fact_count=0,
+        entity_count=0,
+        created_at=project.created_at,
+        updated_at=project.updated_at,
+    )
 
 @app.get("/projects/{project_id}", response_model=ProjectResponse)
 async def get_project(
