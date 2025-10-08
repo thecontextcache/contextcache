@@ -21,7 +21,7 @@ from cc_core.services.document_service import DocumentService
 from cc_core.services.embedding_service import EmbeddingService
 from datetime import datetime
 from dotenv import load_dotenv
-
+from cc_core.crypto import Hasher
 
 
 # Load environment

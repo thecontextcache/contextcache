@@ -5,8 +5,8 @@ from typing import List, Dict, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from datetime import datetime
-import hashlib
 import json
+from cc_core.crypto import Hasher
 
 
 class AuditServer:
@@ -17,7 +17,7 @@ class AuditServer:
     
     def __init__(self, db_session: AsyncSession):
         self.db = db_session
-        self.hash_algorithm = "sha256"  # Will use BLAKE3 in production
+        self.hasher = Hasher()
     
     async def log_event(
         self,
@@ -48,17 +48,16 @@ class AuditServer:
         prev_hash = prev_event.scalar()
         
         if not prev_hash:
-            # Genesis event - use project ID as seed
-            prev_hash = hashlib.sha256(project_id.encode()).digest()
+            # Genesis event - use project ID as seed with BLAKE3
+            prev_hash = self.hasher.hash(project_id)
         else:
             # Convert hex string to bytes if needed
             if isinstance(prev_hash, str):
                 prev_hash = bytes.fromhex(prev_hash)
         
-        # Create event hash: HASH(prev_hash || event_data)
+        # Create event hash: BLAKE3(prev_hash || event_data)
         event_json = json.dumps(event_data, sort_keys=True)
-        hash_input = prev_hash + event_json.encode('utf-8')
-        current_hash = hashlib.sha256(hash_input).digest()
+        current_hash = self.hasher.hash_chain(prev_hash, event_json)
         
         # Store event
         insert_query = sql_text("""
@@ -121,8 +120,8 @@ class AuditServer:
                 "message": "No events to verify"
             }
         
-        # Verify each event
-        genesis_hash = hashlib.sha256(project_id.encode()).digest()
+        # Verify each event using BLAKE3
+        genesis_hash = self.hasher.hash(project_id)
         expected_prev = genesis_hash
         
         for idx, event in enumerate(events):
@@ -144,14 +143,13 @@ class AuditServer:
                     "message": f"Chain broken at event {idx}: prev_hash mismatch"
                 }
             
-            # Verify current_hash is correct
+            # Verify current_hash is correct using BLAKE3
             if isinstance(event_data, dict):
                 event_json = json.dumps(event_data, sort_keys=True)
             else:
                 event_json = event_data
-                
-            hash_input = prev_hash + event_json.encode('utf-8')
-            computed_hash = hashlib.sha256(hash_input).digest()
+            
+            computed_hash = self.hasher.hash_chain(prev_hash, event_json)
             
             if computed_hash != current_hash:
                 return {
@@ -169,7 +167,7 @@ class AuditServer:
             "valid": True,
             "event_count": len(events),
             "latest_hash": current_hash.hex(),
-            "message": "Audit chain verified successfully"
+            "message": "Audit chain verified successfully (BLAKE3)"
         }
     
     async def get_audit_trail(
@@ -225,7 +223,7 @@ class AuditServer:
         return [
             {
                 "name": "log_event",
-                "description": "Log an auditable event with cryptographic hash chain",
+                "description": "Log an auditable event with BLAKE3 hash chain",
                 "input_schema": {
                     "type": "object",
                     "properties": {
@@ -239,7 +237,7 @@ class AuditServer:
             },
             {
                 "name": "verify_chain",
-                "description": "Verify the integrity of the audit chain",
+                "description": "Verify the integrity of the BLAKE3 audit chain",
                 "input_schema": {
                     "type": "object",
                     "properties": {
