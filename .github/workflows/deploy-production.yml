@@ -1,0 +1,89 @@
+name: Deploy to Production
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GCP_REGION: us-east1
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      
+      - name: Install dependencies
+        run: |
+          cd api
+          pip install -r requirements-prod.txt
+          pip install pytest hypothesis
+      
+      - name: Run tests
+        run: |
+          cd api
+          pytest tests/ -v
+
+  deploy-api:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      
+      - name: Deploy API
+        run: |
+          cd infra/cloudrun
+          ./deploy-api.sh
+        env:
+          CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
+
+  deploy-worker:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      
+      - name: Deploy Worker
+        run: |
+          cd infra/cloudrun
+          ./deploy-worker.sh
+        env:
+          REDIS_HOST: ${{ secrets.REDIS_HOST }}
+
+  deploy-frontend:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: contextcache
+          directory: frontend/.next
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}

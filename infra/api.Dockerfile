@@ -1,114 +1,48 @@
-# syntax=docker/dockerfile:1.4
+# Multi-stage build for ContextCache API
+FROM python:3.13-slim AS builder
 
-ARG PYTHON_VERSION=3.13
-
-# Base stage with common dependencies
-FROM python:${PYTHON_VERSION}-slim-bookworm AS base
-
-# Prevent Python from writing pyc files and buffering stdout/stderr
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    ca-certificates \
-    libpq5 \
-    libsodium23 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Create non-root user
-RUN useradd -m -u 1000 -s /bin/bash appuser
-
+# Set working directory
 WORKDIR /app
 
-# Builder stage for dependencies
-FROM base AS builder
-
-# Install build dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    g++ \
-    make \
-    libpq-dev \
-    libsodium-dev \
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements
-COPY api/requirements.txt /app/
+COPY api/requirements-prod.txt .
 
 # Install Python dependencies
-RUN pip install --user --no-cache-dir -r requirements.txt
-
-# Development stage
-FROM base AS development
-
-# Install development tools
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    vim \
-    gcc \
-    g++ \
-    libpq-dev \
-    libsodium-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy dependencies from builder
-COPY --from=builder /root/.local /root/.local
-ENV PATH=/root/.local/bin:$PATH
-
-# Copy application code
-COPY api/ /app/api/
-
-# Install package in editable mode
-RUN pip install --user -e /app/api/
-
-EXPOSE 8000
-
-# Run with reload for development
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/api"]
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements-prod.txt
 
 # Production stage
-FROM base AS production
+FROM python:3.13-slim
 
-# Copy dependencies from builder
-COPY --from=builder /root/.local /root/.local
-ENV PATH=/root/.local/bin:$PATH
+# Create non-root user
+RUN useradd -m -u 1000 appuser && \
+    mkdir -p /app && \
+    chown -R appuser:appuser /app
+
+WORKDIR /app
+
+# Copy Python packages from builder
+COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application code
-COPY api/ /app/api/
-
-# Install package
-RUN pip install --user /app/api/
+COPY --chown=appuser:appuser api/ .
 
 # Switch to non-root user
 USER appuser
+
+# Expose port
+EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-EXPOSE 8000
-
-# Build arguments for metadata
-ARG BUILD_DATE
-ARG VCS_REF
-ARG VERSION
-
-# OCI labels
-LABEL org.opencontainers.image.created="${BUILD_DATE}" \
-      org.opencontainers.image.authors="ContextCache Contributors" \
-      org.opencontainers.image.url="https://github.com/thecontextcache/contextcache" \
-      org.opencontainers.image.documentation="https://thecontextcache.github.io/contextcache/docs" \
-      org.opencontainers.image.source="https://github.com/thecontextcache/contextcache" \
-      org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.revision="${VCS_REF}" \
-      org.opencontainers.image.vendor="ContextCache" \
-      org.opencontainers.image.licenses="Apache-2.0 OR PolyForm-Noncommercial-1.0.0" \
-      org.opencontainers.image.title="ContextCache API" \
-      org.opencontainers.image.description="Privacy-first memory engine for AI - API service"
-
-# Run production server
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+# Run application
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
