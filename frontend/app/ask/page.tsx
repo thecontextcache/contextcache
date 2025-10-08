@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useProjectStore } from '@/lib/store/project';
 import { useRouter } from 'next/navigation';
-import { api } from '@/lib/api';
+import api from '@/lib/api';
 
 interface Fact {
   id: string;
@@ -228,9 +228,9 @@ export default function AskPage() {
                         📚 Sources
                       </h4>
                       <div className="space-y-2">
-                        {explanation.sources.map((source) => (
+                        {explanation.sources.map((source, index) => (
                           <div
-                            key={source.id}
+                            key={`${source.id}-${index}`}
                             className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700"
                           >
                             <p className="text-sm font-medium text-slate-900 dark:text-white">

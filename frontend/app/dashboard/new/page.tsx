@@ -2,13 +2,14 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useProjectStore } from '@/lib/store/project';
-import { api } from '@/lib/api';
 import { motion } from 'framer-motion';
+import api  from '@/lib/api';
+import { useProjectStore } from '@/lib/store/project';
 
 export default function NewProjectPage() {
   const router = useRouter();
-  const { projects, setProjects, setCurrentProject } = useProjectStore();
+  const { addProject, setCurrentProject } = useProjectStore();
+  
   const [name, setName] = useState('');
   const [passphrase, setPassphrase] = useState('');
   const [confirmPassphrase, setConfirmPassphrase] = useState('');
@@ -16,25 +17,12 @@ export default function NewProjectPage() {
   const [error, setError] = useState<string | null>(null);
 
   const handleCreate = async (e: React.FormEvent) => {
-import { api } from '@/lib/api';
-import { useProjectStore } from '@/lib/store/project';
-
-export default function NewProjectPage() {
-  const router = useRouter();
-  const { setCurrentProject } = useProjectStore();
-  const [name, setName] = useState('');
-  const [passphrase, setPassphrase] = useState('');
-  const [confirmPassphrase, setConfirmPassphrase] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
     // Validation
-    if (!name.trim()) {
-      setError('Project name is required');
+    if (!name || !passphrase) {
+      setError('Please fill in all fields');
       return;
     }
 
@@ -49,19 +37,30 @@ export default function NewProjectPage() {
     }
 
     setCreating(true);
+
     try {
-      // Create project via API
-      const newProject = await api.createProject(name, passphrase);
+      console.log('🔧 Creating project:', name);
       
-      // Add to store
-      setProjects([...projects, newProject]);
+      const response = await api.createProject(name, passphrase);
+      
+      console.log('✅ Project created:', response);
+      
+      const newProject = {
+        id: response.id,
+        name: response.name,
+        fact_count: 0,
+        entity_count: 0,
+        created_at: response.created_at,
+        updated_at: response.updated_at,
+      };
+      
+      addProject(newProject);
       setCurrentProject(newProject);
       
-      // Redirect to inbox
       router.push('/inbox');
-    } catch (err) {
-      console.error('Failed to create project:', err);
-      setError(err instanceof Error ? err.message : 'Failed to create project. Please try again.');
+    } catch (err: any) {
+      console.error('❌ Failed to create project:', err);
+      setError(err.response?.data?.detail || err.message || 'Failed to create project. Please try again.');
     } finally {
       setCreating(false);
     }
@@ -115,64 +114,37 @@ export default function NewProjectPage() {
             </div>
 
             {/* Passphrase */}
-            <div className="p-8 rounded-2xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border border-slate-200 dark:border-slate-700 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
-                  Master Passphrase
-                </label>
-                <input
-                  type="password"
-                  value={passphrase}
-                  onChange={(e) => setPassphrase(e.target.value)}
-                  placeholder="Enter a strong passphrase (20+ characters)"
-                  className="w-full px-4 py-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all"
-                  disabled={creating}
-                />
-                <div className="mt-2 flex items-center gap-2">
-                  <div className="flex-1 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full transition-all ${
-                        passphrase.length === 0
-                          ? 'w-0'
-                          : passphrase.length < 12
-                          ? 'w-1/4 bg-red-500'
-                          : passphrase.length < 20
-                          ? 'w-2/4 bg-yellow-500'
-                          : 'w-full bg-green-500'
-                      }`}
-                    />
-                  </div>
-                  <span className="text-xs text-slate-500 dark:text-slate-400">
-                    {passphrase.length}/20
-                  </span>
-                </div>
-              </div>
+            <div className="p-8 rounded-2xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border border-slate-200 dark:border-slate-700">
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
+                Passphrase (min 20 characters)
+              </label>
+              <input
+                type="password"
+                value={passphrase}
+                onChange={(e) => setPassphrase(e.target.value)}
+                placeholder="Enter a strong passphrase..."
+                className="w-full px-4 py-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all mb-4"
+                disabled={creating}
+              />
+              
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
+                Confirm Passphrase
+              </label>
+              <input
+                type="password"
+                value={confirmPassphrase}
+                onChange={(e) => setConfirmPassphrase(e.target.value)}
+                placeholder="Confirm your passphrase..."
+                className="w-full px-4 py-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all"
+                disabled={creating}
+              />
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
-                  Confirm Passphrase
-                </label>
-                <input
-                  type="password"
-                  value={confirmPassphrase}
-                  onChange={(e) => setConfirmPassphrase(e.target.value)}
-                  placeholder="Re-enter your passphrase"
-                  className="w-full px-4 py-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all"
-                  disabled={creating}
-                />
-              </div>
-            </div>
-
-            {/* Warning */}
-            <div className="p-6 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
-              <div className="flex items-start gap-3">
-                <span className="text-2xl">⚠️</span>
-                <div>
-                  <p className="text-sm font-semibold text-amber-800 dark:text-amber-300 mb-2">
-                    Important: Your passphrase cannot be recovered
-                  </p>
-                  <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
-                    ContextCache uses zero-knowledge encryption. We never see your passphrase.
+              <div className="mt-4 p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                <div className="flex items-start gap-3">
+                  <span className="text-xl">⚠️</span>
+                  <p className="text-sm text-amber-800 dark:text-amber-300">
+                    <strong>Zero-Knowledge:</strong> Your passphrase never leaves your device.
+                    We never see your passphrase.
                     If you lose it without a recovery kit, your data is permanently unrecoverable.
                   </p>
                 </div>

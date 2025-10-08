@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useProjectStore } from '@/lib/store/project';
 import { useRouter } from 'next/navigation';
+import api from '@/lib/api';
 
 interface AuditEvent {
   id: string;
@@ -15,46 +16,6 @@ interface AuditEvent {
   current_hash: string;
 }
 
-// Mock audit events
-const mockAuditEvents: AuditEvent[] = [
-  {
-    id: '1',
-    event_type: 'project_created',
-    timestamp: '2025-10-07T05:46:55Z',
-    actor: 'user',
-    event_data: { project_name: 'testproject' },
-    prev_hash: '0000000000000000000000000000000000000000000000000000000000000000',
-    current_hash: 'a3f5d8c2b1e4f6a7d8c9b0e1f2a3d4c5b6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1',
-  },
-  {
-    id: '2',
-    event_type: 'document_imported',
-    timestamp: '2025-10-07T06:15:22Z',
-    actor: 'user',
-    event_data: { document_url: 'https://example.com/paper.pdf', size_mb: 2.5 },
-    prev_hash: 'a3f5d8c2b1e4f6a7d8c9b0e1f2a3d4c5b6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1',
-    current_hash: 'b4e6f9d3c2a5e7b8f0d1c3a4b5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4',
-  },
-  {
-    id: '3',
-    event_type: 'facts_extracted',
-    timestamp: '2025-10-07T06:16:45Z',
-    actor: 'system',
-    event_data: { facts_count: 89, extractor: 'default_v1' },
-    prev_hash: 'b4e6f9d3c2a5e7b8f0d1c3a4b5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4',
-    current_hash: 'c5f7a0e4d3b6f8c9a1d2e4b5f6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5',
-  },
-  {
-    id: '4',
-    event_type: 'ranking_computed',
-    timestamp: '2025-10-07T06:20:15Z',
-    actor: 'system',
-    event_data: { algorithm: 'ppr_time_decay', facts_ranked: 89 },
-    prev_hash: 'c5f7a0e4d3b6f8c9a1d2e4b5f6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5',
-    current_hash: 'd6a8b1f5e4c7d9a0b2e3f5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6',
-  },
-];
-
 export default function AuditPage() {
   const router = useRouter();
   const { currentProject } = useProjectStore();
@@ -65,13 +26,24 @@ export default function AuditPage() {
   const [filterType, setFilterType] = useState<string>('all');
 
   useEffect(() => {
-    if (!currentProject) return;
+    const loadAuditLog = async () => {
+      if (!currentProject) return;
+      
+      setLoading(true);
+      try {
+        console.log('📊 Loading audit log for project:', currentProject.id);
+        const data = await api.getProjectAudit(currentProject.id, 100);
+        console.log('✅ Audit log loaded:', data);
+        setEvents(data.events || []);
+      } catch (error) {
+        console.error('❌ Failed to load audit log:', error);
+        setEvents([]);
+      } finally {
+        setLoading(false);
+      }
+    };
     
-    // Simulate loading
-    setTimeout(() => {
-      setEvents(mockAuditEvents);
-      setLoading(false);
-    }, 1000);
+    loadAuditLog();
   }, [currentProject]);
 
   const handleVerifyChain = async () => {

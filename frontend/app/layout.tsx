@@ -4,6 +4,7 @@ import { ThemeProvider } from '@/components/theme-provider';
 import { DarkModeToggle } from '@/components/dark-mode-toggle';
 import { NavBar } from '@/components/nav-bar'; 
 import { Disclaimer } from '@/components/disclaimer';
+import { ErrorBoundary } from '@/components/error-boundary';
 
 export const metadata: Metadata = {
   title: 'ContextCache - Privacy-first memory engine for AI',
@@ -34,28 +35,30 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
       </head>
       <body className="antialiased">
-        <ThemeProvider>
-          {/* Alpha banner */}
-          <div className="relative z-50 bg-gradient-to-r from-yellow-500 to-orange-500 text-black px-4 py-2 text-center text-sm font-medium safe-padding">
-            🚧 Alpha Version - Under Active Development
-          </div>
+        <ErrorBoundary>
+          <ThemeProvider>
+            {/* Alpha banner */}
+            <div className="relative z-50 bg-gradient-to-r from-yellow-500 to-orange-500 text-black px-4 py-2 text-center text-sm font-medium safe-padding">
+              🚧 Alpha Version - Under Active Development
+            </div>
 
-          {/* Dark mode toggle */}
-          <div className="fixed top-20 right-4 z-50">
-            <DarkModeToggle />
-          </div>
+            {/* Dark mode toggle */}
+            <div className="fixed top-20 right-4 z-50">
+              <DarkModeToggle />
+            </div>
 
-          {/* Navigation bar - ADD THIS */}
-          <NavBar />
+            {/* Navigation bar */}
+            <NavBar />
 
-          {/* Main content */}
-          <div className="min-h-screen">
-            {children}
-          </div>
+            {/* Main content */}
+            <div className="min-h-screen">
+              {children}
+            </div>
 
-          {/* Disclaimer */}
-          <Disclaimer />
-        </ThemeProvider>
+            {/* Disclaimer */}
+            <Disclaimer />
+          </ThemeProvider>
+        </ErrorBoundary>
       </body>
     </html>
   );

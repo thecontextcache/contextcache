@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useProjectStore } from '@/lib/store/project';
-import { api } from '@/lib/api';
+import api from '@/lib/api';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 
