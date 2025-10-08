@@ -5,6 +5,7 @@ from arq import create_pool
 from arq.connections import RedisSettings
 from cc_core.worker.settings import WorkerSettings
 from cc_core.worker.tasks import (
+    process_document_task,
     compute_ranking_task,
     decay_facts_task,
     cleanup_old_data_task,
@@ -18,6 +19,7 @@ class WorkerConfig:
     """Arq worker configuration"""
     
     functions = [
+        process_document_task,
         compute_ranking_task,
         decay_facts_task,
         cleanup_old_data_task,

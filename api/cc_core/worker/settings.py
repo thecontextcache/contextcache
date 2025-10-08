@@ -9,20 +9,18 @@ def get_redis_settings() -> RedisSettings:
     """Get Redis settings from environment"""
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
     
-    # Parse Redis URL
-    # Format: redis://[[username]:password@]host[:port][/database]
-    # or rediss:// for TLS
-    
-    # For Upstash, we'll use the REST API URL converted
-    # But for Arq, we need standard Redis protocol
-    
-    # Simple localhost default for now
-    return RedisSettings(
-        host=os.getenv("REDIS_HOST", "localhost"),
-        port=int(os.getenv("REDIS_PORT", 6379)),
-        password=os.getenv("REDIS_PASSWORD"),
-        database=int(os.getenv("REDIS_DB", 0))
-    )
+    # Use from_dsn for consistent parsing (same as main.py)
+    try:
+        return RedisSettings.from_dsn(redis_url)
+    except Exception as e:
+        print(f"⚠️ Failed to parse REDIS_URL, using defaults: {e}")
+        # Fallback to manual configuration
+        return RedisSettings(
+            host=os.getenv("REDIS_HOST", "localhost"),
+            port=int(os.getenv("REDIS_PORT", 6379)),
+            password=os.getenv("REDIS_PASSWORD"),
+            database=int(os.getenv("REDIS_DB", 0))
+        )
 
 
 class WorkerSettings:
