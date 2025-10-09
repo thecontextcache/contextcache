@@ -22,10 +22,14 @@ const nextConfig: NextConfig = {
     },
   },
 
-  webpack: (config) => {
-    // Explicit path aliases for Cloudflare Pages compatibility
-    config.resolve.alias = {
-      ...config.resolve.alias,
+  webpack: (config, { isServer }) => {
+    // Ensure resolve.alias exists
+    if (!config.resolve.alias) {
+      config.resolve.alias = {};
+    }
+    
+    // Add explicit path aliases (preserving existing aliases)
+    Object.assign(config.resolve.alias, {
       '@': __dirname,
       '@/components': path.join(__dirname, 'components'),
       '@/features': path.join(__dirname, 'features'),
@@ -33,18 +37,19 @@ const nextConfig: NextConfig = {
       '@/hooks': path.join(__dirname, 'hooks'),
       '@/styles': path.join(__dirname, 'styles'),
       '@/app': path.join(__dirname, 'app'),
-    };
+    });
     
-    // Browser polyfills
-    if (!config.resolve.fallback) {
-      config.resolve.fallback = {};
+    // Browser polyfills (only for client-side)
+    if (!isServer) {
+      if (!config.resolve.fallback) {
+        config.resolve.fallback = {};
+      }
+      Object.assign(config.resolve.fallback, {
+        fs: false,
+        net: false,
+        tls: false,
+      });
     }
-    config.resolve.fallback = {
-      ...config.resolve.fallback,
-      fs: false,
-      net: false,
-      tls: false,
-    };
     
     return config;
   },
