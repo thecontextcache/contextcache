@@ -1,9 +1,5 @@
 import type { NextConfig } from 'next';
 import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -22,7 +18,10 @@ const nextConfig: NextConfig = {
     },
   },
 
-  webpack: (config, { isServer }) => {
+  webpack: (config, { isServer, dir }) => {
+    // Use the Next.js provided 'dir' instead of process.cwd() for reliability
+    const projectDir = dir;
+    
     // Ensure resolve.alias exists
     if (!config.resolve.alias) {
       config.resolve.alias = {};
@@ -30,14 +29,26 @@ const nextConfig: NextConfig = {
     
     // Add explicit path aliases (preserving existing aliases)
     Object.assign(config.resolve.alias, {
-      '@': __dirname,
-      '@/components': path.join(__dirname, 'components'),
-      '@/features': path.join(__dirname, 'features'),
-      '@/lib': path.join(__dirname, 'lib'),
-      '@/hooks': path.join(__dirname, 'hooks'),
-      '@/styles': path.join(__dirname, 'styles'),
-      '@/app': path.join(__dirname, 'app'),
+      '@': projectDir,
+      '@/components': path.join(projectDir, 'components'),
+      '@/features': path.join(projectDir, 'features'),
+      '@/lib': path.join(projectDir, 'lib'),
+      '@/hooks': path.join(projectDir, 'hooks'),
+      '@/styles': path.join(projectDir, 'styles'),
+      '@/app': path.join(projectDir, 'app'),
     });
+    
+    // Also add extensions to resolve
+    if (!config.resolve.extensions) {
+      config.resolve.extensions = [];
+    }
+    // Ensure .ts and .tsx are included
+    if (!config.resolve.extensions.includes('.ts')) {
+      config.resolve.extensions.push('.ts');
+    }
+    if (!config.resolve.extensions.includes('.tsx')) {
+      config.resolve.extensions.push('.tsx');
+    }
     
     // Browser polyfills (only for client-side)
     if (!isServer) {
