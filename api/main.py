@@ -60,6 +60,37 @@ ALLOWED_FILE_EXTENSIONS = {".pdf", ".txt"}
 load_dotenv(".env.local")
 
 
+def validate_environment():
+    """Validate required environment variables at startup"""
+    print("🔍 Validating environment variables...")
+    
+    # Check required variables
+    required_vars = ["DATABASE_URL"]
+    missing = [var for var in required_vars if not os.getenv(var)]
+    
+    if missing:
+        raise ValueError(f"❌ Missing required environment variables: {', '.join(missing)}")
+    
+    print("✅ Required environment variables present")
+    
+    # Warn about recommended variables
+    recommended = {
+        "REDIS_URL": "Job queue disabled - all processing will be synchronous",
+        "SENTRY_DSN": "Error monitoring disabled - production errors won't be tracked",
+        "CORS_ORIGINS": "CORS using default localhost:3000",
+    }
+    
+    for var, message in recommended.items():
+        if not os.getenv(var):
+            print(f"⚠️ {var} not set - {message}")
+    
+    print()
+
+
+# Validate environment on module load
+validate_environment()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
