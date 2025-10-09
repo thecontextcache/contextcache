@@ -19,15 +19,26 @@ export default function DashboardPage() {
   });
 
   useEffect(() => {
-    const fetchProjects = async () => {
+    const loadProjectStats = async () => {
       setLoading(true);
       setError(null);
       try {
-        const data = await api.listProjects();
+        // ✅ FIX: Load projects from localStorage (local-first!)
+        // Don't call API - we only show projects the user created on this device
+        // This ensures data isolation: you only see your own projects
         
-        // Fetch stats for each project
+        // Projects are already loaded from localStorage via Zustand persist middleware
+        // Just need to refresh stats for the ones we have
+        
+        if (projects.length === 0) {
+          // No projects yet, that's fine
+          setLoading(false);
+          return;
+        }
+        
+        // Fetch fresh stats for each project (only once on mount)
         const projectsWithStats = await Promise.all(
-          data.map(async (project) => {
+          projects.map(async (project) => {
             try {
               const stats = await api.getProjectStats(project.id);
               return {
@@ -44,15 +55,16 @@ export default function DashboardPage() {
         
         setProjects(projectsWithStats);
       } catch (err) {
-        console.error('Failed to fetch projects:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load projects');
+        console.error('Failed to load project stats:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load project stats');
       } finally {
         setLoading(false);
       }
     };
 
-    fetchProjects();
-  }, [setProjects]);
+    loadProjectStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount - projects come from localStorage via Zustand
 
   const handleRetry = () => {
     window.location.reload();
