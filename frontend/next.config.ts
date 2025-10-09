@@ -1,4 +1,10 @@
 import type { NextConfig } from 'next';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Get __dirname in ES module context
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -28,7 +34,19 @@ const nextConfig: NextConfig = {
   },
 
   webpack: (config, { isServer }) => {
-    // Only add browser polyfills - let Next.js handle path resolution from tsconfig
+    // Explicitly set path aliases for Cloudflare Pages compatibility
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      '@': __dirname,
+      '@/components': path.resolve(__dirname, 'components'),
+      '@/features': path.resolve(__dirname, 'features'),
+      '@/lib': path.resolve(__dirname, 'lib'),
+      '@/hooks': path.resolve(__dirname, 'hooks'),
+      '@/styles': path.resolve(__dirname, 'styles'),
+      '@/app': path.resolve(__dirname, 'app'),
+    };
+    
+    // Browser polyfills (only for client-side)
     if (!isServer) {
       config.resolve.fallback = {
         ...config.resolve.fallback,
