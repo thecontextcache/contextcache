@@ -290,7 +290,8 @@ export function getUpgradeRecommendations(
 function getNextPlan(currentPlan: Plan): Plan | null {
   const planOrder: Plan[] = ['free', 'pro', 'team', 'enterprise'];
   const currentIndex = planOrder.indexOf(currentPlan);
-  return currentIndex < planOrder.length - 1 ? planOrder[currentIndex + 1] : null;
+  const nextPlan = currentIndex < planOrder.length - 1 ? planOrder[currentIndex + 1] : undefined;
+  return nextPlan ?? null;
 }
 
 /**

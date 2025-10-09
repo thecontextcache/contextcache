@@ -27,10 +27,10 @@ export async function verifySignature(
     const pubKeyBytes = base64ToBytes(publicKey);
     const messageBytes = new TextEncoder().encode(message);
     
-    // Import public key for verification
+    // Import public key for verification (use .buffer to get ArrayBuffer)
     const cryptoKey = await crypto.subtle.importKey(
       'raw',
-      pubKeyBytes,
+      pubKeyBytes as unknown as ArrayBuffer,
       {
         name: 'Ed25519',
         namedCurve: 'Ed25519'
@@ -43,7 +43,7 @@ export async function verifySignature(
     const isValid = await crypto.subtle.verify(
       'Ed25519',
       cryptoKey,
-      sigBytes,
+      sigBytes as unknown as ArrayBuffer,
       messageBytes
     );
     
@@ -131,9 +131,9 @@ function base64ToBytes(base64: string): Uint8Array {
 }
 
 /**
- * Convert Uint8Array to base64 string
+ * Convert Uint8Array to base64 string (utility function)
  */
-function bytesToBase64(bytes: Uint8Array): string {
+export function bytesToBase64(bytes: Uint8Array): string {
   const binaryString = String.fromCharCode(...bytes);
   return btoa(binaryString);
 }
