@@ -25,7 +25,10 @@ if DATABASE_URL:
     if "&sslmode=" in DATABASE_URL:
         DATABASE_URL = DATABASE_URL.split("&sslmode=")[0]
 
-# Create async engine with SSL support
+# Create async engine with conditional SSL support
+# Only require SSL for production (Neon) databases
+use_ssl = "require" if "neon.tech" in DATABASE_URL or "sslmode=require" in DATABASE_URL else False
+
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,  # Set to True for SQL query logging
@@ -33,7 +36,7 @@ engine = create_async_engine(
     max_overflow=10,
     pool_pre_ping=True,
     connect_args={
-        "ssl": "require",  # asyncpg uses 'ssl' instead of 'sslmode'
+        "ssl": use_ssl,  # Only use SSL for production databases
         "server_settings": {
             "jit": "off"  # Disable JIT for better compatibility
         }

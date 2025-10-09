@@ -1,25 +1,50 @@
-# Frontend build for Cloudflare Pages
-FROM node:20-alpine AS builder
+# Frontend Dockerfile
+
+# Development stage
+FROM node:20-alpine AS development
 
 WORKDIR /app
 
-# Copy package files
-COPY frontend/package.json frontend/pnpm-lock.yaml ./
+# Copy package files (context is frontend/ directory)
+COPY package.json pnpm-lock.yaml ./
 
 # Install pnpm
-RUN npm install -g pnpm
+RUN npm install -g pnpm@10
 
 # Install dependencies
 RUN pnpm install --frozen-lockfile
 
 # Copy source
-COPY frontend/ .
+COPY . .
+
+# Expose port
+EXPOSE 3000
+
+# Run development server with hot reload
+CMD ["pnpm", "dev"]
+
+# Builder stage for production
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json pnpm-lock.yaml ./
+
+# Install pnpm
+RUN npm install -g pnpm@10
+
+# Install dependencies
+RUN pnpm install --frozen-lockfile
+
+# Copy source
+COPY . .
 
 # Build
 RUN pnpm build
 
-# Production stage (for local testing, Cloudflare Pages uses own runtime)
-FROM node:20-alpine
+# Production stage (for Cloudflare Pages / local testing)
+FROM node:20-alpine AS production
 
 WORKDIR /app
 

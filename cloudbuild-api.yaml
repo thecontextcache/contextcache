@@ -1,0 +1,16 @@
+steps:
+  # Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-f'
+      - 'infra/api.Dockerfile'
+      - '-t'
+      - 'gcr.io/contextcache-prod/contextcache-api:latest'
+      - '.'
+
+images:
+  - 'gcr.io/contextcache-prod/contextcache-api:latest'
+
+timeout: '1200s'
+

@@ -1,4 +1,33 @@
 # Multi-stage build for ContextCache API
+
+# Development stage
+FROM python:3.13-slim AS development
+
+# Install system dependencies including curl for healthcheck
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy requirements
+COPY api/requirements.txt ./
+
+# Install Python dependencies (only main requirements for Docker)
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY api/ .
+
+# Expose port
+EXPOSE 8000
+
+# Run with auto-reload for development
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+# Builder stage for production
 FROM python:3.13-slim AS builder
 
 # Set working directory
@@ -10,15 +39,15 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements
-COPY api/requirements-prod.txt .
+# Copy requirements  
+COPY api/requirements.txt .
 
-# Install Python dependencies
+# Install Python dependencies (same as local - full featured)
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements-prod.txt
+    pip install --no-cache-dir -r requirements.txt
 
 # Production stage
-FROM python:3.13-slim
+FROM python:3.13-slim AS production
 
 # Create non-root user
 RUN useradd -m -u 1000 appuser && \
