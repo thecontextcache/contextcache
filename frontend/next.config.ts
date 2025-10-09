@@ -1,5 +1,4 @@
 import type { NextConfig } from 'next';
-import path from 'path';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -18,48 +17,15 @@ const nextConfig: NextConfig = {
     },
   },
 
-  webpack: (config, { isServer, dir }) => {
-    // Use the Next.js provided 'dir' instead of process.cwd() for reliability
-    const projectDir = dir;
-    
-    // Ensure resolve.alias exists
-    if (!config.resolve.alias) {
-      config.resolve.alias = {};
-    }
-    
-    // Add explicit path aliases (preserving existing aliases)
-    Object.assign(config.resolve.alias, {
-      '@': projectDir,
-      '@/components': path.join(projectDir, 'components'),
-      '@/features': path.join(projectDir, 'features'),
-      '@/lib': path.join(projectDir, 'lib'),
-      '@/hooks': path.join(projectDir, 'hooks'),
-      '@/styles': path.join(projectDir, 'styles'),
-      '@/app': path.join(projectDir, 'app'),
-    });
-    
-    // Also add extensions to resolve
-    if (!config.resolve.extensions) {
-      config.resolve.extensions = [];
-    }
-    // Ensure .ts and .tsx are included
-    if (!config.resolve.extensions.includes('.ts')) {
-      config.resolve.extensions.push('.ts');
-    }
-    if (!config.resolve.extensions.includes('.tsx')) {
-      config.resolve.extensions.push('.tsx');
-    }
-    
-    // Browser polyfills (only for client-side)
+  webpack: (config, { isServer }) => {
+    // Only add browser polyfills - let Next.js handle path resolution from tsconfig
     if (!isServer) {
-      if (!config.resolve.fallback) {
-        config.resolve.fallback = {};
-      }
-      Object.assign(config.resolve.fallback, {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
         fs: false,
         net: false,
         tls: false,
-      });
+      };
     }
     
     return config;
