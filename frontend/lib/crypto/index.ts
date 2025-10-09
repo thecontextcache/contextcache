@@ -24,6 +24,16 @@ export {
 } from './pow';
 
 export {
+  deriveKey,
+  encrypt,
+  decrypt,
+  verifyPassphrase,
+  exportKey,
+  importKey,
+  generateRecoveryPhrase
+} from './encryption';
+
+export {
   checkEntitlement,
   getAvailableFeatures,
   getPlanLimits,

@@ -5,6 +5,7 @@
 export interface Project {
     id: string;
     name: string;
+    salt?: string;  // Hex-encoded salt for key derivation (from server)
     fact_count?: number;
     entity_count?: number;
     created_at: string;

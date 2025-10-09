@@ -5,10 +5,11 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import api  from '@/lib/api';
 import { useProjectStore } from '@/lib/store/project';
+import { deriveKey } from '@/lib/crypto';
 
 export default function NewProjectPage() {
   const router = useRouter();
-  const { addProject, setCurrentProject } = useProjectStore();
+  const { addProject, setCurrentProject, setEncryptionKey } = useProjectStore();
   
   const [name, setName] = useState('');
   const [passphrase, setPassphrase] = useState('');
@@ -41,13 +42,22 @@ export default function NewProjectPage() {
     try {
       console.log('🔧 Creating project:', name);
       
+      // Step 1: Create project on server (gets salt back)
       const response = await api.createProject(name, passphrase);
       
       console.log('✅ Project created:', response);
+      console.log('🔑 Salt received:', response.salt);
       
+      // Step 2: Derive encryption key from passphrase + salt
+      console.log('🔐 Deriving encryption key...');
+      const encryptionKey = await deriveKey(passphrase, response.salt!);
+      console.log('✅ Encryption key derived and stored in memory');
+      
+      // Step 3: Store project metadata (with salt) in localStorage
       const newProject = {
         id: response.id,
         name: response.name,
+        salt: response.salt,  // ✅ Save salt for future key derivation
         fact_count: 0,
         entity_count: 0,
         created_at: response.created_at,
@@ -56,6 +66,11 @@ export default function NewProjectPage() {
       
       addProject(newProject);
       setCurrentProject(newProject);
+      
+      // Step 4: Store encryption key in memory (NOT localStorage!)
+      setEncryptionKey(response.id, encryptionKey);
+      
+      console.log('🎉 Project ready! Salt saved, key in memory.');
       
       router.push('/inbox');
     } catch (err: any) {
