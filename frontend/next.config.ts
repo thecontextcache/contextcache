@@ -19,6 +19,18 @@ const nextConfig: NextConfig = {
   },
 
   webpack: (config, { isServer }) => {
+    // Add path aliases for better compatibility
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      '@': __dirname,
+      '@/components': `${__dirname}/components`,
+      '@/lib': `${__dirname}/lib`,
+      '@/hooks': `${__dirname}/hooks`,
+      '@/app': `${__dirname}/app`,
+      '@/features': `${__dirname}/features`,
+      '@/styles': `${__dirname}/styles`,
+    };
+    
     if (!isServer) {
       config.resolve.fallback = {
         ...config.resolve.fallback,
