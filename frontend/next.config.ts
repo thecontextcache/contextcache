@@ -1,10 +1,5 @@
 import type { NextConfig } from 'next';
 import path from 'path';
-import { fileURLToPath } from 'url';
-
-// Get __dirname in ES module context
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -34,16 +29,29 @@ const nextConfig: NextConfig = {
   },
 
   webpack: (config, { isServer }) => {
+    // Use process.cwd() since build runs from frontend directory
+    const rootDir = process.cwd();
+    
+    // Log for debugging (will appear in build logs)
+    console.log('[Next.js Config] Current working directory:', rootDir);
+    console.log('[Next.js Config] Setting up path aliases...');
+    
     // Explicitly set path aliases for Cloudflare Pages compatibility
+    const aliases = {
+      '@': rootDir,
+      '@/components': path.join(rootDir, 'components'),
+      '@/features': path.join(rootDir, 'features'),
+      '@/lib': path.join(rootDir, 'lib'),
+      '@/hooks': path.join(rootDir, 'hooks'),
+      '@/styles': path.join(rootDir, 'styles'),
+      '@/app': path.join(rootDir, 'app'),
+    };
+    
+    console.log('[Next.js Config] Path aliases:', JSON.stringify(aliases, null, 2));
+    
     config.resolve.alias = {
       ...config.resolve.alias,
-      '@': __dirname,
-      '@/components': path.resolve(__dirname, 'components'),
-      '@/features': path.resolve(__dirname, 'features'),
-      '@/lib': path.resolve(__dirname, 'lib'),
-      '@/hooks': path.resolve(__dirname, 'hooks'),
-      '@/styles': path.resolve(__dirname, 'styles'),
-      '@/app': path.resolve(__dirname, 'app'),
+      ...aliases,
     };
     
     // Browser polyfills (only for client-side)
