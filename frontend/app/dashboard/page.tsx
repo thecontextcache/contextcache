@@ -5,12 +5,18 @@ import { useProjectStore } from '@/lib/store/project';
 import api from '@/lib/api';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
+import UnlockProjectModal from '@/components/unlock-project-modal';
+import type { Project } from '@/lib/types';
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { projects, setProjects, setCurrentProject } = useProjectStore();
+  const { projects, setProjects, setCurrentProject, isProjectUnlocked } = useProjectStore();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [unlockModal, setUnlockModal] = useState<{ isOpen: boolean; project: Project | null }>({
+    isOpen: false,
+    project: null,
+  });
 
   useEffect(() => {
     const fetchProjects = async () => {
@@ -50,6 +56,26 @@ export default function DashboardPage() {
 
   const handleRetry = () => {
     window.location.reload();
+  };
+
+  const handleProjectClick = (project: Project) => {
+    // Check if project is already unlocked (has encryption key in memory)
+    if (isProjectUnlocked(project.id)) {
+      // Already unlocked, proceed to inbox
+      setCurrentProject(project);
+      router.push('/inbox');
+    } else {
+      // Not unlocked, show unlock modal
+      setUnlockModal({ isOpen: true, project });
+    }
+  };
+
+  const handleUnlockSuccess = () => {
+    // Project was unlocked successfully, proceed to inbox
+    if (unlockModal.project) {
+      setCurrentProject(unlockModal.project);
+      router.push('/inbox');
+    }
   };
 
   if (loading) {
@@ -164,16 +190,24 @@ export default function DashboardPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.1 }}
                 whileHover={{ y: -4 }}
-                onClick={() => {
-                  setCurrentProject(project);
-                  router.push('/inbox');
-                }}
+                onClick={() => handleProjectClick(project)}
                 className="group relative cursor-pointer"
               >
                 <div className="h-full p-6 rounded-2xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border border-slate-200 dark:border-slate-700 hover:border-cyan-500/50 hover:shadow-xl hover:shadow-cyan-500/10 transition-all duration-300">
-                  <h3 className="text-xl font-semibold text-slate-900 dark:text-white mb-4 group-hover:text-cyan-500 transition-colors">
-                    {project.name}
-                  </h3>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-xl font-semibold text-slate-900 dark:text-white group-hover:text-cyan-500 transition-colors">
+                      {project.name}
+                    </h3>
+                    {isProjectUnlocked(project.id) ? (
+                      <span className="text-green-500 text-xl" title="Unlocked">
+                        🔓
+                      </span>
+                    ) : (
+                      <span className="text-slate-400 text-xl" title="Locked - click to unlock">
+                        🔒
+                      </span>
+                    )}
+                  </div>
 
                   <div className="space-y-3 text-sm">
                     <div className="flex items-center justify-between py-2 border-b border-slate-200 dark:border-slate-700">
@@ -221,6 +255,16 @@ export default function DashboardPage() {
           </motion.div>
         )}
       </div>
+
+      {/* Unlock Modal */}
+      {unlockModal.project && (
+        <UnlockProjectModal
+          project={unlockModal.project}
+          isOpen={unlockModal.isOpen}
+          onClose={() => setUnlockModal({ isOpen: false, project: null })}
+          onUnlock={handleUnlockSuccess}
+        />
+      )}
     </div>
   );
 }
