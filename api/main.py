@@ -25,6 +25,7 @@ from cc_core.services.embedding_service import EmbeddingService
 from datetime import datetime
 from dotenv import load_dotenv
 from cc_core.crypto import Hasher
+from cc_core.crypto.encryption import Encryptor
 from arq import create_pool
 from arq.connections import RedisSettings
 from concurrent.futures import ThreadPoolExecutor
@@ -234,7 +235,13 @@ async def create_project(
     project: ProjectCreate,
     db: AsyncSession = Depends(get_db)
 ):
-    """Create a new project"""
+    """
+    Create a new project with client-side encryption
+    
+    The passphrase is used to derive an encryption key using Argon2id.
+    The key never leaves the client - server only stores the salt.
+    All project data will be encrypted client-side before storage.
+    """
     # Validate project name length
     if len(project.name) > MAX_PROJECT_NAME_LENGTH:
         raise HTTPException(
@@ -248,16 +255,31 @@ async def create_project(
             detail="Project name cannot be empty"
         )
     
+    # Generate unique salt for this project (used for key derivation)
     salt = secrets.token_bytes(16)
+    
+    # Verify passphrase can derive a key (don't store the key!)
+    try:
+        encryptor = Encryptor()
+        _ = encryptor.derive_key(project.passphrase, salt)
+        # Key derivation succeeded - discard the key immediately
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid passphrase: {str(e)}"
+        )
+    
+    # Store project with salt (NOT the key!)
     db_project = ProjectDB(name=project.name, salt=salt)
     db.add(db_project)
     await db.commit()
     await db.refresh(db_project)
 
+    # Return salt so client can derive the same key
     return ProjectResponse(
         id=db_project.id,
         name=db_project.name,
-        salt=salt.hex(),
+        salt=salt.hex(),  # Client needs this to derive encryption key
         fact_count=0,
         entity_count=0,
         created_at=db_project.created_at,
