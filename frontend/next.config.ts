@@ -2,6 +2,9 @@ import type { NextConfig } from 'next';
 import path from 'path';
 
 const nextConfig: NextConfig = {
+  // Export as static site for Cloudflare Pages
+  output: 'export',
+  
   reactStrictMode: true,
   poweredByHeader: false,
   compress: true,
@@ -100,16 +103,6 @@ const nextConfig: NextConfig = {
             value: 'camera=(), microphone=(), geolocation=(), interest-cohort=()',
           },
         ],
-      },
-    ];
-  },
-
-  async rewrites() {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-    return [
-      {
-        source: '/api/:path*',
-        destination: `${apiUrl}/:path*`,
       },
     ];
   },
