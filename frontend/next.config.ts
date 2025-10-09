@@ -1,7 +1,11 @@
 import type { NextConfig } from 'next';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const nextConfig: NextConfig = {
-  // output: 'standalone', // Disabled for Cloudflare Pages
   reactStrictMode: true,
   poweredByHeader: false,
   compress: true,
@@ -18,27 +22,30 @@ const nextConfig: NextConfig = {
     },
   },
 
-  webpack: (config, { isServer }) => {
-    // Add path aliases for better compatibility
+  webpack: (config) => {
+    // Explicit path aliases for Cloudflare Pages compatibility
     config.resolve.alias = {
       ...config.resolve.alias,
       '@': __dirname,
-      '@/components': `${__dirname}/components`,
-      '@/lib': `${__dirname}/lib`,
-      '@/hooks': `${__dirname}/hooks`,
-      '@/app': `${__dirname}/app`,
-      '@/features': `${__dirname}/features`,
-      '@/styles': `${__dirname}/styles`,
+      '@/components': path.join(__dirname, 'components'),
+      '@/features': path.join(__dirname, 'features'),
+      '@/lib': path.join(__dirname, 'lib'),
+      '@/hooks': path.join(__dirname, 'hooks'),
+      '@/styles': path.join(__dirname, 'styles'),
+      '@/app': path.join(__dirname, 'app'),
     };
     
-    if (!isServer) {
-      config.resolve.fallback = {
-        ...config.resolve.fallback,
-        fs: false,
-        net: false,
-        tls: false,
-      };
+    // Browser polyfills
+    if (!config.resolve.fallback) {
+      config.resolve.fallback = {};
     }
+    config.resolve.fallback = {
+      ...config.resolve.fallback,
+      fs: false,
+      net: false,
+      tls: false,
+    };
+    
     return config;
   },
 
