@@ -1,7 +1,7 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  output: 'standalone',
+  // output: 'standalone', // Disabled for Cloudflare Pages
   reactStrictMode: true,
   poweredByHeader: false,
   compress: true,
