@@ -5,6 +5,7 @@ import { DarkModeToggle } from '@/components/dark-mode-toggle';
 import { NavBar } from '@/components/nav-bar'; 
 import { Disclaimer } from '@/components/disclaimer';
 import { ErrorBoundary } from '@/components/error-boundary';
+import { Toaster } from 'sonner';
 
 export const metadata: Metadata = {
   title: 'ContextCache - Privacy-first memory engine for AI',
@@ -57,6 +58,15 @@ export default function RootLayout({
 
             {/* Disclaimer */}
             <Disclaimer />
+            
+            {/* Toast Notifications */}
+            <Toaster 
+              position="bottom-right" 
+              expand={true}
+              richColors 
+              closeButton
+              theme="system"
+            />
           </ThemeProvider>
         </ErrorBoundary>
       </body>

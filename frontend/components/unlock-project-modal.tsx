@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useProjectStore } from '@/lib/store/project';
 import { deriveKey } from '@/lib/crypto';
 import type { Project } from '@/lib/types';
+import { toast } from 'sonner';
 
 interface UnlockProjectModalProps {
   project: Project;
@@ -61,12 +62,22 @@ export default function UnlockProjectModal({
 
       console.log('✅ Project unlocked! Key stored in memory.');
 
+      toast.success('Project unlocked!', {
+        description: `Access granted to "${project.name}"`,
+        duration: 2000,
+      });
+
       // Success!
       onUnlock();
       onClose();
     } catch (err: any) {
       console.error('❌ Failed to unlock project:', err);
-      setError('Incorrect passphrase or key derivation failed.');
+      const errorMsg = 'Incorrect passphrase. Please try again.';
+      setError(errorMsg);
+      toast.error('Unlock failed', {
+        description: errorMsg,
+        duration: 4000,
+      });
     } finally {
       setUnlocking(false);
     }
@@ -96,17 +107,21 @@ export default function UnlockProjectModal({
             >
               {/* Header */}
               <div className="mb-6">
-                <div className="flex items-center gap-3 mb-2">
-                  <span className="text-3xl">🔒</span>
-                  <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
-                    Unlock Project
-                  </h2>
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500/10 to-blue-500/10 flex items-center justify-center">
+                    <span className="text-2xl">🔒</span>
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
+                      Unlock Project
+                    </h2>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                      {project.name}
+                    </p>
+                  </div>
                 </div>
                 <p className="text-slate-600 dark:text-slate-400">
-                  Enter your passphrase to unlock{' '}
-                  <span className="font-semibold text-slate-900 dark:text-white">
-                    {project.name}
-                  </span>
+                  Your encryption key is needed to access this project's data.
                 </p>
               </div>
 

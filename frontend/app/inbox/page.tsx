@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { useProjectStore } from '@/lib/store/project';
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
+import { toast } from 'sonner';
 
 export default function InboxPage() {
   const router = useRouter();
@@ -50,14 +51,14 @@ export default function InboxPage() {
     console.log('🚀 Starting ingest, current project:', currentProject);
 
     if (!currentProject) {
-      alert('No project selected!');
+      toast.error('No project selected!');
       return;
     }
 
     const file = fileToUpload || selectedFile;
 
     if (!file && !url) {
-      alert('Please select a file or enter a URL');
+      toast.error('Please select a file or enter a URL');
       return;
     }
 
@@ -74,6 +75,11 @@ export default function InboxPage() {
       await api.ingestDocument(currentProject.id, file || undefined, url || undefined);
 
       console.log('✅ Upload successful!');
+      
+      toast.success('Document ingested successfully!', {
+        description: file ? file.name : url,
+        duration: 3000,
+      });
 
       // Reset form
       setSelectedFile(null);
@@ -82,11 +88,14 @@ export default function InboxPage() {
 
       // Reload documents
       await loadDocuments();
-
-      alert('Document ingested successfully!');
     } catch (err) {
       console.error('❌ Failed to ingest document:', err);
-      setError(err instanceof Error ? err.message : 'Failed to ingest document');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to ingest document';
+      setError(errorMessage);
+      toast.error('Upload failed', {
+        description: errorMessage,
+        duration: 5000,
+      });
     } finally {
       setUploading(false);
     }

@@ -6,6 +6,7 @@ import { motion } from 'framer-motion';
 import api  from '@/lib/api';
 import { useProjectStore } from '@/lib/store/project';
 import { deriveKey } from '@/lib/crypto';
+import { toast } from 'sonner';
 
 export default function NewProjectPage() {
   const router = useRouter();
@@ -72,10 +73,20 @@ export default function NewProjectPage() {
       
       console.log('🎉 Project ready! Salt saved, key in memory.');
       
+      toast.success('Project created successfully!', {
+        description: `"${newProject.name}" is ready to use`,
+        duration: 3000,
+      });
+      
       router.push('/inbox');
     } catch (err: any) {
       console.error('❌ Failed to create project:', err);
-      setError(err.response?.data?.detail || err.message || 'Failed to create project. Please try again.');
+      const errorMessage = err.response?.data?.detail || err.message || 'Failed to create project. Please try again.';
+      setError(errorMessage);
+      toast.error('Failed to create project', {
+        description: errorMessage,
+        duration: 5000,
+      });
     } finally {
       setCreating(false);
     }
@@ -95,10 +106,10 @@ export default function NewProjectPage() {
             </button>
             <div>
               <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 dark:text-white tracking-tight">
-                Create Project
+                Create New Project
               </h1>
               <p className="text-slate-600 dark:text-slate-400 mt-2">
-                Your knowledge, encrypted with your passphrase
+                Secure your knowledge with zero-knowledge encryption
               </p>
             </div>
           </div>
@@ -156,12 +167,17 @@ export default function NewProjectPage() {
 
               <div className="mt-4 p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
                 <div className="flex items-start gap-3">
-                  <span className="text-xl">⚠️</span>
-                  <p className="text-sm text-amber-800 dark:text-amber-300">
-                    <strong>Zero-Knowledge:</strong> Your passphrase never leaves your device.
-                    We never see your passphrase.
-                    If you lose it without a recovery kit, your data is permanently unrecoverable.
-                  </p>
+                  <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center flex-shrink-0">
+                    <span className="text-lg">⚠️</span>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-amber-900 dark:text-amber-200 mb-1">
+                      Zero-Knowledge Security
+                    </p>
+                    <p className="text-sm text-amber-800 dark:text-amber-300 leading-relaxed">
+                      Your passphrase never leaves your device. If you lose it, your data cannot be recovered. Consider storing it in a password manager.
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>

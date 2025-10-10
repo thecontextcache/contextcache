@@ -27,18 +27,18 @@ export default function Home() {
           </motion.div>
 
           {/* Title */}
-          <h1 className="text-5xl md:text-7xl font-bold bg-gradient-to-r from-cyan-600 via-blue-600 to-purple-600 dark:from-cyan-400 dark:via-blue-400 dark:to-purple-400 bg-clip-text text-transparent">
+          <h1 className="text-5xl md:text-7xl font-bold bg-gradient-to-r from-cyan-600 via-blue-600 to-purple-600 dark:from-cyan-400 dark:via-blue-400 dark:to-purple-400 bg-clip-text text-transparent leading-tight">
             ContextCache
           </h1>
 
           {/* Subtitle */}
-          <p className="text-xl md:text-2xl text-slate-600 dark:text-slate-300 font-light">
-            Privacy-first memory engine for AI research
+          <p className="text-xl md:text-3xl text-slate-700 dark:text-slate-200 font-medium max-w-3xl mx-auto leading-snug">
+            Your Knowledge, <span className="text-cyan-600 dark:text-cyan-400">Encrypted</span> & <span className="text-blue-600 dark:text-blue-400">Local-First</span>
           </p>
 
           {/* Description */}
-          <p className="text-base md:text-lg text-slate-500 dark:text-slate-400 max-w-2xl mx-auto leading-relaxed">
-            Build traceable knowledge graphs with explainable answers, cryptographic audit trails, and zero-knowledge encryption.
+          <p className="text-base md:text-lg text-slate-600 dark:text-slate-400 max-w-2xl mx-auto leading-relaxed">
+            Build traceable knowledge graphs with zero-knowledge encryption. Every passphrase stays on your device. No accounts, no tracking, no compromises.
           </p>
 
           {/* CTA Buttons */}
