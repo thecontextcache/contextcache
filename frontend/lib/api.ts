@@ -1,13 +1,15 @@
 /**
  * API client for ContextCache backend
+ * Enhanced with Clerk authentication
  */
-import axios, { AxiosInstance } from 'axios';
+import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import type { Project } from './types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 class APIClient {
   private client: AxiosInstance;
+  private getToken: (() => Promise<string | null>) | null = null;
 
   constructor() {
     this.client = axios.create({
@@ -17,15 +19,87 @@ class APIClient {
         'Content-Type': 'application/json',
       },
     });
+
+    // Add request interceptor to inject Clerk JWT token
+    this.client.interceptors.request.use(
+      async (config) => {
+        if (this.getToken) {
+          const token = await this.getToken();
+          if (token) {
+            config.headers.Authorization = `Bearer ${token}`;
+          }
+        }
+        return config;
+      },
+      (error) => Promise.reject(error)
+    );
+
+    // Add response interceptor to handle auth errors
+    this.client.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response?.status === 401) {
+          // Session expired or locked
+          console.error('Authentication failed:', error.response.data);
+          // You could trigger a re-authentication flow here
+        }
+        return Promise.reject(error);
+      }
+    );
+  }
+
+  /**
+   * Set the token getter function (called from React component with useAuth)
+   */
+  setTokenGetter(getter: () => Promise<string | null>) {
+    this.getToken = getter;
+  }
+
+  // -------------------------
+  // 🔹 Authentication
+  // -------------------------
+  async unlockSession(masterPassphrase: string): Promise<{
+    status: string;
+    user_id: string;
+    session_id: string;
+    expires_in: number;
+  }> {
+    const formData = new FormData();
+    formData.append('master_passphrase', masterPassphrase);
+    
+    const response = await this.client.post('/auth/unlock', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  }
+
+  async checkSessionStatus(): Promise<{
+    unlocked: boolean;
+    session_id?: string;
+    message?: string;
+  }> {
+    const response = await this.client.get('/auth/status');
+    return response.data;
+  }
+
+  async logout(): Promise<{ status: string }> {
+    const response = await this.client.post('/auth/logout');
+    return response.data;
   }
 
   // -------------------------
   // 🔹 Projects
   // -------------------------
-  async createProject(name: string, passphrase: string): Promise<Project> {
-    const response = await this.client.post<Project>('/projects', {
-      name,
-      passphrase,
+  async createProject(name: string): Promise<Project> {
+    const formData = new FormData();
+    formData.append('name', name);
+    
+    const response = await this.client.post<Project>('/projects', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
     });
     return response.data;
   }

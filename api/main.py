@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, HttpUrl, validator
 import re
 from cc_core.storage.database import get_db, init_db
 from cc_core.models.project import ProjectDB, ProjectCreate, ProjectResponse
+from cc_core.models.user import UserDB, UserResponse, UnlockSessionResponse, SessionStatusResponse
 from cc_core.models.document import (
     DocumentDB, DocumentResponse,
     DocumentStatus, SourceType
@@ -22,6 +23,8 @@ from cc_core.models.document import (
 from cc_core.models.chunk import DocumentChunkDB
 from cc_core.services.document_service import DocumentService
 from cc_core.services.embedding_service import EmbeddingService
+from cc_core.services.key_service import get_key_service
+from cc_core.auth import get_current_user, get_optional_user
 from datetime import datetime
 from dotenv import load_dotenv
 from cc_core.crypto import Hasher
@@ -228,58 +231,203 @@ async def health(db: AsyncSession = Depends(get_db)):
     return health_status
 
 # ============================================================================
+# AUTHENTICATION
+# ============================================================================
+@app.post("/auth/unlock", response_model=UnlockSessionResponse)
+async def unlock_session(
+    master_passphrase: str = Form(...),
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Unlock user session by deriving KEK from master passphrase
+    
+    Flow:
+    1. User authenticated via Clerk JWT
+    2. Fetch/create user record with KEK salt
+    3. Derive KEK from passphrase + salt (Argon2id)
+    4. Store KEK in Redis (encrypted with session secret)
+    
+    The KEK is used to encrypt/decrypt project DEKs.
+    """
+    key_service = get_key_service()
+    encryptor = Encryptor()
+    
+    # Get or create user record
+    result = await db.execute(
+        select(UserDB).where(UserDB.clerk_user_id == current_user["clerk_user_id"])
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        # First time user - create record with new KEK salt
+        kek_salt = encryptor.generate_salt()
+        user = UserDB(
+            clerk_user_id=current_user["clerk_user_id"],
+            email=current_user.get("email", ""),
+            kek_salt=kek_salt,
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        print(f"✅ New user created: {user.clerk_user_id[:10]}... (email: {user.email})")
+    
+    # Derive KEK from passphrase
+    try:
+        kek = encryptor.derive_key(master_passphrase, user.kek_salt)
+        print(f"✅ KEK derived for user {user.clerk_user_id[:10]}...")
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to derive encryption key: {str(e)}"
+        )
+    
+    # Store KEK in Redis (session-bound, 1 hour TTL)
+    session_id = current_user["session_id"]
+    await key_service.store_kek(session_id, kek, ttl=3600)
+    
+    return UnlockSessionResponse(
+        status="unlocked",
+        user_id=str(user.id),
+        session_id=session_id,
+        expires_in=3600,
+    )
+
+
+@app.get("/auth/status", response_model=SessionStatusResponse)
+async def check_session_status(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Check if current session is unlocked (KEK exists in Redis)
+    
+    Returns:
+        unlocked: True if KEK found, False if session needs unlocking
+    """
+    key_service = get_key_service()
+    session_id = current_user["session_id"]
+    
+    kek = await key_service.get_kek(session_id)
+    
+    if kek:
+        return SessionStatusResponse(
+            unlocked=True,
+            session_id=session_id
+        )
+    else:
+        return SessionStatusResponse(
+            unlocked=False,
+            message="Session locked. Please enter your master passphrase to unlock."
+        )
+
+
+@app.post("/auth/logout")
+async def logout(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Clear all session keys on logout
+    
+    This removes:
+    - KEK (Key Encryption Key)
+    - All cached DEKs for this session
+    
+    User will need to re-enter master passphrase on next login.
+    """
+    key_service = get_key_service()
+    session_id = current_user["session_id"]
+    
+    await key_service.clear_session(session_id)
+    
+    return {
+        "status": "logged_out",
+        "message": "All session keys cleared. Sign in again to continue."
+    }
+
+
+# ============================================================================
 # PROJECTS
 # ============================================================================
 @app.post("/projects", response_model=ProjectResponse)
 async def create_project(
-    project: ProjectCreate,
+    name: str = Form(...),
+    current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Create a new project with client-side encryption
+    Create a new project with DEK encrypted by user's KEK
     
-    The passphrase is used to derive an encryption key using Argon2id.
-    The key never leaves the client - server only stores the salt.
-    All project data will be encrypted client-side before storage.
+    Flow:
+    1. Verify user is authenticated (JWT)
+    2. Get KEK from Redis (session must be unlocked)
+    3. Generate random DEK for this project
+    4. Encrypt DEK with KEK
+    5. Store encrypted_dek in database
+    6. Cache DEK in Redis (5 min)
     """
     # Validate project name length
-    if len(project.name) > MAX_PROJECT_NAME_LENGTH:
+    if len(name) > MAX_PROJECT_NAME_LENGTH:
         raise HTTPException(
             status_code=400,
             detail=f"Project name too long. Maximum length is {MAX_PROJECT_NAME_LENGTH} characters"
         )
     
-    if len(project.name.strip()) < 1:
+    if len(name.strip()) < 1:
         raise HTTPException(
             status_code=400,
             detail="Project name cannot be empty"
         )
     
-    # Generate unique salt for this project (used for key derivation)
-    salt = secrets.token_bytes(16)
+    key_service = get_key_service()
     
-    # Verify passphrase can derive a key (don't store the key!)
-    try:
-        encryptor = Encryptor()
-        _ = encryptor.derive_key(project.passphrase, salt)
-        # Key derivation succeeded - discard the key immediately
-    except Exception as e:
+    # Get KEK from Redis (verify session is unlocked)
+    session_id = current_user["session_id"]
+    kek = await key_service.get_kek(session_id)
+    
+    if not kek:
         raise HTTPException(
-            status_code=400,
-            detail=f"Invalid passphrase: {str(e)}"
+            status_code=401,
+            detail="Session locked. Please unlock with your master passphrase at /auth/unlock"
         )
     
-    # Store project with salt (NOT the key!)
-    db_project = ProjectDB(name=project.name, salt=salt)
+    # Get user record
+    result = await db.execute(
+        select(UserDB).where(UserDB.clerk_user_id == current_user["clerk_user_id"])
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found. Please unlock session first."
+        )
+    
+    # Generate random DEK for this project (32 bytes)
+    dek = key_service.generate_dek()
+    
+    # Encrypt DEK with KEK
+    encrypted_dek, dek_nonce = await key_service.encrypt_dek_with_kek(dek, kek)
+    
+    # Create project record
+    db_project = ProjectDB(
+        name=name,
+        user_id=user.id,
+        encrypted_dek=encrypted_dek,
+        dek_nonce=dek_nonce
+    )
     db.add(db_project)
     await db.commit()
     await db.refresh(db_project)
+    
+    # Cache DEK in Redis (5 min TTL)
+    await key_service.store_dek(session_id, str(db_project.id), dek, ttl=300)
+    
+    print(f"✅ Project created: {db_project.name} (id: {str(db_project.id)[:8]}...)")
 
-    # Return salt so client can derive the same key
     return ProjectResponse(
         id=db_project.id,
         name=db_project.name,
-        salt=salt.hex(),  # Client needs this to derive encryption key
+        salt="",  # Deprecated, kept for backwards compatibility
         fact_count=0,
         entity_count=0,
         created_at=db_project.created_at,
@@ -291,17 +439,30 @@ async def create_project(
 async def list_projects(
     limit: int = 20,
     offset: int = 0,
+    current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """List all projects"""
+    """List user's projects (multi-tenant isolation)"""
     # Validate pagination parameters
     if limit < 1 or limit > 100:
         raise HTTPException(status_code=400, detail="Limit must be between 1 and 100")
     if offset < 0:
         raise HTTPException(status_code=400, detail="Offset must be non-negative")
     
+    # Get user record
+    result = await db.execute(
+        select(UserDB).where(UserDB.clerk_user_id == current_user["clerk_user_id"])
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        # User not found - return empty list
+        return []
+    
+    # Query only user's projects (multi-tenant isolation)
     result = await db.execute(
         select(ProjectDB)
+        .where(ProjectDB.user_id == user.id)
         .order_by(ProjectDB.created_at.desc())
         .limit(limit)
         .offset(offset)
@@ -312,7 +473,7 @@ async def list_projects(
         ProjectResponse(
             id=p.id,
             name=p.name,
-            salt=p.salt.hex(),
+            salt="",  # Deprecated
             fact_count=0,
             entity_count=0,
             created_at=p.created_at,
@@ -321,31 +482,64 @@ async def list_projects(
         for p in projects
     ]
 
-    return ProjectResponse(
-        id=project.id,
-        name=project.name,
-        salt=project.salt.hex(),
-        fact_count=0,
-        entity_count=0,
-        created_at=project.created_at,
-        updated_at=project.updated_at,
-    )
-
 @app.get("/projects/{project_id}", response_model=ProjectResponse)
 async def get_project(
     project_id: str,
+    current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get a single project by ID"""
-    result = await db.execute(select(ProjectDB).where(ProjectDB.id == project_id))
+    """
+    Get a single project by ID (with ownership verification)
+    Also decrypts and caches the project DEK for subsequent operations
+    """
+    # Get user record
+    result = await db.execute(
+        select(UserDB).where(UserDB.clerk_user_id == current_user["clerk_user_id"])
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Get project with ownership verification
+    result = await db.execute(
+        select(ProjectDB).where(
+            ProjectDB.id == project_id,
+            ProjectDB.user_id == user.id
+        )
+    )
     project = result.scalar_one_or_none()
+    
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail="Project not found or access denied")
+    
+    # Decrypt and cache DEK for future operations
+    key_service = get_key_service()
+    session_id = current_user["session_id"]
+    
+    # Check if DEK is already cached
+    cached_dek = await key_service.get_dek(session_id, project_id)
+    
+    if not cached_dek and project.encrypted_dek:
+        # DEK not cached - decrypt it
+        kek = await key_service.get_kek(session_id)
+        if kek and project.dek_nonce:
+            try:
+                dek = await key_service.decrypt_dek_with_kek(
+                    project.encrypted_dek,
+                    project.dek_nonce,
+                    kek
+                )
+                # Cache for 5 minutes
+                await key_service.store_dek(session_id, project_id, dek, ttl=300)
+                print(f"✅ DEK decrypted and cached for project {project_id[:8]}...")
+            except Exception as e:
+                print(f"⚠️ Failed to decrypt DEK: {e}")
 
     return ProjectResponse(
         id=project.id,
         name=project.name,
-        salt=project.salt.hex(),
+        salt="",  # Deprecated
         fact_count=0,
         entity_count=0,
         created_at=project.created_at,

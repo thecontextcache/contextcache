@@ -107,3 +107,27 @@ playwright/.cache/
 *.tmp
 .temp/*.txt
 test_recovery_kit.json
+
+# Planning & Setup Documents (local only - may contain credentials or examples)
+QUICK_SETUP_GUIDE.md
+START_HERE.md
+PROGRESS_SUMMARY.md
+CLOUD_NATIVE_AUTH_PLAN.md
+ARCHITECTURE_DECISIONS.md
+ARCHITECTURE_DIAGRAM.md
+PLANNING_SUMMARY.md
+setup_env.sh
+compass_artifact_wf-*.md
+contextcache-cloud-native-algorithms.md
+bandit_report.json
+
+# Keep these public (general documentation)
+!README.md
+!CONTRIBUTING.md
+!SECURITY.md
+!LICENSING.md
+!CODE_OF_CONDUCT.md
+!DEPLOYMENT.md
+!docs/
+!SETUP_INSTRUCTIONS.md
+!IMPLEMENTATION_CHECKLIST.md
