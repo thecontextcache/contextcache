@@ -5,12 +5,15 @@ import { useProjectStore } from '@/lib/store/project';
 import api from '@/lib/api';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@clerk/nextjs';
 import UnlockProjectModal from '@/components/unlock-project-modal';
 import type { Project } from '@/lib/types';
 
 export default function DashboardPage() {
   const router = useRouter();
+  const { isLoaded, isSignedIn } = useAuth();
   const { projects, setProjects, setCurrentProject, isProjectUnlocked } = useProjectStore();
+  const [authChecking, setAuthChecking] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [unlockModal, setUnlockModal] = useState<{ isOpen: boolean; project: Project | null }>({
@@ -18,7 +21,22 @@ export default function DashboardPage() {
     project: null,
   });
 
+  // Auth guard - redirect if not signed in
   useEffect(() => {
+    if (isLoaded) {
+      setAuthChecking(false);
+      if (!isSignedIn) {
+        router.push('/');
+      }
+    }
+  }, [isLoaded, isSignedIn, router]);
+
+  useEffect(() => {
+    // Don't load projects until auth is checked
+    if (authChecking || !isSignedIn) {
+      return;
+    }
+
     const loadProjectStats = async () => {
       setLoading(true);
       setError(null);
@@ -43,12 +61,17 @@ export default function DashboardPage() {
               const stats = await api.getProjectStats(project.id);
               return {
                 ...project,
-                fact_count: stats.chunk_count,
-                entity_count: stats.document_count,
+                fact_count: stats.chunk_count || 0,
+                entity_count: stats.document_count || 0,
               };
-            } catch (err) {
-              console.error(`Failed to fetch stats for ${project.id}:`, err);
-              return project;
+            } catch (err: any) {
+              // Silently handle errors for individual projects
+              console.warn(`Failed to fetch stats for ${project.id}:`, err?.message || err);
+              return {
+                ...project,
+                fact_count: 0,
+                entity_count: 0,
+              };
             }
           })
         );
@@ -56,7 +79,7 @@ export default function DashboardPage() {
         setProjects(projectsWithStats);
       } catch (err) {
         console.error('Failed to load project stats:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load project stats');
+        // Don't block UI if stats fail
       } finally {
         setLoading(false);
       }
@@ -64,7 +87,7 @@ export default function DashboardPage() {
 
     loadProjectStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run once on mount - projects come from localStorage via Zustand
+  }, [authChecking, isSignedIn, projects]); // Load when auth is checked and signed in
 
   const handleRetry = () => {
     window.location.reload();
@@ -89,6 +112,29 @@ export default function DashboardPage() {
       router.push('/inbox');
     }
   };
+
+  // Show loading while checking auth
+  if (!isLoaded || authChecking) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-cyan-50 to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-500 mx-auto mb-4"></div>
+          <p className="text-slate-600 dark:text-slate-400">Checking authentication...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Redirect to home if not signed in (will be handled by useEffect, show loading)
+  if (!isSignedIn) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-cyan-50 to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-slate-600 dark:text-slate-400">Redirecting to sign in...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (

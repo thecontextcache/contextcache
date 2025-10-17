@@ -547,6 +547,63 @@ async def get_project(
     )
 
 
+@app.get("/projects/{project_id}/stats")
+async def get_project_stats(
+    project_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get project statistics (document count, fact count, etc.)
+    """
+    # Get user record
+    result = await db.execute(
+        select(UserDB).where(UserDB.clerk_user_id == current_user["clerk_user_id"])
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Verify project ownership
+    result = await db.execute(
+        select(ProjectDB).where(
+            ProjectDB.id == project_id,
+            ProjectDB.user_id == user.id
+        )
+    )
+    project = result.scalar_one_or_none()
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found or access denied")
+    
+    # Get document count
+    doc_count_result = await db.execute(
+        select(func.count()).select_from(DocumentDB).where(DocumentDB.project_id == project_id)
+    )
+    doc_count = doc_count_result.scalar() or 0
+    
+    # Get chunk count
+    chunk_count_result = await db.execute(
+        select(func.count())
+        .select_from(DocumentChunkDB)
+        .join(DocumentDB, DocumentChunkDB.document_id == DocumentDB.id)
+        .where(DocumentDB.project_id == project_id)
+    )
+    chunk_count = chunk_count_result.scalar() or 0
+    
+    return {
+        "project_id": project_id,
+        "project_name": project.name,
+        "document_count": doc_count,
+        "chunk_count": chunk_count,
+        "fact_count": 0,  # TODO: Add when facts table is queried
+        "entity_count": 0,  # TODO: Add when entities table is queried
+        "created_at": project.created_at.isoformat(),
+        "updated_at": project.updated_at.isoformat(),
+    }
+
+
 @app.put("/projects/{project_id}", response_model=ProjectResponse)
 async def update_project(
     project_id: str,

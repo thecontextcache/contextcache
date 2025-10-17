@@ -25,6 +25,7 @@
     "clean": "rm -rf .next out node_modules/.cache"
   },
   "dependencies": {
+    "@clerk/nextjs": "^6.33.6",
     "@hookform/resolvers": "^3.9.1",
     "@tanstack/react-query": "^5.62.7",
     "axios": "^1.7.9",

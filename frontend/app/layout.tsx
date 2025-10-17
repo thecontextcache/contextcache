@@ -33,6 +33,8 @@ export default function RootLayout({
     <ClerkProvider>
       <html lang="en" suppressHydrationWarning>
         <head>
+          <link rel="icon" href="/logo.png" type="image/png" />
+          <link rel="apple-touch-icon" href="/logo.png" />
           <meta name="format-detection" content="telephone=no" />
           <meta name="mobile-web-app-capable" content="yes" />
           <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -42,21 +44,37 @@ export default function RootLayout({
           <ErrorBoundary>
             <ThemeProvider>
               <APIProvider>
-                {/* New Clerk sign‑in UI – keep it above the main content */}
-                <header className="p-4 flex justify-between items-center">
-                  <SignedOut>
-                    <SignInButton />
-                    <SignUpButton />
-                  </SignedOut>
-                  <SignedIn>
-                    <UserButton />
-                  </SignedIn>
-                </header>
-
-                {/* Existing Alpha banner, Dark mode toggle, NavBar, etc. */}
-                <div className="relative z-50 bg-gradient-to-r from-yellow-500 to-orange-500 text-black px-4 py-2 text-center text-sm font-medium safe-padding">
+                {/* Alpha banner */}
+                <div className="relative z-40 bg-gradient-to-r from-yellow-500 to-orange-500 text-black px-4 py-2 text-center text-sm font-medium safe-padding">
                   🚧 Alpha Version - Under Active Development
                 </div>
+
+                        {/* Clerk Auth Header - positioned below banner */}
+                        <header className="fixed top-10 right-0 z-50 p-4">
+                          <div className="flex items-center gap-3">
+                            <SignedOut>
+                              <SignInButton mode="modal">
+                                <button className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 hover:text-cyan-600 dark:hover:text-cyan-400 transition-colors bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm rounded-lg shadow-sm">
+                                  Sign In
+                                </button>
+                              </SignInButton>
+                              <SignUpButton mode="modal">
+                                <button className="px-4 py-2 text-sm font-medium bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600 text-white rounded-lg shadow-sm transition-all">
+                                  Sign Up
+                                </button>
+                              </SignUpButton>
+                            </SignedOut>
+                            <SignedIn>
+                              <UserButton 
+                                appearance={{
+                                  elements: {
+                                    avatarBox: "w-10 h-10 rounded-full border-2 border-cyan-500"
+                                  }
+                                }}
+                              />
+                            </SignedIn>
+                          </div>
+                        </header>
                 <div className="fixed top-20 right-4 z-50">
                   <DarkModeToggle />
                 </div>

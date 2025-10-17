@@ -16,14 +16,18 @@ export default function Home() {
           transition={{ duration: 0.6 }}
           className="max-w-4xl mx-auto text-center space-y-8"
         >
-          {/* Logo/Icon */}
+          {/* Logo */}
           <motion.div
             initial={{ scale: 0.8 }}
             animate={{ scale: 1 }}
             transition={{ duration: 0.5, delay: 0.2 }}
-            className="text-6xl mb-6"
+            className="mb-6 flex justify-center"
           >
-            🧠
+            <img 
+              src="/logo.png" 
+              alt="ContextCache Logo" 
+              className="w-24 h-24 md:w-32 md:h-32 object-contain drop-shadow-xl"
+            />
           </motion.div>
 
           {/* Title */}
@@ -33,12 +37,12 @@ export default function Home() {
 
           {/* Subtitle */}
           <p className="text-xl md:text-3xl text-slate-700 dark:text-slate-200 font-medium max-w-3xl mx-auto leading-snug">
-            Your Knowledge, <span className="text-cyan-600 dark:text-cyan-400">Encrypted</span> & <span className="text-blue-600 dark:text-blue-400">Local-First</span>
+            Your Knowledge, <span className="text-cyan-600 dark:text-cyan-400">Encrypted</span> & <span className="text-blue-600 dark:text-blue-400">Private</span>
           </p>
 
           {/* Description */}
           <p className="text-base md:text-lg text-slate-600 dark:text-slate-400 max-w-2xl mx-auto leading-relaxed">
-            Build traceable knowledge graphs with zero-knowledge encryption. Every passphrase stays on your device. No accounts, no tracking, no compromises.
+            Build traceable knowledge graphs with zero-knowledge encryption. Your passphrase never leaves your device. Cloud-native, multi-tenant, and fully auditable.
           </p>
 
           {/* CTA Buttons */}

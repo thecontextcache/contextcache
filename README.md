@@ -3,219 +3,329 @@
 </p>
 
 <h1 align="center">ContextCache</h1>
-<p align="center">Privacy-first memory engine for AI research</p>
+<p align="center">Privacy-first, cloud-native knowledge graphs for AI research</p>
 
 <p align="center">
   <a href="https://thecontextcache.bsky.social">Website</a> •
-  <a href="https://github.com/thecontextcache/contextcache/blob/main/docs/quickstart.md">Quickstart</a> •
-  <a href="https://github.com/thecontextcache/contextcache/blob/main/docs/overview.md">Docs</a>
+  <a href="docs/quickstart.md">Quickstart</a> •
+  <a href="docs/overview.md">Documentation</a> •
+  <a href="docs/api-reference.md">API Reference</a>
 </p>
-
----
-
-# thecontextcache™
-
-**Privacy-first, local-first memory engine for AI research.**
-
-Ingest documents, extract knowledge quads, and get explainable answers with full audit trails—all with zero-knowledge encryption.
 
 ---
 
 ## 🎯 What It Does
 
-ContextCache transforms documents into a queryable knowledge graph where every fact is:
-- **Traceable** → Full provenance from source to answer
-- **Explainable** → Confidence scores and reasoning paths  
-- **Auditable** → Cryptographically verifiable event chains
-- **Portable** → Export/import signed Memory Packs
-- **Private** → End-to-end encryption, local-first design
+ContextCache transforms documents into queryable knowledge graphs where every fact is:
+- **🔒 Private** → Zero-knowledge encryption, your passphrase never leaves your device
+- **📊 Traceable** → Full provenance from source to answer
+- **🔍 Explainable** → Confidence scores and reasoning paths  
+- **✅ Auditable** → Cryptographically verifiable event chains
+- **🌐 Cloud-Native** → Multi-tenant, scalable, and serverless
 
 Built for researchers, students, and analysts who need AI answers they can trust and verify.
 
 ---
 
-## 🛠 Tech Stack
-
-**Frontend**
-- Next.js 15 (App Router) · TypeScript · Tailwind CSS · Framer Motion
-- Cytoscape.js (interactive knowledge graphs) · Zustand (state) · Axios (API)
-
-**Backend**
-- Python 3.13 · FastAPI · SQLAlchemy (async) · Pydantic v2
-- MCP Protocol (5 specialized servers)
-
-**Database & Infrastructure**
-- Neon Postgres with pgvector (semantic search)
-- Upstash Redis (rate limiting, queues)
-- Cloudflare Pages (frontend hosting)
-- Google Cloud Run (backend containers)
-
-**Security & Cryptography**
-- XChaCha20-Poly1305 (content encryption)
-- Ed25519 (Memory Pack signatures)
-- Argon2id (passphrase KDF)
-- BLAKE3 (audit chain hashing)
-
-**Testing & Quality**
-- pytest · Hypothesis · Schemathesis (backend)
-- vitest · Playwright (frontend + E2E)
-- k6 (load testing) · Great Expectations (data validation)
-
-**Documentation**
-- Mintlify (hosted docs)
-
----
-
-## ✅ What's Built (v0.1 Alpha)
-
-### Working Features
-- ✅ **Project Management** → Create, list, select projects with zero-knowledge encryption
-- ✅ **Database Integration** → Neon Postgres with pgvector, full schema deployed
-- ✅ **Frontend UI** → 7 pages (Dashboard, Inbox, Ask, Graph, Audit, Export, Settings)
-- ✅ **Interactive Graph** → Cytoscape visualization with zoom, pan, hover, click
-- ✅ **Dark Mode** → Full light/dark theme support
-- ✅ **API Client** → Real-time sync between frontend and backend
-
-### In Progress (Phase 5)
-- 🚧 **Document Import** → PDF/URL ingestion, chunking, deduplication
-- 🚧 **Query/Ask** → Semantic search with pgvector, explainable answers
-- 🚧 **MCP Servers** → 5 specialized servers (docs, extractor, memory, audit, policy-gate)
-- 🚧 **Crypto Layer** → XChaCha20, Ed25519, Argon2id, BLAKE3 implementations
-
-### Planned (v0.2+)
-- 📅 Memory Pack export/import with Ed25519 signatures
-- 📅 Ranking algorithms (PageRank, time decay, novelty detection)
-- 📅 Audit chain verification
-- 📅 Rate limiting and abuse prevention
-- 📅 Background worker for heavy computations
-- 📅 Recovery kit generation
-
----
-
 ## 🚀 Quick Start
 
-**Prerequisites:** Docker Desktop, Git, 4GB RAM
+### Option 1: Cloud Deployment (Recommended)
+
 ```bash
-# Clone repository
+# 1. Clone the repository
 git clone https://github.com/thecontextcache/contextcache.git
 cd contextcache
 
-# Set up environment
-cp .env.example .env.local
-# Edit .env.local with your Neon and Upstash credentials
+# 2. Set up environment variables
+cp api/.env.example api/.env.local
+cp frontend/.env.example frontend/.env.local
 
-# Start all services
-docker-compose -f infra/docker-compose.dev.yml up -d
+# 3. Run database migration
+cd api
+psql $DATABASE_URL -f migrations/001_add_multi_tenant_auth.sql
 
-# Access
-# Frontend: http://localhost:3000
-# API: http://localhost:8000
-# Docs: http://localhost:8000/docs
-Full guide: docs/quickstart.md
+# 4. Deploy backend (Cloud Run)
+cd ../infra/cloudrun
+./deploy-api.sh
 
-📂 Repository
-Main Project
+# 5. Deploy frontend (Cloudflare Pages)
+# Push to GitHub and connect Cloudflare Pages to your repo
+```
 
-contextcache → Monorepo with frontend, backend, docs, infra
+### Option 2: Local Development
 
-Structure
-contextcache/
-├── frontend/        # Next.js UI
-├── api/            # FastAPI backend + MCP servers
-├── docs/           # Mintlify documentation
-├── infra/          # Docker, Cloud Run configs
-└── .github/        # CI/CD workflows
+```bash
+# 1. Install dependencies
+cd api && pip install -r requirements.txt
+cd ../frontend && pnpm install
 
-📖 Documentation
+# 2. Start backend
+cd api
+uvicorn main:app --reload
 
-Overview → docs/overview.md
-Quick Start → docs/quickstart.md
-Security Model → docs/security.md
-Data Model → docs/data-model.md
-API Reference → docs/api-reference.md
+# 3. Start frontend (new terminal)
+cd frontend
+pnpm dev
 
-
-🌐 Links
-
-Website → thecontextcache.com (coming soon)
-Bluesky → @thecontextcache.bsky.social
-Email → thecontextcache@gmail.com
-Discussions → GitHub Discussions
-Issues → GitHub Issues
-
-
-🤝 Contributing
-We welcome contributions! Please read:
-
-CONTRIBUTING.md → Guidelines and workflow
-CODE_OF_CONDUCT.md → Community standards
-SECURITY.md → Report vulnerabilities
-
-Join the conversation:
-
-Open an issue or discussion
-Submit a PR (must pass CI/CD checks)
-Help with documentation
-
-
-⚖️ License
-Dual-licensed:
-
-Apache 2.0 → For non-commercial use (research, education, personal projects)
-PolyForm Noncommercial 1.0.0 → For evaluation in commercial contexts
-
-For commercial production use, please contact: thecontextcache@gmail.com
-See LICENSING.md for details.
-
-🔐 Security
-Zero-knowledge architecture:
-
-Your passphrase never leaves your device
-All content encrypted with XChaCha20-Poly1305
-Memory Packs signed with Ed25519
-Audit chains verified with BLAKE3
-
-Report vulnerabilities: See SECURITY.md
-
-📊 Project Status
-Version: 0.1.0 (Alpha)
-Status: Active Development
-License: Apache 2.0 / PolyForm Noncommercial
-Maintained: Yes
-Roadmap:
-
-v0.1 (Current) → Core foundation, project management, basic UI
-v0.2 (Q2 2025) → Document import, semantic search, Memory Packs
-v0.3 (Q3 2025) → Ranking algorithms, audit chains, rate limiting
-v1.0 (Q4 2025) → Production-ready, full MCP server suite
-
-
-🙏 Acknowledgments
-Built with:
-
-FastAPI · Next.js · SQLAlchemy
-Neon · Upstash · Cloudflare
-Cytoscape.js · Tailwind CSS
-
-Inspired by the need for privacy-first, explainable AI tools in research.
-
-Trademark Notice: thecontextcache™ name and logo are trademarks of the project maintainers.
+# 4. Open http://localhost:3000
+```
 
 ---
 
-**This README now:**
-1. ✅ Accurately reflects what's **actually built**
-2. ✅ Shows working features vs. in-progress
-3. ✅ Has real Quick Start instructions
-4. ✅ Links to actual docs in the repo
-5. ✅ Updated status (v0.1 alpha, active development)
-6. ✅ Realistic roadmap (v0.1 → v1.0)
+## 🏗️ Architecture
 
-**Create this as the organization README:**
+### Cloud-Native Stack
+
+**Frontend:**
+- Next.js 15 (App Router) · TypeScript · Tailwind CSS
+- Clerk (Authentication) · Framer Motion (Animations)
+- Zustand (State Management) · Axios (API Client)
+
+**Backend:**
+- Python 3.13 · FastAPI · SQLAlchemy (Async)
+- Clerk JWT Verification · Pydantic v2
+- Arq (Background Jobs) · MCP Protocol
+
+**Database & Infrastructure:**
+- Neon PostgreSQL with pgvector (vector search)
+- Upstash Redis (caching, sessions, rate limiting)
+- Google Cloud Run (serverless containers)
+- Cloudflare Pages (frontend hosting)
+
+### Security Architecture
+
+```
+User's Master Passphrase (memorized)
+          ↓ Argon2id KDF
+Key Encryption Key (KEK)
+          ↓ Encrypted in Redis (1-hour session)
+Data Encryption Key (DEK, per project)
+          ↓ Encrypted in database
+Document Content
+          ↓ XChaCha20-Poly1305
+```
+
+**Zero-Knowledge**: Server never sees plaintext passphrase or KEK  
+**Multi-Tenant**: Complete user isolation at database level  
+**Session-Bound**: Keys expire automatically after 1 hour  
+
+---
+
+## 🔑 Key Features
+
+### 🔐 Authentication & Security
+- **Clerk Integration**: Email/password, OAuth (Google, GitHub)
+- **Session Management**: Unlock once per session with master passphrase
+- **Zero-Knowledge**: Your passphrase never leaves your device
+- **Multi-Tenant**: Complete data isolation between users
+
+### 📊 Knowledge Graphs
+- **Hybrid Ranking**: BM25 + Dense Cosine + PageRank + Temporal Decay
+- **Vector Search**: Semantic similarity with pgvector
+- **Graph Traversal**: PageRank for authority ranking
+- **Explainable AI**: Confidence scores and provenance chains
+
+### 🔌 MCP Servers (Model Context Protocol)
+- **docs_server**: Document ingestion and processing
+- **extractor_server**: Knowledge extraction (facts, entities)
+- **memory_server**: Memory pack management
+- **audit_server**: Audit trails and provenance
+- **policy_gate**: Policy enforcement
+
+### 📈 Performance
+- **Serverless**: Auto-scaling with Cloud Run
+- **Caching**: Redis for KEK/DEK and PageRank scores
+- **Background Jobs**: Async processing with Arq
+- **Optimized Queries**: Indexed database queries
+
+---
+
+## 📚 Documentation
+
+- **[Quickstart Guide](docs/quickstart.md)** - Get started in 5 minutes
+- **[API Reference](docs/api-reference.md)** - Complete API documentation
+- **[Security Model](docs/security.md)** - Encryption and threat model
+- **[MCP Servers](docs/mcp.md)** - Model Context Protocol integration
+- **[Algorithms](docs/internal/ALGORITHM_STATUS.md)** - Ranking and retrieval algorithms
+- **[Deployment](DEPLOYMENT.md)** - Production deployment guide
+
+---
+
+## 🛠️ Development
+
+### Project Structure
+
+```
+contextcache/
+├── api/                      # FastAPI backend
+│   ├── cc_core/
+│   │   ├── auth/            # Clerk JWT verification
+│   │   ├── crypto/          # Encryption (Argon2, XChaCha20)
+│   │   ├── models/          # Database models
+│   │   ├── services/        # Business logic
+│   │   ├── analyzers/       # Ranking algorithms
+│   │   └── mcp/             # MCP servers
+│   ├── migrations/          # Database migrations
+│   └── main.py              # FastAPI app
+├── frontend/                # Next.js frontend
+│   ├── app/                 # App router pages
+│   ├── components/          # React components
+│   ├── lib/                 # API client, utils
+│   └── hooks/               # React hooks
+├── infra/                   # Infrastructure
+│   ├── cloudrun/            # Cloud Run deployment
+│   └── k6/                  # Load testing
+└── docs/                    # Documentation
+```
+
+### Running Tests
+
 ```bash
-# This would be at: https://github.com/thecontextcache/.github/profile/README.md
-# For now, you can update the main repo README
-nano README.md
+# Backend tests
+cd api
+pytest tests/ -v
 
+# Frontend tests
+cd frontend
+pnpm test
 
-Built for researchers who need answers they can trust.
+# Load testing
+cd infra/k6
+./run_load_test.sh
+```
+
+### Code Quality
+
+```bash
+# Linting
+cd api && ruff check .
+cd frontend && pnpm lint
+
+# Type checking
+cd api && mypy .
+cd frontend && pnpm type-check
+
+# Security scanning
+cd api && bandit -r cc_core/
+```
+
+---
+
+## 🌐 API Endpoints
+
+### Authentication
+- `POST /auth/unlock` - Unlock session with master passphrase
+- `GET /auth/status` - Check if session is unlocked
+- `POST /auth/logout` - Clear all session keys
+
+### Projects
+- `POST /projects` - Create encrypted project
+- `GET /projects` - List user's projects
+- `GET /projects/{id}` - Get project details
+- `GET /projects/{id}/stats` - Get project statistics
+
+### Documents
+- `POST /documents/ingest` - Upload and process documents
+- `GET /documents` - List project documents
+- `DELETE /documents/{id}` - Delete document
+
+### Query
+- `POST /ask` - Ask questions about your knowledge
+- `GET /facts` - List extracted facts
+- `GET /entities` - List extracted entities
+
+---
+
+## 💰 Cost
+
+### Free Tier (Perfect for getting started)
+- **Clerk**: 10,000 MAU (Monthly Active Users)
+- **Upstash Redis**: 10,000 requests/day
+- **Neon PostgreSQL**: 512MB compute, 1GB storage
+- **Cloud Run**: 2M requests/month
+- **Cloudflare Pages**: Unlimited
+
+### At Scale
+- **1,000 users**: ~$30/month
+- **10,000 users**: ~$150/month
+- **100,000 users**: ~$800/month
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+### Areas We Need Help
+- 🐛 Bug fixes and testing
+- 📚 Documentation improvements
+- 🎨 UI/UX enhancements
+- 🚀 Performance optimizations
+- 🔐 Security audits
+
+---
+
+## 📄 License
+
+Dual-licensed:
+- **PolyForm Noncommercial License 1.0.0** (default)
+- **Apache License 2.0** (for approved open-source use)
+
+See [LICENSING.md](LICENSING.md) for details.
+
+---
+
+## 🙏 Acknowledgments
+
+Built with:
+- [FastAPI](https://fastapi.tiangolo.com/) - Modern Python web framework
+- [Next.js](https://nextjs.org/) - React framework
+- [Clerk](https://clerk.com/) - Authentication
+- [Neon](https://neon.tech/) - Serverless Postgres
+- [Upstash](https://upstash.com/) - Serverless Redis
+- [pgvector](https://github.com/pgvector/pgvector) - Vector similarity search
+
+---
+
+## 📞 Support
+
+- **Documentation**: [docs/](docs/)
+- **Issues**: [GitHub Issues](https://github.com/thecontextcache/contextcache/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/thecontextcache/contextcache/discussions)
+- **Social**: [@thecontextcache](https://thecontextcache.bsky.social)
+
+---
+
+## 🗺️ Roadmap
+
+### v0.2 (Current - Alpha)
+- ✅ Clerk authentication integration
+- ✅ Multi-tenant architecture
+- ✅ Session-based encryption
+- ✅ Project management
+- ✅ Document ingestion
+
+### v0.3 (Next)
+- [ ] Document encryption (Phase 6)
+- [ ] Query with hybrid ranking
+- [ ] GraphQL API
+- [ ] Team/workspace features
+- [ ] Browser extension
+
+### v1.0 (Future)
+- [ ] Mobile app
+- [ ] Offline mode
+- [ ] API marketplace
+- [ ] Enterprise features
+- [ ] Self-hosted option
+
+---
+
+<p align="center">
+  Made with ❤️ by the ContextCache team
+</p>
+
+<p align="center">
+  <a href="https://github.com/thecontextcache/contextcache">⭐ Star us on GitHub</a> •
+  <a href="https://thecontextcache.bsky.social">🦋 Follow on Bluesky</a>
+</p>
