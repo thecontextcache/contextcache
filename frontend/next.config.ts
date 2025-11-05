@@ -1,9 +1,12 @@
 import type { NextConfig } from 'next';
 import path from 'path';
 
-// Note: setupDevPlatform() from @cloudflare/next-on-pages is optional
-// and only needed for local development. Removed to prevent build errors.
-// The adapter works fine in production without it.
+// Set up Cloudflare Pages development platform
+// This enables the Cloudflare Workers runtime in development
+if (process.env.NODE_ENV === 'development') {
+  const { setupDevPlatform } = await import('@cloudflare/next-on-pages/next-dev');
+  await setupDevPlatform();
+}
 
 const nextConfig: NextConfig = {
   // SSR mode with Cloudflare Workers via @cloudflare/next-on-pages
