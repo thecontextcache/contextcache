@@ -74,12 +74,23 @@ async def process_document_task(ctx: Dict[str, Any], document_id: str) -> Dict[s
                 chunk_texts
             )
             
+            # Get DEK for encryption (if available)
+            from cc_core.services.encryption_service import get_encryption_service
+            from cc_core.models.project import ProjectDB
+            encryption_service = get_encryption_service()
+
+            # Try to get project DEK (note: background job may not have session context)
+            # For now, store plaintext. Full encryption requires session-based processing.
+            # TODO: Implement service account encryption or defer to API processing
+
             # Store chunks
             for chunk, embedding in zip(chunks, embeddings):
                 chunk_record = DocumentChunkDB(
                     document_id=document.id,
                     chunk_index=int(chunk["chunk_id"].split("-")[1]),
                     text=chunk["text"],
+                    encrypted_text=None,  # TODO: Encrypt when session context available
+                    nonce=None,
                     embedding=embedding,
                     start_offset=chunk["start_offset"],
                     end_offset=chunk["end_offset"]
