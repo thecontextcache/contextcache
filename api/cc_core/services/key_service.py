@@ -35,14 +35,30 @@ class KeyService:
         self.redis = redis.from_url(redis_url, decode_responses=False)
         self.encryptor = Encryptor()
         
-        # Session encryption key (derived from Clerk secret)
-        clerk_secret = os.getenv("CLERK_SECRET_KEY", "")
-        if not clerk_secret:
-            raise ValueError("CLERK_SECRET_KEY not configured")
-        
-        # Use first 32 bytes of secret key for session encryption
-        # In production, use a dedicated SESSION_ENCRYPTION_KEY
-        self.session_key = clerk_secret.encode()[:32].ljust(32, b'\x00')
+        # Session encryption key (MUST be set in production)
+        # SECURITY: Use a dedicated 32-byte random key, NOT derived from Clerk secret
+        session_key_b64 = os.getenv("SESSION_ENCRYPTION_KEY")
+
+        if session_key_b64:
+            # Production: Use dedicated key from environment
+            import base64
+            try:
+                self.session_key = base64.b64decode(session_key_b64)
+                if len(self.session_key) != 32:
+                    raise ValueError("SESSION_ENCRYPTION_KEY must be exactly 32 bytes (base64 encoded)")
+            except Exception as e:
+                raise ValueError(f"Invalid SESSION_ENCRYPTION_KEY: {e}")
+        else:
+            # Development fallback: Derive from Clerk secret (NOT RECOMMENDED for production)
+            clerk_secret = os.getenv("CLERK_SECRET_KEY", "")
+            if not clerk_secret:
+                raise ValueError("Either SESSION_ENCRYPTION_KEY or CLERK_SECRET_KEY must be configured")
+
+            print("⚠️ WARNING: Using CLERK_SECRET_KEY for session encryption (development only)")
+            print("   Generate a dedicated key: openssl rand -base64 32")
+            print("   Set SESSION_ENCRYPTION_KEY environment variable for production")
+
+            self.session_key = clerk_secret.encode()[:32].ljust(32, b'\x00')
     
     # ========================================================================
     # KEK (Key Encryption Key) Management

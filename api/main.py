@@ -24,6 +24,7 @@ from cc_core.models.chunk import DocumentChunkDB
 from cc_core.services.document_service import DocumentService
 from cc_core.services.embedding_service import EmbeddingService
 from cc_core.services.key_service import get_key_service
+from cc_core.services.encryption_service import get_encryption_service
 from cc_core.auth import get_current_user, get_optional_user
 from datetime import datetime
 from dotenv import load_dotenv
@@ -101,23 +102,32 @@ async def lifespan(app: FastAPI):
     print("🚀 Starting ContextCache API...")
     await init_db()
     print("✅ Database connected")
-    
-    # Enable Redis pool if configured
-    if os.getenv("REDIS_URL"):
+
+    # Enable Redis pool for background jobs
+    redis_url = os.getenv("REDIS_URL")
+    if redis_url:
         try:
+            # Parse Redis URL for Arq settings
+            # Support both redis:// and rediss:// (SSL)
             app.state.redis_pool = await create_pool(
-                RedisSettings.from_dsn(os.getenv("REDIS_URL"))
+                RedisSettings.from_dsn(redis_url)
             )
-            print("✅ Job queue connected")
+            print("✅ Job queue connected (background jobs enabled)")
         except Exception as e:
-            print(f"⚠️ Failed to connect to Redis: {e}")
+            print(f"⚠️ Failed to connect to Redis job queue: {e}")
+            print("   Jobs will run inline (synchronously)")
             app.state.redis_pool = None
     else:
         app.state.redis_pool = None
-        print("ℹ️ Redis not configured (jobs will run inline)")
-    
+        print("ℹ️ REDIS_URL not configured - jobs will run inline")
+
     yield
-    
+
+    # Cleanup
+    if hasattr(app.state, 'redis_pool') and app.state.redis_pool:
+        await app.state.redis_pool.close()
+        print("✅ Job queue disconnected")
+
     print("👋 Shutting down ContextCache API")
 
 
@@ -854,19 +864,36 @@ async def trigger_ranking(
         select(ProjectDB).where(ProjectDB.id == project_id)
     )
     project = result.scalar_one_or_none()
-    
+
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
-    # TODO: Enable in production with Redis
-    # job = await app.state.redis_pool.enqueue_job('compute_ranking_task', project_id)
-    # return {"job_id": job.job_id, "status": "queued"}
-    
-    return {
-        "message": "Ranking computation would be queued here",
-        "project_id": project_id,
-        "status": "mock"
-    }
+
+    # Queue job if Redis is available
+    if hasattr(app.state, 'redis_pool') and app.state.redis_pool:
+        try:
+            job = await app.state.redis_pool.enqueue_job(
+                'compute_ranking_task',
+                project_id
+            )
+            return {
+                "job_id": job.job_id,
+                "status": "queued",
+                "project_id": project_id,
+                "message": "Ranking computation queued for background processing"
+            }
+        except Exception as e:
+            print(f"⚠️ Failed to queue ranking job: {e}")
+            return {
+                "status": "error",
+                "project_id": project_id,
+                "message": f"Failed to queue job: {str(e)}"
+            }
+    else:
+        return {
+            "status": "unavailable",
+            "project_id": project_id,
+            "message": "Background jobs not configured. Enable REDIS_URL to use job queue."
+        }
 
 # ============================================================================
 # DOCUMENTS
@@ -1061,13 +1088,50 @@ async def ingest_document(
         )
         print(f"✅ Embeddings generated: {len(embeddings)}")
 
-        # Store chunks
-        print("💾 Storing chunks...")
+        # Get DEK for encryption
+        key_service = get_key_service()
+        encryption_service = get_encryption_service()
+        session_id = current_user.get("session_id") if "current_user" in locals() else None
+        dek = None
+
+        if session_id:
+            dek = await key_service.get_dek(session_id, project_id)
+            if not dek:
+                # Try to decrypt DEK from database
+                result = await db.execute(
+                    select(ProjectDB).where(ProjectDB.id == project_id)
+                )
+                project = result.scalar_one_or_none()
+                if project and project.encrypted_dek:
+                    kek = await key_service.get_kek(session_id)
+                    if kek:
+                        dek = await key_service.decrypt_dek_with_kek(
+                            project.encrypted_dek,
+                            project.dek_nonce,
+                            kek
+                        )
+                        await key_service.store_dek(session_id, project_id, dek, ttl=300)
+
+        # Store chunks (with encryption if DEK available)
+        print(f"💾 Storing chunks{' (encrypted)' if dek else ' (plaintext - no DEK)'}...")
         for chunk, embedding in zip(chunks, embeddings):
+            chunk_text = chunk["text"]
+            encrypted_text = None
+            nonce = None
+
+            # Encrypt if DEK is available
+            if dek:
+                try:
+                    encrypted_text, nonce = encryption_service.encrypt_content(chunk_text, dek)
+                except Exception as e:
+                    print(f"⚠️ Encryption failed, storing plaintext: {e}")
+
             chunk_record = DocumentChunkDB(
                 document_id=document.id,
                 chunk_index=int(chunk["chunk_id"].split("-")[1]),
-                text=chunk["text"],
+                text=chunk_text,
+                encrypted_text=encrypted_text,
+                nonce=nonce,
                 embedding=embedding,
                 start_offset=chunk["start_offset"],
                 end_offset=chunk["end_offset"]
@@ -1155,23 +1219,45 @@ async def query_documents(
     project_id: str = Form(...),
     query: str = Form(...),
     limit: int = Form(5),
+    current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Semantic search across document chunks"""
+    """Semantic search across document chunks (with decryption)"""
     # Validate query
     if not query or len(query.strip()) < 1:
         raise HTTPException(status_code=400, detail="Query cannot be empty")
-    
+
     if len(query) > 1000:
         raise HTTPException(status_code=400, detail="Query too long. Maximum length is 1000 characters")
-    
+
     # Validate limit
     if limit < 1 or limit > 50:
         raise HTTPException(status_code=400, detail="Limit must be between 1 and 50")
-    
+
     embedding_service = EmbeddingService()
+    key_service = get_key_service()
+    encryption_service = get_encryption_service()
+    session_id = current_user["session_id"]
 
     try:
+        # Get DEK for decryption
+        dek = await key_service.get_dek(session_id, project_id)
+        if not dek:
+            # Try to decrypt DEK from database
+            result = await db.execute(
+                select(ProjectDB).where(ProjectDB.id == project_id)
+            )
+            project = result.scalar_one_or_none()
+            if project and project.encrypted_dek:
+                kek = await key_service.get_kek(session_id)
+                if kek:
+                    dek = await key_service.decrypt_dek_with_kek(
+                        project.encrypted_dek,
+                        project.dek_nonce,
+                        kek
+                    )
+                    await key_service.store_dek(session_id, project_id, dek, ttl=300)
+
         query_embedding = embedding_service.embed_text(query)
 
         result = await db.execute(
@@ -1190,11 +1276,26 @@ async def query_documents(
         results = []
         for row in rows:
             chunk, source_url, similarity = row
+
+            # Decrypt chunk text if encrypted
+            chunk_text = chunk.text
+            if chunk.encrypted_text and chunk.nonce and dek:
+                try:
+                    chunk_text = encryption_service.decrypt_content(
+                        chunk.encrypted_text,
+                        chunk.nonce,
+                        dek
+                    )
+                except Exception as e:
+                    print(f"⚠️ Decryption failed for chunk {chunk.id}, using plaintext: {e}")
+                    # Fall back to plaintext if decryption fails
+                    chunk_text = chunk.text
+
             results.append({
                 "chunk_id": str(chunk.id),
                 "document_id": str(chunk.document_id),
                 "source_url": source_url,
-                "text": chunk.text,
+                "text": chunk_text,
                 "similarity": float(similarity),
                 "chunk_index": chunk.chunk_index,
             })

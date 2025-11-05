@@ -19,7 +19,9 @@ class DocumentChunkDB(Base):
     id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     document_id = Column(PGUUID(as_uuid=True), nullable=False)
     chunk_index = Column(Integer, nullable=False)
-    text = Column(Text, nullable=False)
+    text = Column(Text, nullable=False)  # Will be deprecated in favor of encrypted_text
+    encrypted_text = Column(Text, nullable=True)  # Encrypted content (base64)
+    nonce = Column(String, nullable=True)  # Encryption nonce (hex)
     embedding = Column(Vector(384))  # all-MiniLM-L6-v2 dimension
     start_offset = Column(Integer, nullable=False)
     end_offset = Column(Integer, nullable=False)
