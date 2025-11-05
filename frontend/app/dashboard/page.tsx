@@ -36,15 +36,11 @@ export default function DashboardPage() {
     if (authChecking || !isSignedIn) {
       return;
     }
-
+  
     const loadProjectStats = async () => {
       setLoading(true);
       setError(null);
       try {
-        // ✅ FIX: Load projects from localStorage (local-first!)
-        // Don't call API - we only show projects the user created on this device
-        // This ensures data isolation: you only see your own projects
-        
         // Projects are already loaded from localStorage via Zustand persist middleware
         // Just need to refresh stats for the ones we have
         
@@ -84,10 +80,11 @@ export default function DashboardPage() {
         setLoading(false);
       }
     };
-
+  
     loadProjectStats();
+    // ✅ FIX: Remove 'projects' from dependencies to prevent infinite loop
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authChecking, isSignedIn, projects]); // Load when auth is checked and signed in
+  }, [authChecking, isSignedIn]); // Only run when auth state changes
 
   const handleRetry = () => {
     window.location.reload();

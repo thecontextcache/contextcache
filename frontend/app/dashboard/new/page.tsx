@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import api  from '@/lib/api';
+import api from '@/lib/api';
 import { useProjectStore } from '@/lib/store/project';
 import { deriveKey } from '@/lib/crypto';
 import { toast } from 'sonner';
@@ -23,18 +23,27 @@ export default function NewProjectPage() {
     setError(null);
 
     // Validation
-    if (!name || !passphrase) {
-      setError('Please fill in all fields');
+    if (!name.trim()) {
+      setError('Project name is required');
+      toast.error('Project name is required');
+      return;
+    }
+
+    if (!passphrase) {
+      setError('Passphrase is required');
+      toast.error('Passphrase is required');
       return;
     }
 
     if (passphrase.length < 20) {
       setError('Passphrase must be at least 20 characters');
+      toast.error('Passphrase must be at least 20 characters');
       return;
     }
 
     if (passphrase !== confirmPassphrase) {
       setError('Passphrases do not match');
+      toast.error('Passphrases do not match');
       return;
     }
 
@@ -43,33 +52,33 @@ export default function NewProjectPage() {
     try {
       console.log('🔧 Creating project:', name);
       
-      // Step 1: Create project on server (gets salt back)
-      const response = await api.createProject(name, passphrase);
+      // ✅ FIX: Use the createProject method from api (not api.client.post directly)
+      const projectData = await api.createProject(name.trim(), passphrase);
       
-      console.log('✅ Project created:', response);
-      console.log('🔑 Salt received:', response.salt);
+      console.log('✅ Project created:', projectData);
+      console.log('🔑 Salt received:', projectData.salt);
       
       // Step 2: Derive encryption key from passphrase + salt
       console.log('🔐 Deriving encryption key...');
-      const encryptionKey = await deriveKey(passphrase, response.salt!);
+      const encryptionKey = await deriveKey(passphrase, projectData.salt);
       console.log('✅ Encryption key derived and stored in memory');
       
       // Step 3: Store project metadata (with salt) in localStorage
       const newProject = {
-        id: response.id,
-        name: response.name,
-        salt: response.salt,  // ✅ Save salt for future key derivation
+        id: projectData.id,
+        name: projectData.name,
+        salt: projectData.salt,  // ✅ Save salt for future key derivation
         fact_count: 0,
         entity_count: 0,
-        created_at: response.created_at,
-        updated_at: response.updated_at,
+        created_at: projectData.created_at || new Date().toISOString(),
+        updated_at: projectData.updated_at || new Date().toISOString(),
       };
       
       addProject(newProject);
       setCurrentProject(newProject);
       
       // Step 4: Store encryption key in memory (NOT localStorage!)
-      setEncryptionKey(response.id, encryptionKey);
+      setEncryptionKey(projectData.id, encryptionKey);
       
       console.log('🎉 Project ready! Salt saved, key in memory.');
       
@@ -78,10 +87,42 @@ export default function NewProjectPage() {
         duration: 3000,
       });
       
-      router.push('/inbox');
+      // Small delay to show success toast before redirect
+      setTimeout(() => {
+        router.push('/inbox');
+      }, 500);
+      
     } catch (err: any) {
       console.error('❌ Failed to create project:', err);
-      const errorMessage = err.response?.data?.detail || err.message || 'Failed to create project. Please try again.';
+      console.error('Error details:', {
+        message: err.message,
+        response: err.response?.data,
+        status: err.response?.status,
+        hasRequest: !!err.request,
+      });
+      
+      // Handle different error types
+      let errorMessage = 'Failed to create project. Please try again.';
+      
+      if (err.response) {
+        // Server responded with error
+        if (err.response.status === 401) {
+          errorMessage = 'Authentication required. Please sign in again.';
+        } else if (err.response.status === 400) {
+          errorMessage = err.response.data?.detail || 'Invalid project data';
+        } else if (err.response.status === 409) {
+          errorMessage = 'Project name already exists';
+        } else if (err.response.data?.detail) {
+          errorMessage = err.response.data.detail;
+        }
+      } else if (err.request) {
+        // Network error - no response received
+        errorMessage = 'Network error. Is the backend running at http://localhost:8000?';
+        console.error('No response from server. Check if backend is running.');
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      
       setError(errorMessage);
       toast.error('Failed to create project', {
         description: errorMessage,
@@ -136,13 +177,14 @@ export default function NewProjectPage() {
                 placeholder="My Research Project"
                 className="w-full px-4 py-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all"
                 disabled={creating}
+                autoFocus
               />
             </div>
 
             {/* Passphrase */}
             <div className="p-8 rounded-2xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border border-slate-200 dark:border-slate-700">
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
-                Passphrase (min 20 characters)
+                Passphrase (minimum 20 characters)
               </label>
               <input
                 type="password"
@@ -165,6 +207,7 @@ export default function NewProjectPage() {
                 disabled={creating}
               />
 
+              {/* Security Warning */}
               <div className="mt-4 p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
                 <div className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center flex-shrink-0">
@@ -189,17 +232,30 @@ export default function NewProjectPage() {
                 animate={{ opacity: 1, y: 0 }}
                 className="p-4 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800"
               >
-                <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
+                <div className="flex items-start gap-3">
+                  <span className="text-red-500 text-lg">⚠️</span>
+                  <p className="text-sm text-red-700 dark:text-red-300 flex-1">{error}</p>
+                </div>
               </motion.div>
             )}
 
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={creating || !name || passphrase.length < 20 || passphrase !== confirmPassphrase}
+              disabled={creating || !name.trim() || passphrase.length < 20 || passphrase !== confirmPassphrase}
               className="w-full py-4 bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-semibold rounded-xl shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
             >
-              {creating ? 'Creating Project...' : 'Create Project'}
+              {creating ? (
+                <span className="flex items-center justify-center gap-2">
+                  <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Creating Project...
+                </span>
+              ) : (
+                'Create Project'
+              )}
             </button>
           </form>
         </motion.div>

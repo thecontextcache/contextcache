@@ -20,8 +20,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self,
         app,
         redis_url: Optional[str] = None,
-        requests_per_minute: int = 60,
-        requests_per_hour: int = 1000,
+        requests_per_minute: int = 300,  # ✅ Increased from 60
+        requests_per_hour: int = 5000,   # ✅ Increased from 1000
     ):
         super().__init__(app)
         self.redis_url = redis_url
@@ -33,8 +33,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         """Apply rate limiting to incoming requests"""
         
-        # Skip rate limiting for health checks
-        if request.url.path in ["/health", "/docs", "/openapi.json"]:
+        # ✅ Skip rate limiting for:
+        # 1. Health/docs endpoints
+        # 2. OPTIONS requests (CORS preflight)
+        # 3. Static files
+        if (
+            request.url.path in ["/health", "/docs", "/openapi.json", "/redoc"] or
+            request.method == "OPTIONS" or
+            request.url.path.startswith("/static/")
+        ):
             return await call_next(request)
 
         # Get client identifier (IP address)

@@ -137,15 +137,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Rate limiting middleware
+# Rate limiting middleware (with reasonable limits for free tier)
 if os.getenv("REDIS_URL"):
     app.add_middleware(
         RateLimitMiddleware,
         redis_url=os.getenv("REDIS_URL"),
-        requests_per_minute=60,
-        requests_per_hour=1000,
+        requests_per_minute=300,  # ✅ Increased - allows ~5 requests per second
+        requests_per_hour=5000,   # ✅ Increased - still protects free tier
     )
-    print("✅ Rate limiting enabled")
+    print("✅ Rate limiting enabled (300/min, 5000/hour)")
+else:
+    print("⚠️ Rate limiting disabled (Redis not configured)")
 
 # Request logging middleware
 @app.middleware("http")

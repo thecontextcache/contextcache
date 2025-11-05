@@ -9,10 +9,12 @@ export function DarkModeToggle() {
   return (
     <motion.button
       onClick={toggleTheme}
-      className="glass p-3 rounded-full hover:shadow-glow transition-all"
+      //FIX: Move to bottom-right corner, away from header elements
+      className="fixed bottom-24 right-6 z-50 glass p-3 rounded-full hover:shadow-glow transition-all"
       whileHover={{ scale: 1.05 }}
       whileTap={{ scale: 0.95 }}
       aria-label="Toggle dark mode"
+      title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
     >
       {theme === 'dark' ? (
         <svg className="w-5 h-5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">

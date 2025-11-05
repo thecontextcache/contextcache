@@ -8,7 +8,7 @@ import type { Project } from './types';
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 class APIClient {
-  private client: AxiosInstance;
+  client: AxiosInstance;
   private getToken: (() => Promise<string | null>) | null = null;
 
   constructor() {
@@ -41,7 +41,6 @@ class APIClient {
         if (error.response?.status === 401) {
           // Session expired or locked
           console.error('Authentication failed:', error.response.data);
-          // You could trigger a re-authentication flow here
         }
         return Promise.reject(error);
       }
@@ -92,14 +91,11 @@ class APIClient {
   // -------------------------
   // 🔹 Projects
   // -------------------------
-  async createProject(name: string): Promise<Project> {
-    const formData = new FormData();
-    formData.append('name', name);
-    
-    const response = await this.client.post<Project>('/projects', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+  async createProject(name: string, passphrase: string): Promise<Project> {
+    // ✅ FIX: Send JSON body with both name and passphrase
+    const response = await this.client.post<Project>('/projects', {
+      name: name,
+      passphrase: passphrase,
     });
     return response.data;
   }
@@ -119,13 +115,7 @@ class APIClient {
   }
 
   async updateProject(projectId: string, name: string): Promise<any> {
-    const formData = new FormData();
-    formData.append('name', name);
-    const response = await this.client.put(`/projects/${projectId}`, formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
+    const response = await this.client.put(`/projects/${projectId}`, { name });
     return response.data;
   }
 

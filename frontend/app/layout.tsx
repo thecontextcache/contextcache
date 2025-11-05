@@ -49,50 +49,53 @@ export default function RootLayout({
                   🚧 Alpha Version - Under Active Development
                 </div>
 
-                        {/* Clerk Auth Header - positioned below banner */}
-                        <header className="fixed top-10 right-0 z-50 p-4">
-                          <div className="flex items-center gap-3">
-                            <SignedOut>
-                              <SignInButton mode="modal">
-                                <button className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 hover:text-cyan-600 dark:hover:text-cyan-400 transition-colors bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm rounded-lg shadow-sm">
-                                  Sign In
-                                </button>
-                              </SignInButton>
-                              <SignUpButton mode="modal">
-                                <button className="px-4 py-2 text-sm font-medium bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600 text-white rounded-lg shadow-sm transition-all">
-                                  Sign Up
-                                </button>
-                              </SignUpButton>
-                            </SignedOut>
-                            <SignedIn>
-                              <UserButton 
-                                appearance={{
-                                  elements: {
-                                    avatarBox: "w-10 h-10 rounded-full border-2 border-cyan-500"
-                                  }
-                                }}
-                              />
-                            </SignedIn>
-                          </div>
-                        </header>
-                <div className="fixed top-20 right-4 z-50">
-                  <DarkModeToggle />
-                </div>
+                {/* Clerk Auth Header - positioned below banner */}
+                <header className="fixed top-10 right-0 z-50 p-4">
+                  <div className="flex items-center gap-3">
+                    <SignedOut>
+                      <SignInButton mode="modal">
+                        <button className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 hover:text-cyan-600 dark:hover:text-cyan-400 transition-colors bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm rounded-lg shadow-sm">
+                          Sign In
+                        </button>
+                      </SignInButton>
+                      <SignUpButton mode="modal">
+                        <button className="px-4 py-2 text-sm font-medium bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600 text-white rounded-lg shadow-sm transition-all">
+                          Sign Up
+                        </button>
+                      </SignUpButton>
+                    </SignedOut>
+                    <SignedIn>
+                      <UserButton 
+                        appearance={{
+                          elements: {
+                            avatarBox: "w-10 h-10 rounded-full border-2 border-cyan-500"
+                          }
+                        }}
+                      />
+                    </SignedIn>
+                  </div>
+                </header>
+                
+                {/* ✅ Dark Mode Toggle - Self-positioning component */}
+                <DarkModeToggle />
+                
+                {/* Navigation */}
                 <NavBar />
 
-                {/* Main content */}
-                <div className="min-h-screen">{children}</div>
+                {/* Main content - Add padding bottom for disclaimer */}
+                <div className="min-h-screen pb-20">{children}</div>
 
-                {/* Disclaimer */}
+                {/* ✅ ChatGPT-style Disclaimer Banner */}
                 <Disclaimer />
 
-                {/* Toast Notifications */}
+                {/* Toast Notifications - Offset for disclaimer */}
                 <Toaster
                   position="bottom-right"
                   expand={true}
                   richColors
                   closeButton
                   theme="system"
+                  offset="80px"
                 />
               </APIProvider>
             </ThemeProvider>
