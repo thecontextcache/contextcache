@@ -1,11 +1,11 @@
 'use client'
 
 import { Moon, Sun, Sparkles } from 'lucide-react'
-import { useTheme } from './theme-provider'
+import { useTheme } from 'next-themes'
 import { useEffect, useState } from 'react'
 
 export function EnhancedThemeToggle() {
-  const { theme, toggleTheme } = useTheme()
+  const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => setMounted(true), [])
@@ -16,7 +16,7 @@ export function EnhancedThemeToggle() {
 
   return (
     <button
-      onClick={toggleTheme}
+      onClick={() => setTheme(isDark ? 'light' : 'dark')}
       className="group relative h-12 w-12 rounded-2xl glass-card hover:scale-110
                  active:scale-95 transition-all duration-300 overflow-hidden"
       aria-label="Toggle theme"
