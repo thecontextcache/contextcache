@@ -2,24 +2,22 @@ import type { NextConfig } from 'next';
 import path from 'path';
 
 const nextConfig: NextConfig = {
-  // Note: Remove 'output: export' for local dev with Clerk
-  // Add it back for production static builds if needed
-  // output: 'export',
-  
+  // SSR mode - requires Vercel or @cloudflare/next-on-pages for Cloudflare
+  // Static export (output: 'export') doesn't work with Clerk's server components
   reactStrictMode: true,
   poweredByHeader: false,
   compress: true,
-  
+
   // Disable ESLint during production builds (Cloudflare Pages)
   eslint: {
     ignoreDuringBuilds: true,
   },
-  
+
   // Disable TypeScript errors during build (we can fix them later)
   typescript: {
     ignoreBuildErrors: true,
   },
-  
+
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
     NEXT_PUBLIC_APP_ENV: process.env.NEXT_PUBLIC_APP_ENV || 'development',
@@ -27,9 +25,6 @@ const nextConfig: NextConfig = {
 
   experimental: {
     optimizePackageImports: ['lucide-react', 'date-fns'],
-    serverActions: {
-      bodySizeLimit: '2mb',
-    },
   },
 
   webpack: (config, { isServer }) => {
