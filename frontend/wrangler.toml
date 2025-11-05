@@ -1,0 +1,27 @@
+# Cloudflare Pages Configuration for ContextCache Frontend
+# This file configures the Cloudflare Workers runtime for Next.js SSR
+
+name = "contextcache-frontend"
+compatibility_date = "2024-11-05"
+pages_build_output_dir = ".vercel/output/static"
+
+[env.production]
+name = "contextcache-frontend"
+routes = [
+  { pattern = "*", zone_name = "contextcache.com" }  # Replace with your domain
+]
+
+[env.preview]
+name = "contextcache-frontend-preview"
+
+# Node.js compatibility for Next.js
+compatibility_flags = [ "nodejs_compat" ]
+
+# Environment variables (set these in Cloudflare Pages dashboard)
+# NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+# CLERK_SECRET_KEY
+# NEXT_PUBLIC_API_URL
+# NEXT_PUBLIC_APP_ENV
+# NEXT_PUBLIC_ENABLE_ANALYTICS
+# NEXT_PUBLIC_ENABLE_EXPORT
+# NEXT_PUBLIC_ENABLE_GRAPH_VIEW
