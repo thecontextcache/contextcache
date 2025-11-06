@@ -48,7 +48,7 @@ export default function RootLayout({
             <ThemeProvider>
               <APIProvider>
                 {/* Alpha banner */}
-                <div className="relative z-40 bg-blue-600 text-white px-4 py-2 text-center text-sm font-medium safe-padding">
+                <div className="relative z-40 bg-primary text-primary-foreground px-4 py-2 text-center text-sm font-medium safe-padding">
                   Alpha Version - Under Active Development
                 </div>
 
@@ -57,28 +57,28 @@ export default function RootLayout({
                   <div className="flex items-center gap-3">
                     <SignedOut>
                       <SignInButton mode="modal">
-                        <button className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 hover:text-cyan-600 dark:hover:text-cyan-400 transition-colors bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm rounded-lg shadow-sm">
+                        <button className="px-4 py-2 text-sm font-medium text-foreground hover:text-primary transition-colors glass-card rounded-lg shadow-sm border border-border">
                           Sign In
                         </button>
                       </SignInButton>
                       <SignUpButton mode="modal">
-                        <button className="px-4 py-2 text-sm font-medium bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600 text-white rounded-lg shadow-sm transition-all">
+                        <button className="px-4 py-2 text-sm font-medium bg-primary hover:opacity-90 text-primary-foreground rounded-lg shadow-sm transition-all">
                           Sign Up
                         </button>
                       </SignUpButton>
                     </SignedOut>
                     <SignedIn>
-                      <UserButton 
+                      <UserButton
                         appearance={{
                           elements: {
-                            avatarBox: "w-10 h-10 rounded-full border-2 border-cyan-500"
+                            avatarBox: "w-10 h-10 rounded-full border-2 border-primary"
                           }
                         }}
                       />
                     </SignedIn>
                   </div>
                 </header>
-                
+
                 {/*  Dark Mode Toggle - Self-positioning component */}
                 <DarkModeToggle />
                 

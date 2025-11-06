@@ -4,42 +4,68 @@
 
 @layer base {
   :root {
-    /* Apple-Style Light Mode - Clean & Minimal */
+    /* Professional Light Mode - Modern SaaS Design */
     --background: 255 255 255;
-    --foreground: 0 0 0;
+    --foreground: 15 23 42; /* slate-900 */
     --card: 255 255 255;
-    --card-foreground: 0 0 0;
-    --primary: 0 122 255; /* Apple Blue */
+    --card-foreground: 15 23 42;
+    --primary: 59 130 246; /* blue-500 */
     --primary-foreground: 255 255 255;
-    --secondary: 142 142 147; /* Apple Gray */
-    --accent: 0 122 255;
-    --success: 52 199 89; /* Apple Green */
-    --warning: 255 149 0; /* Apple Orange */
-    --destructive: 255 59 48; /* Apple Red */
-    --muted: 242 242 247;
-    --muted-foreground: 142 142 147;
-    --border: 229 229 234;
-    --ring: 0 122 255;
+    --secondary: 100 116 139; /* slate-500 */
+    --secondary-foreground: 255 255 255;
+    --accent: 99 102 241; /* indigo-500 */
+    --accent-foreground: 255 255 255;
+    --success: 34 197 94; /* green-500 */
+    --warning: 245 158 11; /* amber-500 */
+    --destructive: 239 68 68; /* red-500 */
+    --muted: 248 250 252; /* slate-50 */
+    --muted-foreground: 100 116 139; /* slate-500 */
+    --border: 226 232 240; /* slate-200 */
+    --input: 226 232 240;
+    --ring: 59 130 246;
     --radius: 0.75rem;
+
+    /* Glass effect variables */
+    --glass-bg: rgba(255, 255, 255, 0.7);
+    --glass-border: rgba(226, 232, 240, 0.8);
+    --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
+
+    /* Gradient variables */
+    --gradient-from: 59 130 246; /* blue-500 */
+    --gradient-via: 99 102 241; /* indigo-500 */
+    --gradient-to: 139 92 246; /* violet-500 */
   }
 
   .dark {
-    /* Apple-Style Dark Mode - True Black */
-    --background: 0 0 0;
-    --foreground: 255 255 255;
-    --card: 28 28 30;
-    --card-foreground: 255 255 255;
-    --primary: 10 132 255; /* Apple Blue (Dark) */
-    --primary-foreground: 255 255 255;
-    --secondary: 142 142 147;
-    --accent: 10 132 255;
-    --success: 48 209 88;
-    --warning: 255 159 10;
-    --destructive: 255 69 58;
-    --muted: 28 28 30;
-    --muted-foreground: 142 142 147;
-    --border: 58 58 60;
-    --ring: 10 132 255;
+    /* Professional Dark Mode - Modern SaaS Design */
+    --background: 3 7 18; /* slate-950 */
+    --foreground: 248 250 252; /* slate-50 */
+    --card: 15 23 42; /* slate-900 */
+    --card-foreground: 248 250 252;
+    --primary: 96 165 250; /* blue-400 */
+    --primary-foreground: 15 23 42;
+    --secondary: 100 116 139; /* slate-500 */
+    --secondary-foreground: 248 250 252;
+    --accent: 129 140 248; /* indigo-400 */
+    --accent-foreground: 15 23 42;
+    --success: 74 222 128; /* green-400 */
+    --warning: 251 191 36; /* amber-400 */
+    --destructive: 248 113 113; /* red-400 */
+    --muted: 30 41 59; /* slate-800 */
+    --muted-foreground: 148 163 184; /* slate-400 */
+    --border: 51 65 85; /* slate-700 */
+    --input: 51 65 85;
+    --ring: 96 165 250;
+
+    /* Glass effect variables for dark mode */
+    --glass-bg: rgba(15, 23, 42, 0.7);
+    --glass-border: rgba(51, 65, 85, 0.8);
+    --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+
+    /* Gradient variables for dark mode */
+    --gradient-from: 96 165 250; /* blue-400 */
+    --gradient-via: 129 140 248; /* indigo-400 */
+    --gradient-to: 167 139 250; /* violet-400 */
   }
 
   * {
@@ -67,7 +93,7 @@
     overflow-x: hidden;
   }
 
-  /* Animated gradient background */
+  /* Subtle animated gradient background */
   body::before {
     content: '';
     position: fixed;
@@ -77,28 +103,28 @@
     height: 200%;
     background: radial-gradient(
       ellipse at 20% 30%,
-      rgba(var(--gradient-from), 0.15) 0%,
+      rgba(var(--gradient-from), 0.05) 0%,
       transparent 50%
     ),
     radial-gradient(
       ellipse at 80% 70%,
-      rgba(var(--gradient-via), 0.12) 0%,
+      rgba(var(--gradient-via), 0.04) 0%,
       transparent 50%
     ),
     radial-gradient(
       ellipse at 50% 50%,
-      rgba(var(--gradient-to), 0.08) 0%,
+      rgba(var(--gradient-to), 0.03) 0%,
       transparent 50%
     );
-    animation: gradientShift 20s ease infinite;
+    animation: gradientShift 30s ease infinite;
     pointer-events: none;
     z-index: -1;
   }
 
   @keyframes gradientShift {
-    0%, 100% { transform: translate(0, 0) rotate(0deg); }
-    33% { transform: translate(5%, -5%) rotate(120deg); }
-    66% { transform: translate(-5%, 5%) rotate(240deg); }
+    0%, 100% { transform: translate(0, 0) rotate(0deg); opacity: 0.5; }
+    33% { transform: translate(3%, -3%) rotate(120deg); opacity: 0.7; }
+    66% { transform: translate(-3%, 3%) rotate(240deg); opacity: 0.6; }
   }
 }
 
