@@ -7,6 +7,8 @@ import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 import { AuthGuard } from '@/components/auth-guard';
 
+export const runtime = 'edge';
+
 interface Fact {
   id: string;
   subject: string;

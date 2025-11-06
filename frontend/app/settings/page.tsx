@@ -6,6 +6,8 @@ import { useProjectStore } from '@/lib/store/project';
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 
+export const runtime = 'edge';
+
 export default function SettingsPage() {
   const router = useRouter();
   const { currentProject, projects, setProjects, setCurrentProject } = useProjectStore();

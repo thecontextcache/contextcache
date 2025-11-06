@@ -7,6 +7,8 @@ import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 import { toast } from 'sonner';
 
+export const runtime = 'edge';
+
 export default function InboxPage() {
   const router = useRouter();
   const { currentProject } = useProjectStore();

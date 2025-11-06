@@ -4,6 +4,8 @@ import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { Sparkles, Shield, Brain, Lock, Zap, LineChart } from 'lucide-react';
 
+export const runtime = 'edge';
+
 export default function Home() {
   const router = useRouter();
 
