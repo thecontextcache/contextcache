@@ -21,7 +21,7 @@ export default function Error({
     <div className="min-h-[100dvh] flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
       <div className="max-w-md w-full space-y-8 text-center">
         <div>
-          <div aria-hidden className="text-6xl">⚠️</div>
+          <div aria-hidden className="text-6xl"></div>
           <h2 className="mt-6 text-3xl font-bold text-gray-900 dark:text-white">
             Something went wrong
           </h2>

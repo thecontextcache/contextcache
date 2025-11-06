@@ -51,16 +51,13 @@ export default function UnlockProjectModal({
     setUnlocking(true);
 
     try {
-      console.log('🔐 Unlocking project:', project.name);
-      console.log('🔑 Deriving encryption key from passphrase...');
+
 
       // Derive encryption key from passphrase + salt
       const encryptionKey = await deriveKey(passphrase, project.salt);
 
       // Store key in memory
       setEncryptionKey(project.id, encryptionKey);
-
-      console.log('✅ Project unlocked! Key stored in memory.');
 
       toast.success('Project unlocked!', {
         description: `Access granted to "${project.name}"`,
@@ -71,7 +68,7 @@ export default function UnlockProjectModal({
       onUnlock();
       onClose();
     } catch (err: any) {
-      console.error('❌ Failed to unlock project:', err);
+      console.error(' Failed to unlock project:', err);
       const errorMsg = 'Incorrect passphrase. Please try again.';
       setError(errorMsg);
       toast.error('Unlock failed', {
@@ -109,7 +106,7 @@ export default function UnlockProjectModal({
               <div className="mb-6">
                 <div className="flex items-center gap-3 mb-3">
                   <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500/10 to-blue-500/10 flex items-center justify-center">
-                    <span className="text-2xl">🔒</span>
+                    <span className="text-2xl"></span>
                   </div>
                   <div>
                     <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
@@ -146,7 +143,7 @@ export default function UnlockProjectModal({
                 {/* Info Box */}
                 <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
                   <p className="text-xs text-blue-800 dark:text-blue-300">
-                    💡 Your passphrase is used to derive the encryption key locally.
+                     Your passphrase is used to derive the encryption key locally.
                     It never leaves your device.
                   </p>
                 </div>

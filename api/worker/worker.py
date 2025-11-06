@@ -52,7 +52,7 @@ async def rank_facts_job(project_id: str, storage_url: str, encryption_key: byte
                 decay_factor=decay_factor
             )
         
-        print(f"✅ Ranked {len(facts)} facts for project {project_id}")
+        print(f" Ranked {len(facts)} facts for project {project_id}")
         
     finally:
         await storage.disconnect()
@@ -90,7 +90,7 @@ async def apply_decay_job(project_id: str, storage_url: str, encryption_key: byt
                 decay_factor=decay_factors.get(fact.id, 1.0)
             )
         
-        print(f"✅ Applied decay to {len(facts)} facts for project {project_id}")
+        print(f" Applied decay to {len(facts)} facts for project {project_id}")
         
     finally:
         await storage.disconnect()

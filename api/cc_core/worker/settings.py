@@ -13,7 +13,7 @@ def get_redis_settings() -> RedisSettings:
     try:
         return RedisSettings.from_dsn(redis_url)
     except Exception as e:
-        print(f"⚠️ Failed to parse REDIS_URL, using defaults: {e}")
+        print(f" Failed to parse REDIS_URL, using defaults: {e}")
         # Fallback to manual configuration
         return RedisSettings(
             host=os.getenv("REDIS_HOST", "localhost"),

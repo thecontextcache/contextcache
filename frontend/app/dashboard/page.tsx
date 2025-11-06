@@ -82,7 +82,7 @@ export default function DashboardPage() {
     };
   
     loadProjectStats();
-    // ✅ FIX: Remove 'projects' from dependencies to prevent infinite loop
+    //  FIX: Remove 'projects' from dependencies to prevent infinite loop
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authChecking, isSignedIn]); // Only run when auth state changes
 
@@ -184,7 +184,7 @@ export default function DashboardPage() {
           animate={{ opacity: 1, scale: 1 }}
           className="text-center max-w-md space-y-6"
         >
-          <div className="text-6xl">⚠️</div>
+          <div className="text-6xl"></div>
           <div className="space-y-2">
             <h2 className="text-2xl font-semibold text-slate-900 dark:text-white">Connection Error</h2>
             <p className="text-slate-600 dark:text-slate-400">{error}</p>
@@ -238,7 +238,7 @@ export default function DashboardPage() {
             className="max-w-2xl mx-auto text-center py-20 space-y-8"
           >
             <div className="w-24 h-24 mx-auto bg-gradient-to-br from-cyan-500/10 to-blue-500/10 rounded-3xl flex items-center justify-center">
-              <span className="text-5xl">📁</span>
+              <span className="text-5xl"></span>
             </div>
             <div className="space-y-3">
               <h2 className="text-2xl font-semibold text-slate-900 dark:text-white">
@@ -283,11 +283,11 @@ export default function DashboardPage() {
                     </h3>
                     {isProjectUnlocked(project.id) ? (
                       <span className="text-green-500 text-xl" title="Unlocked">
-                        🔓
+                        
                       </span>
                     ) : (
                       <span className="text-slate-400 text-xl" title="Locked - click to unlock">
-                        🔒
+                        
                       </span>
                     )}
                   </div>

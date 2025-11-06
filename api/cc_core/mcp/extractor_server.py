@@ -94,7 +94,7 @@ class ExtractorServer(MCPServer):
             Dict with extracted facts and provenance
         """
         # Simple sentence-based extraction (MVP implementation)
-        # TODO: Replace with LLM-based extraction in Phase 3
+
         sentences = self._split_sentences(text)
         
         facts = []

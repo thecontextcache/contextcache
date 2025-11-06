@@ -44,16 +44,16 @@ export default function GraphPage() {
 
       setLoading(true);
       try {
-        console.log('📊 Loading graph for project:', currentProject.id);
+
         const response = await api.getProjectGraph(currentProject.id);        
-        console.log('✅ Graph loaded:', response);
+
         setGraphData({
           nodes: response.nodes || [],
           edges: response.edges || [],
           count: response.count || 0
         });
       } catch (error) {
-        console.error('❌ Failed to load graph:', error);
+        console.error(' Failed to load graph:', error);
         // Fallback to empty graph
         setGraphData({ nodes: [], edges: [], count: 0 });
       } finally {
@@ -90,7 +90,7 @@ export default function GraphPage() {
           animate={{ opacity: 1, scale: 1 }}
           className="text-center space-y-6"
         >
-          <div className="text-6xl">📁</div>
+          <div className="text-6xl"></div>
           <div className="space-y-2">
             <h2 className="text-2xl font-semibold text-slate-900 dark:text-white">
               No Project Selected
@@ -157,7 +157,7 @@ export default function GraphPage() {
             animate={{ opacity: 1, y: 0 }}
             className="text-center"
           >
-            <div className="text-6xl mb-6">🕸️</div>
+            <div className="text-6xl mb-6"></div>
             <h2 className="text-2xl font-semibold text-slate-900 dark:text-white mb-4">
               No Graph Data Yet
             </h2>
@@ -196,9 +196,9 @@ export default function GraphPage() {
                   </span>
                   <div className="flex gap-2">
                     {[
-                      { value: 'none', label: 'None', icon: '⚪' },
-                      { value: 'rank', label: 'Rank', icon: '📊' },
-                      { value: 'recency', label: 'Type', icon: '🎨' },
+                      { value: 'none', label: 'None', icon: '' },
+                      { value: 'rank', label: 'Rank', icon: '' },
+                      { value: 'recency', label: 'Type', icon: '' },
                     ].map((option) => (
                       <button
                         key={option.value}
@@ -258,7 +258,7 @@ export default function GraphPage() {
                           onClick={() => setSelectedNode(null)}
                           className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
                         >
-                          ✕
+                          
                         </button>
                       </div>
 
@@ -351,7 +351,7 @@ export default function GraphPage() {
                       exit={{ opacity: 0 }}
                       className="sticky top-24 p-12 rounded-2xl bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-dashed border-slate-300 dark:border-slate-700 text-center"
                     >
-                      <div className="text-4xl mb-3">🎯</div>
+                      <div className="text-4xl mb-3"></div>
                       <p className="text-sm text-slate-500 dark:text-slate-400">
                         Click any node to view details and connections
                       </p>
@@ -368,19 +368,19 @@ export default function GraphPage() {
               </h4>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                 <div className="flex items-center gap-2">
-                  <span className="text-slate-600 dark:text-slate-400">🖱️ Drag</span>
+                  <span className="text-slate-600 dark:text-slate-400"> Drag</span>
                   <span className="text-slate-500 dark:text-slate-500">Pan canvas</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-slate-600 dark:text-slate-400">🖱️ Click</span>
+                  <span className="text-slate-600 dark:text-slate-400"> Click</span>
                   <span className="text-slate-500 dark:text-slate-500">Select node</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-slate-600 dark:text-slate-400">🖱️ Scroll</span>
+                  <span className="text-slate-600 dark:text-slate-400"> Scroll</span>
                   <span className="text-slate-500 dark:text-slate-500">Zoom in/out</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-slate-600 dark:text-slate-400">🖱️ Hover</span>
+                  <span className="text-slate-600 dark:text-slate-400"> Hover</span>
                   <span className="text-slate-500 dark:text-slate-500">
                     Highlight connections
                   </span>

@@ -25,18 +25,17 @@ export default function InboxPage() {
   // Load documents from backend
   const loadDocuments = async () => {
     if (!currentProject) {
-      console.log('❌ No current project');
+
       return;
     }
 
-    console.log('📡 Loading documents for project:', currentProject.id);
     setLoadingDocs(true);
     try {
       const docs = await api.listDocuments(currentProject.id);
-      console.log('✅ Documents loaded:', docs);
+
       setDocuments(docs);
     } catch (err) {
-      console.error('❌ Failed to load documents:', err);
+      console.error(' Failed to load documents:', err);
     } finally {
       setLoadingDocs(false);
     }
@@ -48,7 +47,6 @@ export default function InboxPage() {
 
   // Handle ingestion (upload or URL)
   const handleIngest = async (fileToUpload?: File) => {
-    console.log('🚀 Starting ingest, current project:', currentProject);
 
     if (!currentProject) {
       toast.error('No project selected!');
@@ -66,7 +64,7 @@ export default function InboxPage() {
     setError(null);
 
     try {
-      console.log('📤 Uploading to API...', {
+      console.log(' Uploading to API...', {
         projectId: currentProject.id,
         file: file?.name,
         url,
@@ -74,8 +72,6 @@ export default function InboxPage() {
 
       await api.ingestDocument(currentProject.id, file || undefined, url || undefined);
 
-      console.log('✅ Upload successful!');
-      
       toast.success('Document ingested successfully!', {
         description: file ? file.name : url,
         duration: 3000,
@@ -89,7 +85,7 @@ export default function InboxPage() {
       // Reload documents
       await loadDocuments();
     } catch (err) {
-      console.error('❌ Failed to ingest document:', err);
+      console.error(' Failed to ingest document:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to ingest document';
       setError(errorMessage);
       toast.error('Upload failed', {
@@ -121,7 +117,7 @@ export default function InboxPage() {
 
       if (e.dataTransfer.files && e.dataTransfer.files[0]) {
         const file = e.dataTransfer.files[0];
-        console.log('📁 File dropped:', file.name);
+
         setSelectedFile(file);
         await handleIngest(file); // Pass file directly
       }
@@ -133,7 +129,7 @@ export default function InboxPage() {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     e.preventDefault();
     if (e.target.files && e.target.files[0]) {
-      console.log('📁 File selected:', e.target.files[0].name);
+
       setSelectedFile(e.target.files[0]);
     }
   };
@@ -153,7 +149,7 @@ export default function InboxPage() {
           animate={{ opacity: 1, scale: 1 }}
           className="text-center space-y-6"
         >
-          <div className="text-6xl">📁</div>
+          <div className="text-6xl"></div>
           <div className="space-y-2">
             <h2 className="text-2xl font-semibold text-slate-900 dark:text-white">
               No Project Selected
@@ -246,7 +242,7 @@ export default function InboxPage() {
               Upload Files
             </h2>
 
-            {/* 🔹 Drag & Drop Zone */}
+            {/*  Drag & Drop Zone */}
             <div
               onDragEnter={handleDrag}
               onDragLeave={handleDrag}
@@ -286,7 +282,7 @@ export default function InboxPage() {
                 {/* File Browse Button - Separated */}
                 <div className="pt-4">
                   <label className="inline-block cursor-pointer px-6 py-3 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-all font-medium">
-                    📁 Choose File
+                     Choose File
                     <input
                       key={fileInputKey}
                       type="file"
@@ -305,7 +301,7 @@ export default function InboxPage() {
               <div className="mt-6 p-6 bg-cyan-50 dark:bg-cyan-900/20 rounded-xl border-2 border-cyan-200 dark:border-cyan-800">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-3">
-                    <span className="text-2xl">📎</span>
+                    <span className="text-2xl"></span>
                     <div>
                       <p className="font-semibold text-slate-900 dark:text-white">
                         {selectedFile.name}
@@ -323,7 +319,7 @@ export default function InboxPage() {
                     }}
                     className="text-slate-400 hover:text-red-500 transition-colors"
                   >
-                    ✕
+                    
                   </button>
                 </div>
 
@@ -354,7 +350,7 @@ export default function InboxPage() {
                       Uploading...
                     </span>
                   ) : (
-                    '📤 Upload File to Project'
+                    ' Upload File to Project'
                   )}
                 </button>
               </div>

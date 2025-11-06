@@ -45,9 +45,9 @@ try:
             traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
             environment=os.getenv("ENVIRONMENT", "development"),
         )
-        print("✅ Sentry monitoring enabled")
+        print(" Sentry monitoring enabled")
 except ImportError:
-    print("ℹ️ Sentry SDK not installed (pip install sentry-sdk[fastapi])")
+    print("ℹ Sentry SDK not installed (pip install sentry-sdk[fastapi])")
 
 # Thread pool for CPU-intensive tasks
 executor = ThreadPoolExecutor(max_workers=4)
@@ -67,16 +67,16 @@ load_dotenv(".env.local")
 
 def validate_environment():
     """Validate required environment variables at startup"""
-    print("🔍 Validating environment variables...")
+    print(" Validating environment variables...")
     
     # Check required variables
     required_vars = ["DATABASE_URL"]
     missing = [var for var in required_vars if not os.getenv(var)]
     
     if missing:
-        raise ValueError(f"❌ Missing required environment variables: {', '.join(missing)}")
+        raise ValueError(f" Missing required environment variables: {', '.join(missing)}")
     
-    print("✅ Required environment variables present")
+    print(" Required environment variables present")
     
     # Warn about recommended variables
     recommended = {
@@ -87,7 +87,7 @@ def validate_environment():
     
     for var, message in recommended.items():
         if not os.getenv(var):
-            print(f"⚠️ {var} not set - {message}")
+            print(f" {var} not set - {message}")
     
     print()
 
@@ -99,9 +99,9 @@ validate_environment()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
-    print("🚀 Starting ContextCache API...")
+    print(" Starting ContextCache API...")
     await init_db()
-    print("✅ Database connected")
+    print(" Database connected")
 
     # Enable Redis pool for background jobs
     redis_url = os.getenv("REDIS_URL")
@@ -112,23 +112,23 @@ async def lifespan(app: FastAPI):
             app.state.redis_pool = await create_pool(
                 RedisSettings.from_dsn(redis_url)
             )
-            print("✅ Job queue connected (background jobs enabled)")
+            print(" Job queue connected (background jobs enabled)")
         except Exception as e:
-            print(f"⚠️ Failed to connect to Redis job queue: {e}")
+            print(f" Failed to connect to Redis job queue: {e}")
             print("   Jobs will run inline (synchronously)")
             app.state.redis_pool = None
     else:
         app.state.redis_pool = None
-        print("ℹ️ REDIS_URL not configured - jobs will run inline")
+        print("ℹ REDIS_URL not configured - jobs will run inline")
 
     yield
 
     # Cleanup
     if hasattr(app.state, 'redis_pool') and app.state.redis_pool:
         await app.state.redis_pool.close()
-        print("✅ Job queue disconnected")
+        print(" Job queue disconnected")
 
-    print("👋 Shutting down ContextCache API")
+    print(" Shutting down ContextCache API")
 
 
 app = FastAPI(
@@ -152,12 +152,12 @@ if os.getenv("REDIS_URL"):
     app.add_middleware(
         RateLimitMiddleware,
         redis_url=os.getenv("REDIS_URL"),
-        requests_per_minute=300,  # ✅ Increased - allows ~5 requests per second
-        requests_per_hour=5000,   # ✅ Increased - still protects free tier
+        requests_per_minute=300,  #  Increased - allows ~5 requests per second
+        requests_per_hour=5000,   #  Increased - still protects free tier
     )
-    print("✅ Rate limiting enabled (300/min, 5000/hour)")
+    print(" Rate limiting enabled (300/min, 5000/hour)")
 else:
-    print("⚠️ Rate limiting disabled (Redis not configured)")
+    print(" Rate limiting disabled (Redis not configured)")
 
 # Request logging middleware
 @app.middleware("http")
@@ -282,12 +282,12 @@ async def unlock_session(
         db.add(user)
         await db.commit()
         await db.refresh(user)
-        print(f"✅ New user created: {user.clerk_user_id[:10]}... (email: {user.email})")
+        print(f" New user created: {user.clerk_user_id[:10]}... (email: {user.email})")
     
     # Derive KEK from passphrase
     try:
         kek = encryptor.derive_key(master_passphrase, user.kek_salt)
-        print(f"✅ KEK derived for user {user.clerk_user_id[:10]}...")
+        print(f" KEK derived for user {user.clerk_user_id[:10]}...")
     except Exception as e:
         raise HTTPException(
             status_code=400,
@@ -434,7 +434,7 @@ async def create_project(
     # Cache DEK in Redis (5 min TTL)
     await key_service.store_dek(session_id, str(db_project.id), dek, ttl=300)
     
-    print(f"✅ Project created: {db_project.name} (id: {str(db_project.id)[:8]}...)")
+    print(f" Project created: {db_project.name} (id: {str(db_project.id)[:8]}...)")
 
     return ProjectResponse(
         id=db_project.id,
@@ -544,9 +544,9 @@ async def get_project(
                 )
                 # Cache for 5 minutes
                 await key_service.store_dek(session_id, project_id, dek, ttl=300)
-                print(f"✅ DEK decrypted and cached for project {project_id[:8]}...")
+                print(f" DEK decrypted and cached for project {project_id[:8]}...")
             except Exception as e:
-                print(f"⚠️ Failed to decrypt DEK: {e}")
+                print(f" Failed to decrypt DEK: {e}")
 
     return ProjectResponse(
         id=project.id,
@@ -882,7 +882,7 @@ async def trigger_ranking(
                 "message": "Ranking computation queued for background processing"
             }
         except Exception as e:
-            print(f"⚠️ Failed to queue ranking job: {e}")
+            print(f" Failed to queue ranking job: {e}")
             return {
                 "status": "error",
                 "project_id": project_id,
@@ -939,7 +939,7 @@ async def ingest_document(
                     detail="Invalid URL. Must start with http:// or https://"
                 )
             
-            print(f"📥 Fetching URL: {source_url}")
+            print(f" Fetching URL: {source_url}")
             text, title = await doc_service.fetch_url_content(source_url)
             
             # Validate URL content size
@@ -950,7 +950,7 @@ async def ingest_document(
                 )
             
             content_hash = doc_service.compute_content_hash(text)
-            print(f"✅ URL fetched: {len(text)} chars")
+            print(f" URL fetched: {len(text)} chars")
 
         elif source_type == "file":
             if not file:
@@ -968,7 +968,7 @@ async def ingest_document(
                     detail=f"Unsupported file type '{file_ext}'. Allowed types: {', '.join(ALLOWED_FILE_EXTENSIONS)}"
                 )
 
-            print(f"📥 Reading file: {file.filename}")
+            print(f" Reading file: {file.filename}")
             file_content = await file.read()
             
             # Validate file size
@@ -985,11 +985,11 @@ async def ingest_document(
                     detail="File is empty"
                 )
             
-            print(f"✅ File read: {len(file_content)} bytes")
+            print(f" File read: {len(file_content)} bytes")
             
             # Extract text based on file type
             if file_ext == ".pdf":
-                print("📄 Extracting PDF text...")
+                print(" Extracting PDF text...")
                 text = await doc_service.extract_text_from_pdf(file_content)
             elif file_ext == ".txt":
                 try:
@@ -1007,7 +1007,7 @@ async def ingest_document(
 
             content_hash = doc_service.compute_content_hash(text)
             source_url = file.filename
-            print(f"✅ Text extracted: {len(text)} chars")
+            print(f" Text extracted: {len(text)} chars")
 
         else:
             raise HTTPException(
@@ -1023,7 +1023,7 @@ async def ingest_document(
             )
 
         # Check for duplicates
-        print("🔍 Checking for duplicates...")
+        print(" Checking for duplicates...")
         result = await db.execute(
             select(DocumentDB).where(
                 DocumentDB.project_id == project_id,
@@ -1037,7 +1037,7 @@ async def ingest_document(
             )
 
         # Create document record
-        print("💾 Creating document record...")
+        print(" Creating document record...")
         document = DocumentDB(
             project_id=project_id,
             source_type=source_type,
@@ -1048,7 +1048,7 @@ async def ingest_document(
         db.add(document)
         await db.commit()
         await db.refresh(document)
-        print(f"✅ Document created: {document.id}")
+        print(f" Document created: {document.id}")
 
         # Check if we should queue this job
         if background and hasattr(app.state, 'redis_pool') and app.state.redis_pool:
@@ -1057,7 +1057,7 @@ async def ingest_document(
                     'process_document_task',
                     str(document.id)
                 )
-                print(f"✅ Job queued: {job.job_id}")
+                print(f" Job queued: {job.job_id}")
                 return {
                     "id": str(document.id),
                     "project_id": document.project_id,
@@ -1068,25 +1068,25 @@ async def ingest_document(
                     "created_at": document.created_at.isoformat(),
                 }
             except Exception as e:
-                print(f"⚠️ Failed to queue job, processing inline: {e}")
+                print(f" Failed to queue job, processing inline: {e}")
                 # Fall through to inline processing
 
         # Process inline (default)
         # Chunk the text
-        print("✂️ Chunking text...")
+        print(" Chunking text...")
         chunks = doc_service.chunk_text(text, chunk_size=1000, overlap=200)
         chunk_texts = [c["text"] for c in chunks]
-        print(f"✅ Created {len(chunks)} chunks")
+        print(f" Created {len(chunks)} chunks")
 
         # Create embeddings (NON-BLOCKING!)
-        print("🧠 Generating embeddings (this may take a moment)...")
+        print(" Generating embeddings (this may take a moment)...")
         loop = asyncio.get_event_loop()
         embeddings = await loop.run_in_executor(
             executor,
             embedding_service.embed_batch,
             chunk_texts
         )
-        print(f"✅ Embeddings generated: {len(embeddings)}")
+        print(f" Embeddings generated: {len(embeddings)}")
 
         # Get DEK for encryption
         key_service = get_key_service()
@@ -1113,7 +1113,7 @@ async def ingest_document(
                         await key_service.store_dek(session_id, project_id, dek, ttl=300)
 
         # Store chunks (with encryption if DEK available)
-        print(f"💾 Storing chunks{' (encrypted)' if dek else ' (plaintext - no DEK)'}...")
+        print(f" Storing chunks{' (encrypted)' if dek else ' (plaintext - no DEK)'}...")
         for chunk, embedding in zip(chunks, embeddings):
             chunk_text = chunk["text"]
             encrypted_text = None
@@ -1124,7 +1124,7 @@ async def ingest_document(
                 try:
                     encrypted_text, nonce = encryption_service.encrypt_content(chunk_text, dek)
                 except Exception as e:
-                    print(f"⚠️ Encryption failed, storing plaintext: {e}")
+                    print(f" Encryption failed, storing plaintext: {e}")
 
             chunk_record = DocumentChunkDB(
                 document_id=document.id,
@@ -1145,7 +1145,7 @@ async def ingest_document(
 
         await db.commit()
         await db.refresh(document)
-        print(f"✅ Document processing complete!")
+        print(f" Document processing complete!")
 
         return DocumentResponse(
             id=document.id,
@@ -1164,7 +1164,7 @@ async def ingest_document(
         raise
     except Exception as e:
         # Log and return internal error
-        print(f"❌ Error processing document: {str(e)}")
+        print(f" Error processing document: {str(e)}")
         import traceback
         traceback.print_exc()
         raise HTTPException(
@@ -1287,7 +1287,7 @@ async def query_documents(
                         dek
                     )
                 except Exception as e:
-                    print(f"⚠️ Decryption failed for chunk {chunk.id}, using plaintext: {e}")
+                    print(f" Decryption failed for chunk {chunk.id}, using plaintext: {e}")
                     # Fall back to plaintext if decryption fails
                     chunk_text = chunk.text
 

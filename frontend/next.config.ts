@@ -36,8 +36,7 @@ const nextConfig: NextConfig = {
     const rootDir = process.cwd();
 
     // Log for debugging (will appear in build logs)
-    console.log('[Next.js Config] Current working directory:', rootDir);
-    console.log('[Next.js Config] Setting up path aliases...');
+
 
     // Explicitly set path aliases for Cloudflare Pages compatibility
     const aliases = {
@@ -49,8 +48,6 @@ const nextConfig: NextConfig = {
       '@/styles': path.join(rootDir, 'styles'),
       '@/app': path.join(rootDir, 'app'),
     };
-
-    console.log('[Next.js Config] Path aliases:', JSON.stringify(aliases, null, 2));
 
     config.resolve.alias = {
       ...config.resolve.alias,

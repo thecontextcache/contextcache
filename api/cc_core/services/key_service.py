@@ -54,7 +54,7 @@ class KeyService:
             if not clerk_secret:
                 raise ValueError("Either SESSION_ENCRYPTION_KEY or CLERK_SECRET_KEY must be configured")
 
-            print("⚠️ WARNING: Using CLERK_SECRET_KEY for session encryption (development only)")
+            print(" WARNING: Using CLERK_SECRET_KEY for session encryption (development only)")
             print("   Generate a dedicated key: openssl rand -base64 32")
             print("   Set SESSION_ENCRYPTION_KEY environment variable for production")
 
@@ -84,7 +84,7 @@ class KeyService:
         redis_key = f"kek:{session_id}"
         self.redis.setex(redis_key, ttl, encrypted_kek)
         
-        print(f"✅ KEK stored for session {session_id[:8]}... (expires in {ttl}s)")
+        print(f" KEK stored for session {session_id[:8]}... (expires in {ttl}s)")
     
     async def get_kek(self, session_id: str) -> Optional[bytes]:
         """
@@ -100,7 +100,7 @@ class KeyService:
         encrypted_kek = self.redis.get(redis_key)
         
         if not encrypted_kek:
-            print(f"⚠️ KEK not found for session {session_id[:8]}... (expired or never set)")
+            print(f" KEK not found for session {session_id[:8]}... (expired or never set)")
             return None
         
         # Decrypt KEK
@@ -120,7 +120,7 @@ class KeyService:
         redis_key = f"kek:{session_id}"
         if self.redis.exists(redis_key):
             self.redis.expire(redis_key, ttl)
-            print(f"✅ KEK TTL extended for session {session_id[:8]}...")
+            print(f" KEK TTL extended for session {session_id[:8]}...")
     
     # ========================================================================
     # DEK (Data Encryption Key) Management
@@ -148,7 +148,7 @@ class KeyService:
         redis_key = f"dek:{session_id}:{project_id}"
         self.redis.setex(redis_key, ttl, dek)
         
-        print(f"✅ DEK cached for project {project_id[:8]}... (expires in {ttl}s)")
+        print(f" DEK cached for project {project_id[:8]}... (expires in {ttl}s)")
     
     async def get_dek(self, session_id: str, project_id: str) -> Optional[bytes]:
         """
@@ -165,9 +165,9 @@ class KeyService:
         dek = self.redis.get(redis_key)
         
         if dek:
-            print(f"✅ DEK cache hit for project {project_id[:8]}...")
+            print(f" DEK cache hit for project {project_id[:8]}...")
         else:
-            print(f"⚠️ DEK cache miss for project {project_id[:8]}...")
+            print(f" DEK cache miss for project {project_id[:8]}...")
         
         return dek
     
@@ -231,7 +231,7 @@ class KeyService:
             self.redis.delete(key)
             deleted_deks += 1
         
-        print(f"✅ Session cleared: {deleted_kek} KEK, {deleted_deks} DEKs deleted")
+        print(f" Session cleared: {deleted_kek} KEK, {deleted_deks} DEKs deleted")
     
     async def clear_project_deks(self, project_id: str):
         """
@@ -247,7 +247,7 @@ class KeyService:
             self.redis.delete(key)
             deleted += 1
         
-        print(f"✅ Cleared {deleted} cached DEKs for project {project_id[:8]}...")
+        print(f" Cleared {deleted} cached DEKs for project {project_id[:8]}...")
     
     # ========================================================================
     # Utilities
@@ -262,7 +262,7 @@ class KeyService:
         try:
             return self.redis.ping()
         except Exception as e:
-            print(f"❌ Redis health check failed: {e}")
+            print(f" Redis health check failed: {e}")
             return False
 
 

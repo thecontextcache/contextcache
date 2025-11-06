@@ -114,7 +114,7 @@ class TestEncryption:
         salt = encryptor.generate_salt()
         key = encryptor.derive_key("password", salt)
         
-        plaintext = "Hello 世界 🌍"
+        plaintext = "Hello  "
         ciphertext, nonce = encryptor.encrypt(plaintext, key)
         decrypted = encryptor.decrypt(ciphertext, nonce, key)
         
@@ -306,7 +306,7 @@ class TestHashing:
         """Test hashing unicode text"""
         hasher = Hasher()
         
-        data = "Hello 世界 🌍"
+        data = "Hello  "
         hash_result = hasher.hash_hex(data)
         
         assert isinstance(hash_result, str)

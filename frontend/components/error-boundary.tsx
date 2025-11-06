@@ -23,7 +23,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: any) {
-    console.error('❌ Error caught by boundary:', error, errorInfo);
+    console.error(' Error caught by boundary:', error, errorInfo);
   }
 
   render() {
@@ -35,7 +35,7 @@ export class ErrorBoundary extends Component<Props, State> {
       return (
         <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-cyan-50 to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-4">
           <div className="max-w-md w-full text-center space-y-6">
-            <div className="text-6xl">⚠️</div>
+            <div className="text-6xl"></div>
             <div className="space-y-2">
               <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
                 Something Went Wrong

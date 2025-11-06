@@ -49,7 +49,7 @@ export default function RootLayout({
               <APIProvider>
                 {/* Alpha banner */}
                 <div className="relative z-40 bg-gradient-to-r from-yellow-500 to-orange-500 text-black px-4 py-2 text-center text-sm font-medium safe-padding">
-                  🚧 Alpha Version - Under Active Development
+                   Alpha Version - Under Active Development
                 </div>
 
                 {/* Clerk Auth Header - positioned below banner */}
@@ -79,7 +79,7 @@ export default function RootLayout({
                   </div>
                 </header>
                 
-                {/* ✅ Dark Mode Toggle - Self-positioning component */}
+                {/*  Dark Mode Toggle - Self-positioning component */}
                 <DarkModeToggle />
                 
                 {/* Navigation */}
@@ -88,7 +88,7 @@ export default function RootLayout({
                 {/* Main content - Add padding bottom for disclaimer */}
                 <div className="min-h-screen pb-20">{children}</div>
 
-                {/* ✅ ChatGPT-style Disclaimer Banner */}
+                {/*  ChatGPT-style Disclaimer Banner */}
                 <Disclaimer />
 
                 {/* Toast Notifications - Offset for disclaimer */}
