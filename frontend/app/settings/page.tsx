@@ -99,12 +99,9 @@ export default function SettingsPage() {
 
     setDeleting(true);
     try {
-      console.log('🗑️ Deleting project:', currentProject.id);
-      
+
       await api.deleteProject(currentProject.id);
-      
-      console.log('✅ Project deleted successfully');
-      
+
       // Remove from store
       const updatedProjects = projects.filter(p => p.id !== currentProject.id);
       setProjects(updatedProjects);
@@ -116,7 +113,7 @@ export default function SettingsPage() {
       }, 100);
       
     } catch (err) {
-      console.error('❌ Failed to delete project:', err);
+      console.error(' Failed to delete project:', err);
       alert('Failed to delete project. Please try again.');
       setDeleting(false);
     }
@@ -131,7 +128,7 @@ export default function SettingsPage() {
           animate={{ opacity: 1, scale: 1 }}
           className="text-center space-y-6"
         >
-          <div className="text-6xl">📁</div>
+          <div className="text-6xl"></div>
           <div className="space-y-2">
             <h2 className="text-2xl font-semibold text-slate-900 dark:text-white">
               No Project Selected
@@ -278,7 +275,7 @@ export default function SettingsPage() {
             <div className="space-y-4">
               <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
                 <div className="flex items-start gap-3">
-                  <span className="text-2xl">🔐</span>
+                  <span className="text-2xl"></span>
                   <div>
                     <p className="text-sm font-semibold text-amber-800 dark:text-amber-300 mb-1">
                       Zero-Knowledge Encryption
@@ -295,7 +292,7 @@ export default function SettingsPage() {
                 onClick={handleRotatePassphrase}
                 className="w-full px-4 py-3 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-all font-medium flex items-center justify-center gap-2"
               >
-                <span>🔑</span>
+                <span></span>
                 <span>Rotate Passphrase</span>
               </button>
 
@@ -303,13 +300,13 @@ export default function SettingsPage() {
                 onClick={handleExportRecoveryKit}
                 className="w-full px-4 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all font-medium flex items-center justify-center gap-2"
               >
-                <span>💾</span>
+                <span></span>
                 <span>Export Recovery Kit</span>
               </button>
 
               <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  💡 <strong>Recovery Kit</strong> contains your project encryption key as a
+                   <strong>Recovery Kit</strong> contains your project encryption key as a
                   24-word mnemonic. Store it securely offline (print or secure USB).
                 </p>
               </div>
@@ -388,14 +385,14 @@ export default function SettingsPage() {
                 onClick={() => setShowDeleteConfirm(true)}
                 className="w-full px-4 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all font-medium flex items-center justify-center gap-2"
               >
-                <span>🗑️</span>
+                <span></span>
                 <span>Delete Project</span>
               </button>
             ) : (
               <div className="space-y-4">
                 <div className="p-4 rounded-lg bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700">
                   <p className="text-sm text-red-800 dark:text-red-300 font-semibold mb-2">
-                    ⚠️ This action cannot be undone
+                     This action cannot be undone
                   </p>
                   <p className="text-xs text-red-700 dark:text-red-400">
                     All facts, entities, relations, and audit logs will be permanently deleted.

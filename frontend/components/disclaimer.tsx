@@ -15,14 +15,14 @@ export function Disclaimer() {
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: 100, opacity: 0 }}
         transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-        // ✅ ChatGPT-style: Full-width banner at bottom, above everything
+        //  ChatGPT-style: Full-width banner at bottom, above everything
         className="fixed bottom-0 left-0 right-0 z-[100] border-t border-amber-300 dark:border-amber-700/50 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 backdrop-blur-md"
       >
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
           {/* Left side: Icon + Message */}
           <div className="flex items-center gap-3 flex-1">
             <div className="flex-shrink-0 text-lg" aria-hidden="true">
-              ⚠️
+              
             </div>
             <p className="text-xs sm:text-sm text-amber-900 dark:text-amber-200 leading-snug">
               <strong className="font-semibold">Reality Check:</strong>{' '}

@@ -20,8 +20,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self,
         app,
         redis_url: Optional[str] = None,
-        requests_per_minute: int = 300,  # ✅ Increased from 60
-        requests_per_hour: int = 5000,   # ✅ Increased from 1000
+        requests_per_minute: int = 300,  #  Increased from 60
+        requests_per_hour: int = 5000,   #  Increased from 1000
     ):
         super().__init__(app)
         self.redis_url = redis_url
@@ -33,7 +33,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         """Apply rate limiting to incoming requests"""
         
-        # ✅ Skip rate limiting for:
+        #  Skip rate limiting for:
         # 1. Health/docs endpoints
         # 2. OPTIONS requests (CORS preflight)
         # 3. Static files
@@ -81,7 +81,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             try:
                 self.redis_client = redis.from_url(self.redis_url, decode_responses=True)
             except Exception as e:
-                print(f"⚠️ Redis connection failed, using in-memory rate limiting: {e}")
+                print(f" Redis connection failed, using in-memory rate limiting: {e}")
 
         if self.redis_client:
             try:
@@ -89,7 +89,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     minute_key, hour_key, current_time
                 )
             except Exception as e:
-                print(f"⚠️ Redis rate limit check failed: {e}")
+                print(f" Redis rate limit check failed: {e}")
                 # Fall through to in-memory
 
         # In-memory fallback

@@ -46,7 +46,7 @@ def get_clerk_jwks():
         response.raise_for_status()
         return response.json()
     except Exception as e:
-        print(f"❌ Failed to fetch Clerk JWKS: {e}")
+        print(f" Failed to fetch Clerk JWKS: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch authentication keys"
@@ -108,14 +108,14 @@ def verify_clerk_token(token: str) -> dict:
         return payload
         
     except JWTError as e:
-        print(f"❌ JWT verification failed: {e}")
+        print(f" JWT verification failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Token validation failed: {str(e)}",
             headers={"WWW-Authenticate": "Bearer"},
         )
     except Exception as e:
-        print(f"❌ Unexpected error during token verification: {e}")
+        print(f" Unexpected error during token verification: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Authentication error"
@@ -193,7 +193,7 @@ def is_clerk_configured() -> bool:
 # Print configuration status on module load
 if __name__ != "__main__":
     if is_clerk_configured():
-        print(f"✅ Clerk authentication configured (issuer: {CLERK_ISSUER})")
+        print(f" Clerk authentication configured (issuer: {CLERK_ISSUER})")
     else:
-        print("⚠️ Clerk not fully configured. Set CLERK_SECRET_KEY, CLERK_PUBLISHABLE_KEY, and CLERK_ISSUER")
+        print(" Clerk not fully configured. Set CLERK_SECRET_KEY, CLERK_PUBLISHABLE_KEY, and CLERK_ISSUER")
 

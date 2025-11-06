@@ -50,24 +50,20 @@ export default function NewProjectPage() {
     setCreating(true);
 
     try {
-      console.log('🔧 Creating project:', name);
-      
-      // ✅ FIX: Use the createProject method from api (not api.client.post directly)
+
+      //  FIX: Use the createProject method from api (not api.client.post directly)
       const projectData = await api.createProject(name.trim(), passphrase);
-      
-      console.log('✅ Project created:', projectData);
-      console.log('🔑 Salt received:', projectData.salt);
-      
+
+
       // Step 2: Derive encryption key from passphrase + salt
-      console.log('🔐 Deriving encryption key...');
+
       const encryptionKey = await deriveKey(passphrase, projectData.salt);
-      console.log('✅ Encryption key derived and stored in memory');
-      
+
       // Step 3: Store project metadata (with salt) in localStorage
       const newProject = {
         id: projectData.id,
         name: projectData.name,
-        salt: projectData.salt,  // ✅ Save salt for future key derivation
+        salt: projectData.salt,  //  Save salt for future key derivation
         fact_count: 0,
         entity_count: 0,
         created_at: projectData.created_at || new Date().toISOString(),
@@ -79,9 +75,7 @@ export default function NewProjectPage() {
       
       // Step 4: Store encryption key in memory (NOT localStorage!)
       setEncryptionKey(projectData.id, encryptionKey);
-      
-      console.log('🎉 Project ready! Salt saved, key in memory.');
-      
+
       toast.success('Project created successfully!', {
         description: `"${newProject.name}" is ready to use`,
         duration: 3000,
@@ -93,7 +87,7 @@ export default function NewProjectPage() {
       }, 500);
       
     } catch (err: any) {
-      console.error('❌ Failed to create project:', err);
+      console.error(' Failed to create project:', err);
       console.error('Error details:', {
         message: err.message,
         response: err.response?.data,
@@ -211,7 +205,7 @@ export default function NewProjectPage() {
               <div className="mt-4 p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
                 <div className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center flex-shrink-0">
-                    <span className="text-lg">⚠️</span>
+                    <span className="text-lg"></span>
                   </div>
                   <div className="flex-1">
                     <p className="text-sm font-semibold text-amber-900 dark:text-amber-200 mb-1">
@@ -233,7 +227,7 @@ export default function NewProjectPage() {
                 className="p-4 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800"
               >
                 <div className="flex items-start gap-3">
-                  <span className="text-red-500 text-lg">⚠️</span>
+                  <span className="text-red-500 text-lg"></span>
                   <p className="text-sm text-red-700 dark:text-red-300 flex-1">{error}</p>
                 </div>
               </motion.div>

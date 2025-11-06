@@ -124,7 +124,7 @@ export default function ExportPage() {
           animate={{ opacity: 1, scale: 1 }}
           className="text-center space-y-6"
         >
-          <div className="text-6xl">📁</div>
+          <div className="text-6xl"></div>
           <div className="space-y-2">
             <h2 className="text-2xl font-semibold text-slate-900 dark:text-white">
               No Project Selected
@@ -186,26 +186,26 @@ export default function ExportPage() {
                     id: 'memory-pack',
                     name: 'Memory Pack',
                     desc: 'Signed JSON-LD with Ed25519',
-                    icon: '📦',
+                    icon: '',
                     recommended: true,
                   },
                   {
                     id: 'json',
                     name: 'JSON',
                     desc: 'Standard JSON export',
-                    icon: '📄',
+                    icon: '',
                   },
                   {
                     id: 'csv',
                     name: 'CSV',
                     desc: 'Spreadsheet compatible',
-                    icon: '📊',
+                    icon: '',
                   },
                   {
                     id: 'jsonld',
                     name: 'JSON-LD',
                     desc: 'Semantic web format',
-                    icon: '🕸️',
+                    icon: '',
                   },
                 ].map((format) => (
                   <button
@@ -291,7 +291,7 @@ export default function ExportPage() {
               disabled={exporting}
               className="w-full py-4 bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-semibold rounded-xl shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/30 disabled:opacity-50 transition-all"
             >
-              {exporting ? 'Exporting...' : `📤 Export as ${exportFormat.toUpperCase()}`}
+              {exporting ? 'Exporting...' : ` Export as ${exportFormat.toUpperCase()}`}
             </button>
           </div>
 
@@ -314,7 +314,7 @@ export default function ExportPage() {
                     id="import-file"
                   />
                   <label htmlFor="import-file" className="cursor-pointer">
-                    <div className="text-5xl mb-4">📥</div>
+                    <div className="text-5xl mb-4"></div>
                     <p className="text-slate-900 dark:text-white font-medium mb-1">
                       {importFile ? importFile.name : 'Choose Memory Pack file'}
                     </p>
@@ -338,7 +338,7 @@ export default function ExportPage() {
                       }`}
                     >
                       <div className="flex items-center gap-3">
-                        <span className="text-2xl">{signatureValid ? '✅' : '❌'}</span>
+                        <span className="text-2xl">{signatureValid ? '' : ''}</span>
                         <div>
                           <p
                             className={`font-semibold ${
@@ -366,7 +366,7 @@ export default function ExportPage() {
                   disabled={!importFile || importing}
                   className="w-full py-4 bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-semibold rounded-xl shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/30 disabled:opacity-50 transition-all"
                 >
-                  {importing ? 'Verifying & Importing...' : '📥 Import & Verify'}
+                  {importing ? 'Verifying & Importing...' : ' Import & Verify'}
                 </button>
               </form>
             </div>
@@ -374,7 +374,7 @@ export default function ExportPage() {
             {/* Security Notice */}
             <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
               <div className="flex items-start gap-3">
-                <span className="text-2xl">⚠️</span>
+                <span className="text-2xl"></span>
                 <div>
                   <p className="text-sm font-semibold text-amber-800 dark:text-amber-300 mb-1">
                     Always Verify Signatures

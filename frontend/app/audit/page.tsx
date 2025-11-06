@@ -31,12 +31,12 @@ export default function AuditPage() {
       
       setLoading(true);
       try {
-        console.log('📊 Loading audit log for project:', currentProject.id);
+
         const data = await api.getProjectAudit(currentProject.id, 100);
-        console.log('✅ Audit log loaded:', data);
+
         setEvents(data.events || []);
       } catch (error) {
-        console.error('❌ Failed to load audit log:', error);
+        console.error(' Failed to load audit log:', error);
         setEvents([]);
       } finally {
         setLoading(false);
@@ -77,15 +77,15 @@ export default function AuditPage() {
 
   const getEventIcon = (type: string) => {
     const icons: Record<string, string> = {
-      project_created: '🎉',
-      document_imported: '📥',
-      facts_extracted: '🔍',
-      ranking_computed: '📊',
-      fact_added: '➕',
-      fact_updated: '✏️',
-      fact_deleted: '🗑️',
+      project_created: '',
+      document_imported: '',
+      facts_extracted: '',
+      ranking_computed: '',
+      fact_added: '',
+      fact_updated: '',
+      fact_deleted: '',
     };
-    return icons[type] || '📝';
+    return icons[type] || '';
   };
 
   if (!currentProject) {
@@ -96,7 +96,7 @@ export default function AuditPage() {
           animate={{ opacity: 1, scale: 1 }}
           className="text-center space-y-6"
         >
-          <div className="text-6xl">📁</div>
+          <div className="text-6xl"></div>
           <div className="space-y-2">
             <h2 className="text-2xl font-semibold text-slate-900 dark:text-white">
               No Project Selected
@@ -186,7 +186,7 @@ export default function AuditPage() {
                 disabled={verifying}
                 className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 transition-all text-sm font-medium"
               >
-                {verifying ? 'Verifying...' : '✓ Verify Chain'}
+                {verifying ? 'Verifying...' : ' Verify Chain'}
               </button>
               <button
                 onClick={handleExport}
@@ -212,7 +212,7 @@ export default function AuditPage() {
                     : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
                 }`}>
                   <div className="flex items-center gap-3">
-                    <span className="text-2xl">{verified ? '✅' : '❌'}</span>
+                    <span className="text-2xl">{verified ? '' : ''}</span>
                     <div>
                       <p className={`font-semibold ${
                         verified ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'
@@ -325,7 +325,7 @@ export default function AuditPage() {
               animate={{ opacity: 1 }}
               className="text-center py-20 space-y-4"
             >
-              <div className="text-6xl">📋</div>
+              <div className="text-6xl"></div>
               <div className="space-y-2">
                 <h3 className="text-xl font-semibold text-slate-900 dark:text-white">
                   No events found

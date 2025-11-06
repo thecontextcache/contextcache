@@ -44,12 +44,11 @@ export default function AskPage() {
     setExplanation(null);
 
     try {
-      console.log('🔍 Querying:', question);
+
       const response = await api.query(currentProject.id, question, 5);
-      console.log('✅ Query response:', response);
 
       if (response.results && response.results.length > 0) {
-        // ✅ Filter results by similarity threshold (only show relevant chunks)
+        //  Filter results by similarity threshold (only show relevant chunks)
         const relevantChunks = response.results.filter((r: any) => r.similarity > 0.2);
 
         if (relevantChunks.length === 0) {
@@ -63,12 +62,12 @@ export default function AskPage() {
           return;
         }
 
-        // ✅ Take top 3 relevant results
+        //  Take top 3 relevant results
         const topChunks = relevantChunks.slice(0, 3);
         const answerText = topChunks.map((r: any) => r.text).join('\n\n');
         setAnswer(answerText);
 
-        // ✅ Build explanation from filtered results
+        //  Build explanation from filtered results
         setExplanation({
           facts: topChunks.map((r: any) => ({
             id: r.chunk_id,
@@ -95,14 +94,14 @@ export default function AskPage() {
         });
       }
     } catch (error) {
-      console.error('❌ Query failed:', error);
+      console.error(' Query failed:', error);
       setAnswer('Failed to get answer. Please try again.');
     } finally {
       setAsking(false);
     }
   };
 
-  // 🔹 When no project is selected
+  //  When no project is selected
   if (!currentProject) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-cyan-50 to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 px-4">
@@ -111,7 +110,7 @@ export default function AskPage() {
           animate={{ opacity: 1, scale: 1 }}
           className="text-center space-y-6"
         >
-          <div className="text-6xl">📁</div>
+          <div className="text-6xl"></div>
           <div className="space-y-2">
             <h2 className="text-2xl font-semibold text-slate-900 dark:text-white">
               No Project Selected
@@ -131,7 +130,7 @@ export default function AskPage() {
     );
   }
 
-  // 🔹 Main UI
+  //  Main UI
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-cyan-50 to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
       {/* Header */}
@@ -215,7 +214,7 @@ export default function AskPage() {
                 >
                   <div>
                     <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">
-                      💡 Explain
+                       Explain
                     </h3>
                     <p className="text-sm text-slate-600 dark:text-slate-400">
                       {explanation?.reasoning}
@@ -226,7 +225,7 @@ export default function AskPage() {
                   {explanation && explanation.sources.length > 0 && (
                     <div>
                       <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                        📚 Sources
+                         Sources
                       </h4>
                       <div className="space-y-2">
                         {explanation.sources.map((source, index) => (
@@ -255,7 +254,7 @@ export default function AskPage() {
                   {explanation && explanation.facts.length > 0 && (
                     <div>
                       <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                        🔍 Key Facts ({explanation.facts.length})
+                         Key Facts ({explanation.facts.length})
                       </h4>
                       <div className="space-y-2 max-h-64 overflow-y-auto">
                         {explanation.facts.map((fact) => (

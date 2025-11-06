@@ -28,7 +28,7 @@ async def process_document_task(ctx: Dict[str, Any], document_id: str) -> Dict[s
     from cc_core.services.document_service import DocumentService
     from cc_core.services.embedding_service import EmbeddingService
     
-    print(f"🔄 Processing document {document_id}...")
+    print(f" Processing document {document_id}...")
     
     doc_service = DocumentService()
     embedding_service = EmbeddingService()
@@ -81,7 +81,7 @@ async def process_document_task(ctx: Dict[str, Any], document_id: str) -> Dict[s
 
             # Try to get project DEK (note: background job may not have session context)
             # For now, store plaintext. Full encryption requires session-based processing.
-            # TODO: Implement service account encryption or defer to API processing
+
 
             # Store chunks
             for chunk, embedding in zip(chunks, embeddings):
@@ -104,7 +104,7 @@ async def process_document_task(ctx: Dict[str, Any], document_id: str) -> Dict[s
             
             await db.commit()
             
-            print(f"✅ Document processed: {len(chunks)} chunks")
+            print(f" Document processed: {len(chunks)} chunks")
             
             return {
                 "status": "completed",
@@ -116,7 +116,7 @@ async def process_document_task(ctx: Dict[str, Any], document_id: str) -> Dict[s
         except Exception as e:
             document.status = DocumentStatus.failed.value
             await db.commit()
-            print(f"❌ Document processing failed: {e}")
+            print(f" Document processing failed: {e}")
             return {
                 "status": "failed",
                 "error": str(e)
@@ -139,7 +139,7 @@ async def compute_ranking_task(ctx: Dict[str, Any], project_id: str) -> Dict[str
     from cc_core.models.chunk import DocumentChunkDB
     from cc_core.models.document import DocumentDB
     
-    print(f"🔄 Computing ranking for project {project_id}...")
+    print(f" Computing ranking for project {project_id}...")
     
     async with AsyncSessionLocal() as db:
         # Get all chunks for project
@@ -174,7 +174,7 @@ async def compute_ranking_task(ctx: Dict[str, Any], project_id: str) -> Dict[str
         
         await db.commit()
     
-    print(f"✅ Ranking completed for {len(chunks)} chunks")
+    print(f" Ranking completed for {len(chunks)} chunks")
     
     return {
         "status": "completed",
@@ -199,7 +199,7 @@ async def decay_facts_task(ctx: Dict[str, Any]) -> Dict[str, Any]:
     from sqlalchemy import select, update, text
     from cc_core.models.chunk import DocumentChunkDB
     
-    print(f"🔄 Running decay task...")
+    print(f" Running decay task...")
     
     async with AsyncSessionLocal() as db:
         # Get all chunks older than 30 days
@@ -221,7 +221,7 @@ async def decay_facts_task(ctx: Dict[str, Any]) -> Dict[str, Any]:
         
         await db.commit()
     
-    print(f"✅ Decay applied to {len(chunks)} chunks")
+    print(f" Decay applied to {len(chunks)} chunks")
     
     return {
         "status": "completed",
@@ -244,7 +244,7 @@ async def cleanup_old_data_task(ctx: Dict[str, Any]) -> Dict[str, Any]:
     from sqlalchemy import delete, text
     from cc_core.models.document import DocumentDB
     
-    print(f"🧹 Running cleanup task...")
+    print(f" Running cleanup task...")
     
     async with AsyncSessionLocal() as db:
         # Example: Delete failed documents older than 7 days
@@ -261,7 +261,7 @@ async def cleanup_old_data_task(ctx: Dict[str, Any]) -> Dict[str, Any]:
         deleted_count = result.rowcount
         await db.commit()
     
-    print(f"✅ Cleaned up {deleted_count} old records")
+    print(f" Cleaned up {deleted_count} old records")
     
     return {
         "status": "completed",
@@ -273,12 +273,12 @@ async def cleanup_old_data_task(ctx: Dict[str, Any]) -> Dict[str, Any]:
 # Task registry for Arq
 async def startup(ctx: Dict[str, Any]):
     """Worker startup"""
-    print("🚀 Worker started")
+    print(" Worker started")
 
 
 async def shutdown(ctx: Dict[str, Any]):
     """Worker shutdown"""
-    print("👋 Worker stopped")
+    print(" Worker stopped")
 
 
 # Export task functions

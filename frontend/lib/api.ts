@@ -55,7 +55,7 @@ class APIClient {
   }
 
   // -------------------------
-  // 🔹 Authentication
+  //  Authentication
   // -------------------------
   async unlockSession(masterPassphrase: string): Promise<{
     status: string;
@@ -89,10 +89,10 @@ class APIClient {
   }
 
   // -------------------------
-  // 🔹 Projects
+  //  Projects
   // -------------------------
   async createProject(name: string, passphrase: string): Promise<Project> {
-    // ✅ FIX: Send JSON body with both name and passphrase
+    //  FIX: Send JSON body with both name and passphrase
     const response = await this.client.post<Project>('/projects', {
       name: name,
       passphrase: passphrase,
@@ -137,7 +137,7 @@ class APIClient {
   }
 
   // -------------------------
-  // 🔹 Documents
+  //  Documents
   // -------------------------
   async ingestDocument(
     projectId: string,
@@ -187,7 +187,7 @@ class APIClient {
   }
 
   // -------------------------
-  // 🔹 Health Check
+  //  Health Check
   // -------------------------
   async health(): Promise<{ status: string; version: string }> {
     const response = await this.client.get('/health');

@@ -9,7 +9,7 @@ from cc_core.worker.main import WorkerConfig
 
 if __name__ == "__main__":
     """Run the Arq worker"""
-    print("🚀 Starting ContextCache Background Worker...")
+    print(" Starting ContextCache Background Worker...")
     print("   This worker processes background jobs:")
     print("   - Document processing (chunking, embedding)")
     print("   - Ranking computation (PageRank, time decay)")
