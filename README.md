@@ -19,6 +19,8 @@ ContextCache transforms unstructured documents into queryable knowledge graphs w
 - **Quad-based storage**: Facts stored as subject-predicate-object-source tuples
 - **Hybrid search**: Combines BM25, dense embeddings, PageRank, and temporal decay
 - **Semantic understanding**: Natural language queries with contextual results
+- **Multiple AI providers**: Choose between HuggingFace (local), Ollama (self-hosted), OpenAI, or Anthropic
+- **Privacy-first embeddings**: Default to local processing with open-source models
 
 ### Complete Auditability
 - **Full provenance tracking**: Every fact linked to its source
@@ -80,14 +82,21 @@ ContextCache includes Model Context Protocol servers for:
 
 **Core Technologies**:
 - TypeScript, Python, PostgreSQL, Redis
-- Next.js, FastAPI, pgvector
+- Next.js 15, FastAPI, pgvector
 - Cloudflare Workers, Google Cloud Run
+
+**AI & Embeddings**:
+- Hugging Face Transformers (sentence-transformers)
+- Ollama (local LLM support)
+- OpenAI (optional)
+- Anthropic Claude (optional)
 
 **Key Libraries**:
 - Clerk (authentication)
 - Zustand (state management)
 - Axios (HTTP client)
 - Framer Motion (animations)
+- Tailwind CSS (styling)
 
 ## Documentation
 
