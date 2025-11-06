@@ -9,8 +9,6 @@ import { useAuth } from '@clerk/nextjs';
 import UnlockProjectModal from '@/components/unlock-project-modal';
 import type { Project } from '@/lib/types';
 
-export const runtime = 'edge';
-
 export default function DashboardPage() {
   const router = useRouter();
   const { isLoaded, isSignedIn } = useAuth();

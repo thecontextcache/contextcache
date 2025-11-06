@@ -9,9 +9,9 @@
     "dev": "next dev",
     "build": "next build && npm run postbuild",
     "build:nolint": "next build --no-lint",
-    "build:cloudflare": "npx @cloudflare/next-on-pages",
-    "preview:cloudflare": "npm run build:cloudflare && npx wrangler pages dev .vercel/output/static",
-    "deploy:cloudflare": "npm run build:cloudflare && npx wrangler pages deploy .vercel/output/static",
+    "build:cloudflare": "opennextjs-cloudflare build",
+    "preview:cloudflare": "opennextjs-cloudflare preview",
+    "deploy:cloudflare": "opennextjs-cloudflare deploy",
     "postbuild": "rm -rf .next/cache",
     "start": "next start",
     "lint": "next lint",
@@ -25,7 +25,7 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:debug": "playwright test --debug",
-    "clean": "rm -rf .next out .vercel node_modules/.cache"
+    "clean": "rm -rf .next out .vercel .worker-next node_modules/.cache"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.33.6",
@@ -48,7 +48,7 @@
     "zustand": "^5.0.2"
   },
   "devDependencies": {
-    "@cloudflare/next-on-pages": "^1.13.16",
+    "@opennextjs/cloudflare": "^1.3.0",
     "@playwright/test": "^1.49.1",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
@@ -72,7 +72,8 @@
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.7.2",
     "vercel": "^48.8.2",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "wrangler": "^4.45.4"
   },
   "engines": {
     "node": ">=20.0.0",
