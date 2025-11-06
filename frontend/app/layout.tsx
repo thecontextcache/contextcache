@@ -9,8 +9,8 @@ import { Toaster } from 'sonner';
 import { ClerkProvider, SignInButton, SignUpButton, SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
 import { APIProvider } from '@/components/api-provider';
 
-// Configure edge runtime for all routes (required for Cloudflare Workers)
-export const runtime = 'edge';
+// Force dynamic rendering for all routes (required for Cloudflare deployment with Clerk)
+export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: 'ContextCache - Privacy-first memory engine for AI',
