@@ -56,18 +56,20 @@ NEXT_PUBLIC_ENABLE_GRAPH_VIEW=true
 
 ### Step 4: Verify wrangler.toml
 
-Ensure `frontend/wrangler.toml` has the correct configuration:
+The `wrangler.toml` file is now in the **repository root** (not in frontend/) for Cloudflare Pages to detect it:
 
 ```toml
 name = "contextcache-frontend"
-main = ".open-next/worker.js"
+main = "frontend/.open-next/worker.js"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
 [assets]
-directory = ".open-next/assets"
+directory = "frontend/.open-next/assets"
 binding = "ASSETS"
 ```
+
+**Note**: Paths are relative to the repository root since the file is in the root directory.
 
 **Important**: Do NOT use `pages_build_output_dir` - that's for the old Vercel adapter.
 
