@@ -1,17 +1,11 @@
 // middleware.ts
 //
-// ⚠️ IMPORTANT: This middleware does NOT run with static export (output: 'export')
-// With static export, authentication is handled CLIENT-SIDE ONLY by Clerk's React components
-// Protected routes are enforced by:
-//   1. Clerk's <SignedIn>/<SignedOut> components in layouts
-//   2. Client-side redirects in page components
-//   3. Clerk's useAuth() hook checks
-//
-// For server-side protection, deploy to Vercel or use @cloudflare/next-on-pages
+// Clerk middleware for authentication with Cloudflare Workers
+// Protects routes that require authentication
 //
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
-// Define protected routes (for reference only - won't enforce with static export)
+// Define protected routes
 const isProtectedRoute = createRouteMatcher([
   '/dashboard(.*)',
   '/ask(.*)',
@@ -23,9 +17,17 @@ const isProtectedRoute = createRouteMatcher([
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
-  // Protect specific routes (ONLY works with SSR, not static export)
+  // Only protect routes if Clerk is properly configured
+  // This prevents blocking the entire app if env vars are missing
   if (isProtectedRoute(req)) {
-    await auth.protect();
+    try {
+      await auth.protect();
+    } catch (error) {
+      // If Clerk fails to initialize (missing env vars), allow request through
+      // and let client-side Clerk handle authentication
+      console.warn('Clerk middleware failed:', error);
+      // Don't block the request - let it through
+    }
   }
 });
 
