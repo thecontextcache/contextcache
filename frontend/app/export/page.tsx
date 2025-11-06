@@ -6,6 +6,7 @@ import { useProjectStore } from '@/lib/store/project';
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 
+export const runtime = 'edge';
 
 type ExportFormat = 'json' | 'csv' | 'memory-pack' | 'jsonld';
 

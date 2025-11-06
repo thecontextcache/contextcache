@@ -8,6 +8,8 @@ import { useProjectStore } from '@/lib/store/project';
 import { deriveKey } from '@/lib/crypto';
 import { toast } from 'sonner';
 
+export const runtime = 'edge';
+
 export default function NewProjectPage() {
   const router = useRouter();
   const { addProject, setCurrentProject, setEncryptionKey } = useProjectStore();
