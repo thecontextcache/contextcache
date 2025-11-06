@@ -7,8 +7,6 @@ import { useRouter } from 'next/navigation';
 import { GraphViewer } from '@/components/graph-viewer';
 import api from '@/lib/api';
 
-export const runtime = 'edge';
-
 interface GraphNode {
   id: string;
   label: string;

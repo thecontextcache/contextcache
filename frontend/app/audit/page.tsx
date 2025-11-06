@@ -6,8 +6,6 @@ import { useProjectStore } from '@/lib/store/project';
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 
-export const runtime = 'edge';
-
 interface AuditEvent {
   id: string;
   event_type: string;
