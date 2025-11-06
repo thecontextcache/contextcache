@@ -2,12 +2,15 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { ThemeProvider } from '@/components/theme-provider';
 import { DarkModeToggle } from '@/components/dark-mode-toggle';
-import { NavBar } from '@/components/nav-bar'; 
+import { NavBar } from '@/components/nav-bar';
 import { Disclaimer } from '@/components/disclaimer';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from 'sonner';
 import { ClerkProvider, SignInButton, SignUpButton, SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
 import { APIProvider } from '@/components/api-provider';
+
+// Configure edge runtime for all routes (required for Cloudflare Workers)
+export const runtime = 'edge';
 
 export const metadata: Metadata = {
   title: 'ContextCache - Privacy-first memory engine for AI',
