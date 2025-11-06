@@ -129,7 +129,7 @@ pnpm dev
 # 6. Open http://localhost:3000
 ```
 
-**Note**: Local development uses Next.js dev server. The Cloudflare adapter is only applied during production builds.
+**Note**: Local development uses Next.js dev server with automatic Cloudflare Workers platform setup via `setupDevPlatform()` in `next.config.ts`.
 
 ---
 
