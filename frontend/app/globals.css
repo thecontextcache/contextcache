@@ -4,62 +4,42 @@
 
 @layer base {
   :root {
-    /* Ultra Premium Light Mode - Glassmorphic & Vibrant */
-    --background: 245 247 252;
-    --foreground: 15 23 42;
+    /* Apple-Style Light Mode - Clean & Minimal */
+    --background: 255 255 255;
+    --foreground: 0 0 0;
     --card: 255 255 255;
-    --card-foreground: 15 23 42;
-    --primary: 79 70 229; /* Indigo-600 */
+    --card-foreground: 0 0 0;
+    --primary: 0 122 255; /* Apple Blue */
     --primary-foreground: 255 255 255;
-    --secondary: 139 92 246; /* Violet-500 */
-    --accent: 236 72 153; /* Pink-500 */
-    --success: 34 197 94; /* Green-500 */
-    --warning: 251 191 36; /* Amber-400 */
-    --destructive: 239 68 68;
-    --muted: 241 245 249;
-    --muted-foreground: 100 116 139;
-    --border: 226 232 240;
-    --ring: 79 70 229;
-    --radius: 1rem;
-
-    /* Glassmorphism variables */
-    --glass-bg: rgba(255, 255, 255, 0.7);
-    --glass-border: rgba(255, 255, 255, 0.18);
-    --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
-
-    /* Gradient colors */
-    --gradient-from: 79 70 229;
-    --gradient-via: 139 92 246;
-    --gradient-to: 236 72 153;
+    --secondary: 142 142 147; /* Apple Gray */
+    --accent: 0 122 255;
+    --success: 52 199 89; /* Apple Green */
+    --warning: 255 149 0; /* Apple Orange */
+    --destructive: 255 59 48; /* Apple Red */
+    --muted: 242 242 247;
+    --muted-foreground: 142 142 147;
+    --border: 229 229 234;
+    --ring: 0 122 255;
+    --radius: 0.75rem;
   }
 
   .dark {
-    /* Ultra Premium Dark Mode - Deep Space Aesthetic */
-    --background: 6 8 15; /* Deep space black */
-    --foreground: 248 250 252;
-    --card: 15 18 28; /* Rich dark card */
-    --card-foreground: 248 250 252;
-    --primary: 129 140 248; /* Soft indigo */
-    --primary-foreground: 6 8 15;
-    --secondary: 167 139 250; /* Soft violet */
-    --accent: 244 114 182; /* Soft pink */
-    --success: 74 222 128; /* Soft green */
-    --warning: 253 224 71; /* Soft yellow */
-    --destructive: 248 113 113;
-    --muted: 25 30 45;
-    --muted-foreground: 148 163 184;
-    --border: 30 35 50;
-    --ring: 129 140 248;
-
-    /* Dark glassmorphism */
-    --glass-bg: rgba(15, 18, 28, 0.6);
-    --glass-border: rgba(255, 255, 255, 0.08);
-    --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-
-    /* Dark gradient */
-    --gradient-from: 129 140 248;
-    --gradient-via: 167 139 250;
-    --gradient-to: 244 114 182;
+    /* Apple-Style Dark Mode - True Black */
+    --background: 0 0 0;
+    --foreground: 255 255 255;
+    --card: 28 28 30;
+    --card-foreground: 255 255 255;
+    --primary: 10 132 255; /* Apple Blue (Dark) */
+    --primary-foreground: 255 255 255;
+    --secondary: 142 142 147;
+    --accent: 10 132 255;
+    --success: 48 209 88;
+    --warning: 255 159 10;
+    --destructive: 255 69 58;
+    --muted: 28 28 30;
+    --muted-foreground: 142 142 147;
+    --border: 58 58 60;
+    --ring: 10 132 255;
   }
 
   * {

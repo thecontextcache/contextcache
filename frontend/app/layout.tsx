@@ -48,8 +48,8 @@ export default function RootLayout({
             <ThemeProvider>
               <APIProvider>
                 {/* Alpha banner */}
-                <div className="relative z-40 bg-gradient-to-r from-yellow-500 to-orange-500 text-black px-4 py-2 text-center text-sm font-medium safe-padding">
-                   Alpha Version - Under Active Development
+                <div className="relative z-40 bg-blue-600 text-white px-4 py-2 text-center text-sm font-medium safe-padding">
+                  Alpha Version - Under Active Development
                 </div>
 
                 {/* Clerk Auth Header - positioned below banner */}
