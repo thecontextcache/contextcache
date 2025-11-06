@@ -1,0 +1,10 @@
+{
+  "name": "contextcache",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "cd frontend && pnpm install && pnpm run build:cloudflare",
+    "deploy": "wrangler deploy"
+  },
+  "packageManager": "pnpm@10.0.0"
+}
