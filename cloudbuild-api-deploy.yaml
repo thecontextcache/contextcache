@@ -9,6 +9,8 @@ steps:
       - 'infra/api.Dockerfile'
       - '--target'
       - 'production'
+      - '--build-arg'
+      - 'BUILDKIT_INLINE_CACHE=1'
       - '.'
 
 # Push the image to Google Container Registry
@@ -18,6 +20,7 @@ images:
 # Build options
 options:
   machineType: 'E2_HIGHCPU_8'
+  diskSizeGb: 100
   logging: CLOUD_LOGGING_ONLY
-timeout: 1200s  # 20 minutes
+timeout: 3600s  # 60 minutes (first build needs more time for heavy deps)
 
