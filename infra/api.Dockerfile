@@ -11,10 +11,10 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Copy requirements
-COPY api/requirements.txt ./
+# Copy requirements (use lightweight Cloud Run version)
+COPY api/requirements-cloudrun.txt ./requirements.txt
 
-# Install Python dependencies (only main requirements for Docker)
+# Install Python dependencies (lightweight for Cloud Run)
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
@@ -39,10 +39,10 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements  
-COPY api/requirements.txt .
+# Copy requirements (use lightweight Cloud Run version)
+COPY api/requirements-cloudrun.txt ./requirements.txt
 
-# Install Python dependencies (same as local - full featured)
+# Install Python dependencies (lightweight for Cloud Run)
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
