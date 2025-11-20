@@ -125,6 +125,10 @@ CLOUD_NATIVE_AUTH_PLAN.md
 ARCHITECTURE_DECISIONS.md
 ARCHITECTURE_DIAGRAM.md
 PLANNING_SUMMARY.md
+CURRENT_STATUS.md
+NEON_SETUP_GUIDE.md
+DASHBOARD_FIX.md
+NEON_SETUP_INSTRUCTIONS.md
 setup_env.sh
 compass_artifact_wf-*.md
 contextcache-cloud-native-algorithms.md
