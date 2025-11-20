@@ -36,6 +36,7 @@ echo ""
 
 # Deploy to Cloud Run with all necessary configs
 # Use env-vars-file to avoid escaping issues with URLs
+# Clear all env vars first, then set new ones to avoid type conflicts
 gcloud run deploy ${SERVICE_NAME} \
   --image ${IMAGE_NAME} \
   --region ${REGION} \
@@ -48,6 +49,8 @@ gcloud run deploy ${SERVICE_NAME} \
   --max-instances 10 \
   --port 8000 \
   --project ${PROJECT_ID} \
+  --clear-env-vars \
+  --clear-secrets \
   --env-vars-file cloudrun.env.yaml \
   --set-secrets "DATABASE_URL=DATABASE_URL:latest,REDIS_URL=REDIS_URL:latest"
 
