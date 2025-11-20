@@ -49,7 +49,7 @@ gcloud run deploy ${SERVICE_NAME} \
   --port 8000 \
   --project ${PROJECT_ID} \
   --env-vars-file cloudrun.env.yaml \
-  --set-secrets "DATABASE_URL=DATABASE_URL:latest,REDIS_URL=REDIS_URL:latest,CLERK_SECRET_KEY=CLERK_SECRET_KEY:latest,CLERK_PUBLISHABLE_KEY=CLERK_PUBLISHABLE_KEY:latest"
+  --set-secrets "DATABASE_URL=DATABASE_URL:latest,REDIS_URL=REDIS_URL:latest"
 
 echo ""
 echo "✅ Backend API deployed successfully!"
