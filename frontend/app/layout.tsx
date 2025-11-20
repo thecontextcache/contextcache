@@ -6,6 +6,7 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from 'sonner';
 import { ClerkProvider, SignInButton, SignUpButton, SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
 import { APIProvider } from '@/components/api-provider';
+import { EnhancedThemeToggle } from '@/components/enhanced-theme-toggle';
 
 // Force dynamic rendering for all routes (required for Cloudflare deployment with Clerk)
 export const dynamic = 'force-dynamic';
@@ -53,6 +54,9 @@ export default function RootLayout({
                 {/* Clerk Auth Header - positioned below banner */}
                 <header className="fixed top-10 right-0 z-50 p-4">
                   <div className="flex items-center gap-3">
+                    {/* Theme Toggle */}
+                    <EnhancedThemeToggle />
+                    
                     <SignedOut>
                       <SignUpButton mode="modal">
                         <button className="px-4 py-2 text-sm font-medium border border-primary text-primary dark:text-primary-700 hover:bg-primary/10 rounded-lg shadow-sm transition-all">

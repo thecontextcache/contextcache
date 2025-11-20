@@ -174,15 +174,15 @@ export default function UnlockPage() {
             </motion.div>
           )}
 
-          {/* Warning if not downloaded */}
+          {/* Reminder if not downloaded */}
           {masterKey.length >= 20 && !hasDownloaded && (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="p-4 rounded-xl bg-warning/10 dark:bg-warning/20 border border-warning/30"
+              className="p-4 rounded-xl bg-info/10 dark:bg-info/20 border border-info/30"
             >
-              <p className="text-sm text-warning dark:text-warning/90 font-medium">
-                ⚠️ Please download your master key backup before continuing
+              <p className="text-sm text-info dark:text-info/90 font-medium">
+                💡 Tip: Download your master key backup for safekeeping
               </p>
             </motion.div>
           )}
@@ -190,7 +190,7 @@ export default function UnlockPage() {
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={unlocking || masterKey.length < 20 || !hasDownloaded}
+            disabled={unlocking || masterKey.length < 20}
             className="w-full py-4 bg-gradient-primary text-white font-semibold rounded-xl shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all transform hover:scale-[1.02] active:scale-[0.98]"
           >
             {unlocking ? (
