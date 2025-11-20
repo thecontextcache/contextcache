@@ -15,10 +15,14 @@ pages_build_output_dir = ".open-next"
 # binding = "ASSETS"
 
 # Environment variables for Cloudflare Pages
+# SECURITY NOTE: These are public variables (included in client bundle)
+# DO NOT put secrets here - use Cloudflare Pages Dashboard for secrets
 [vars]
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = "pk_live_Y2xlcmsudGhlY29udGV4dGNhY2hlLmNvbSQ"
+# API URL - Public endpoint (deployed on Google Cloud Run)
 NEXT_PUBLIC_API_URL = "https://contextcache-api-ktdjdc66ca-ue.a.run.app"
 NEXT_PUBLIC_APP_ENV = "production"
 
-# Secrets (encrypted variables) - Set via Dashboard:
-# CLERK_SECRET_KEY - Must be added as a Secret in Cloudflare Pages Dashboard
+# Secrets (encrypted variables) - Set via Cloudflare Pages Dashboard:
+# CLERK_SECRET_KEY - Must be added as a Secret (encrypted)
+# These are NOT exposed in the client bundle

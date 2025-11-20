@@ -79,6 +79,11 @@ next-env.d.ts
 *.pem
 secrets/
 
+# Database Setup Files (contain sensitive schema/setup info)
+*_SETUP.sql
+*_COMPLETE_SETUP.sql
+NEON_*.sql
+
 # IDEs
 .vscode/
 .idea/
