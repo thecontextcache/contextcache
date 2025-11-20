@@ -1,0 +1,23 @@
+steps:
+  # Build the Docker image using the production Dockerfile
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/contextcache-api'
+      - '-f'
+      - 'infra/api.Dockerfile'
+      - '--target'
+      - 'production'
+      - '.'
+
+# Push the image to Google Container Registry
+images:
+  - 'gcr.io/$PROJECT_ID/contextcache-api'
+
+# Build options
+options:
+  machineType: 'E2_HIGHCPU_8'
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1200s  # 20 minutes
+
