@@ -62,7 +62,17 @@ export default function DashboardPage() {
           return;
         }
         
-        setError(err?.response?.data?.detail || 'Failed to load projects');
+        // If 404, probably user needs to unlock for the first time
+        if (err?.response?.status === 404) {
+          router.push('/auth/unlock');
+          return;
+        }
+        
+        // More descriptive error message
+        const errorMsg = err?.response?.data?.detail 
+          || err?.message 
+          || 'Failed to connect to the server. Please check your connection and try again.';
+        setError(errorMsg);
       } finally {
         setLoading(false);
       }
