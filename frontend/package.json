@@ -11,7 +11,7 @@
     "build:nolint": "next build --no-lint",
     "build:cloudflare": "opennextjs-cloudflare build",
     "preview:cloudflare": "opennextjs-cloudflare preview",
-    "deploy:cloudflare": "opennextjs-cloudflare deploy",
+    "deploy:cloudflare": "pnpm wrangler pages deploy .open-next --project-name=contextcache",
     "postbuild": "rm -rf .next/cache",
     "start": "next start",
     "lint": "next lint",
