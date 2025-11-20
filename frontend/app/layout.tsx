@@ -6,7 +6,7 @@ import { NavBar } from '@/components/nav-bar';
 import { Disclaimer } from '@/components/disclaimer';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from 'sonner';
-import { ClerkProvider, SignInButton, SignUpButton, SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
+import { ClerkProvider, SignInButton, SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
 import { APIProvider } from '@/components/api-provider';
 
 // Force dynamic rendering for all routes (required for Cloudflare deployment with Clerk)
@@ -57,15 +57,11 @@ export default function RootLayout({
                   <div className="flex items-center gap-3">
                     <SignedOut>
                       <SignInButton mode="modal">
-                        <button className="px-4 py-2 text-sm font-medium text-foreground hover:text-primary transition-colors glass-card rounded-lg shadow-sm border border-border">
+                        <button className="px-4 py-2 text-sm font-medium bg-gradient-primary hover:opacity-90 text-white rounded-lg shadow-sm transition-all">
                           Sign In
                         </button>
                       </SignInButton>
-                      <SignUpButton mode="modal">
-                        <button className="px-4 py-2 text-sm font-medium bg-primary hover:opacity-90 text-primary-foreground rounded-lg shadow-sm transition-all">
-                          Sign Up
-                        </button>
-                      </SignUpButton>
+                      {/* Sign Up disabled - controlled in Clerk dashboard */}
                     </SignedOut>
                     <SignedIn>
                       <UserButton
@@ -74,6 +70,7 @@ export default function RootLayout({
                             avatarBox: "w-10 h-10 rounded-full border-2 border-primary"
                           }
                         }}
+                        afterSignOutUrl="/"
                       />
                     </SignedIn>
                   </div>

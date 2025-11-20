@@ -1,132 +1,432 @@
-# Deployment Guide
+# 🚀 ContextCache Deployment Guide
 
-## Required GitHub Secrets
+Complete guide for deploying ContextCache to production.
 
-For the Cloudflare Workers deployment to work, you need to configure these secrets in your GitHub repository settings (Settings → Secrets and variables → Actions):
+## 📋 Table of Contents
 
-### Required Secrets
+1. [Prerequisites](#prerequisites)
+2. [Backend Deployment (Google Cloud Run)](#backend-deployment)
+3. [Frontend Deployment (Cloudflare Workers)](#frontend-deployment)
+4. [Environment Variables](#environment-variables)
+5. [Custom Domain Setup](#custom-domain-setup)
+6. [Verification & Testing](#verification--testing)
+7. [Troubleshooting](#troubleshooting)
 
-1. **`CLOUDFLARE_API_TOKEN`**
-   - Get from: https://dash.cloudflare.com/profile/api-tokens
-   - Required permissions: "Edit Cloudflare Workers"
-   - Template: "Edit Cloudflare Workers"
+---
 
-2. **`CLOUDFLARE_ACCOUNT_ID`**
-   - Get from: Cloudflare Dashboard URL (after selecting your site)
-   - Format: `https://dash.cloudflare.com/{account_id}/...`
-   - Or from: Account → Overview → Account ID (right sidebar)
+## Prerequisites
 
-3. **`CLERK_SECRET_KEY`**
-   - Get from: https://dashboard.clerk.com
-   - Navigate to: API Keys → Secret keys
-   - Format: `sk_live_...` or `sk_test_...`
+### Required Accounts
+- [x] Google Cloud Platform account
+- [x] Cloudflare account
+- [x] Clerk account (for authentication)
+- [x] Neon account (PostgreSQL database)
+- [x] Upstash account (Redis)
+- [x] GitHub account
 
-4. **`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`**
-   - Get from: https://dashboard.clerk.com
-   - Navigate to: API Keys → Publishable keys
-   - Format: `pk_live_...` or `pk_test_...`
+### Required Tools
+```bash
+# Install gcloud CLI
+brew install google-cloud-sdk
 
-5. **`PRODUCTION_API_URL`** (optional)
-   - Your backend API URL
-   - Default: `https://contextcache-api-572546880171.us-east1.run.app`
+# Install pnpm
+npm install -g pnpm
 
-## Manual Deployment Trigger
+# Install wrangler (Cloudflare CLI)
+npm install -g wrangler
 
-### Option 1: Trigger via GitHub UI
+# Login to services
+gcloud auth login
+wrangler login
+```
 
-1. Go to: https://github.com/thecontextcache/contextcache/actions/workflows/deploy-frontend-wrangler.yml
-2. Click "Run workflow" button
-3. Select branch: `main`
-4. Click "Run workflow"
+---
 
-### Option 2: Trigger via Git (Empty Commit)
+## Backend Deployment
+
+### 1. Deploy API Service
 
 ```bash
-# Make sure you're on main branch
-git checkout main
+cd /Users/nd/Documents/contextcache
 
-# Create empty commit to trigger deployment
-git commit --allow-empty -m "chore: trigger deployment"
+# Deploy API to Cloud Run
+gcloud run deploy contextcache-api \
+  --source ./api \
+  --region us-east1 \
+  --platform managed \
+  --allow-unauthenticated \
+  --set-secrets "DATABASE_URL=DATABASE_URL:latest,REDIS_URL=REDIS_URL:latest,API_INTERNAL_KEY=API_INTERNAL_KEY:latest" \
+  --set-env-vars "PYTHON_ENV=production,CORS_ORIGINS=*" \
+  --min-instances 0 \
+  --max-instances 10 \
+  --memory 2Gi \
+  --cpu 2 \
+  --timeout 300 \
+  --port 8000
+```
 
-# Push to origin
+### 2. Deploy Worker Service
+
+```bash
+gcloud run deploy contextcache-worker \
+  --source ./api \
+  --region us-east1 \
+  --platform managed \
+  --no-allow-unauthenticated \
+  --set-secrets "DATABASE_URL=DATABASE_URL:latest,REDIS_URL=REDIS_URL:latest" \
+  --set-env-vars "PYTHON_ENV=production,WORKER_CONCURRENCY=4" \
+  --min-instances 1 \
+  --max-instances 5 \
+  --memory 2Gi \
+  --cpu 2 \
+  --timeout 600 \
+  --command "python" \
+  --args "run_worker.py"
+```
+
+### 3. Get API URL
+
+```bash
+gcloud run services describe contextcache-api \
+  --region us-east1 \
+  --format 'value(status.url)'
+```
+
+Save this URL - you'll need it for frontend configuration.
+
+---
+
+## Frontend Deployment
+
+### Method 1: Git-Integrated Deployment (Recommended)
+
+**Setup (One-time):**
+
+1. Go to Cloudflare Dashboard: https://dash.cloudflare.com/
+2. Navigate to **Workers & Pages**
+3. Click **Create Application** → **Pages** → **Connect to Git**
+4. Select repository: `thecontextcache/contextcache`
+5. Configure build:
+   ```
+   Build command: pnpm run build
+   Build output directory: /
+   Root directory: /
+   Production branch: main
+   ```
+6. Click **Save and Deploy**
+
+**Future Deployments:**
+```bash
+# Just push to main branch
 git push origin main
 ```
 
-### Option 3: Deploy Locally with Wrangler
+Cloudflare automatically builds and deploys!
+
+### Method 2: Manual Deployment
 
 ```bash
-# Navigate to frontend
-cd frontend
-
-# Install dependencies
-pnpm install
-
-# Build for Cloudflare
-pnpm run build:cloudflare
-
-# Deploy with wrangler (from root directory)
-cd ..
-npx wrangler deploy
+cd /Users/nd/Documents/contextcache
+./deploy-frontend.sh
 ```
 
-## Verify Deployment
+---
 
-After deployment, verify:
+## Environment Variables
 
-1. **Cloudflare Dashboard**
-   - Go to: Workers & Pages
-   - Check: contextcache-frontend status
-   - View: Deployment logs
+### Backend (Google Cloud Run)
 
-2. **Test the Site**
-   - Visit your worker URL
-   - Test sign-in/sign-up flow
-   - Verify theme toggle works
-   - Check API connectivity
+Store these in **Google Secret Manager**:
+
+```bash
+# Database
+DATABASE_URL=postgresql://user:pass@host/db
+
+# Redis
+REDIS_URL=redis://default:pass@host:port
+
+# Internal API key
+API_INTERNAL_KEY=your-random-key
+
+# Clerk (for JWT verification)
+CLERK_SECRET_KEY=sk_test_XXXXXXXXX
+```
+
+### Frontend (Cloudflare Workers)
+
+**CRITICAL**: `NEXT_PUBLIC_*` variables must be **plain text** (NOT secrets)!
+
+Go to: **Workers & Pages** → **contextcache-frontend** → **Settings** → **Variables**
+
+Add these variables:
+
+#### Plain Text Variables (NOT encrypted):
+```bash
+NEXT_PUBLIC_API_URL
+Value: https://contextcache-api-XXXXXXXX-ue.a.run.app
+(Your Cloud Run API URL from above)
+
+NEXT_PUBLIC_APP_ENV
+Value: production
+
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+Value: pk_test_XXXXXXXXXXXXXXXXX
+(Get from Clerk Dashboard → API Keys)
+```
+
+#### Secret Variables (encrypted):
+```bash
+CLERK_SECRET_KEY
+Value: sk_test_XXXXXXXXXXXXXXXXX
+Type: Secret (check "Encrypt")
+(Get from Clerk Dashboard → API Keys)
+```
+
+**Why NEXT_PUBLIC_* must be plain text:**
+- Next.js embeds these into the client-side bundle at BUILD TIME
+- If encrypted, Next.js can't access them during build
+- Result: Your app can't connect to backend or Clerk
+
+---
+
+## Custom Domain Setup
+
+### 1. Configure in Cloudflare
+
+1. Go to **Workers & Pages** → **contextcache-frontend**
+2. Click **Custom Domains** tab
+3. Click **Add Custom Domain**
+4. Enter: `thecontextcache.com`
+5. Click **Add Domain**
+
+Cloudflare automatically configures DNS (no manual DNS changes needed).
+
+### 2. Update Backend CORS
+
+```bash
+cd /Users/nd/Documents/contextcache
+./infra/cloudrun/update-cors.sh
+```
+
+When prompted, enter:
+```
+https://thecontextcache.com
+https://contextcache-frontend.doddanikhil.workers.dev
+```
+
+This allows your frontend to make API requests to the backend.
+
+---
+
+## Verification & Testing
+
+### 1. Test Backend Health
+
+```bash
+# Get API URL
+API_URL=$(gcloud run services describe contextcache-api \
+  --region us-east1 \
+  --format 'value(status.url)')
+
+# Test health endpoint
+curl $API_URL/health
+
+# Expected response:
+# {"status":"healthy","version":"1.0.0"}
+```
+
+### 2. Test Frontend
+
+Visit: https://thecontextcache.com/
+
+**Check:**
+- [ ] Page loads with new colors (Jupiter gold & Mercury teal)
+- [ ] "Sign In" button is visible
+- [ ] No console errors about missing environment variables
+
+### 3. Test Authentication
+
+1. Click "Sign In" button
+2. Should open Clerk modal
+3. Sign in with your account
+4. Should redirect to `/dashboard`
+
+### 4. Test Backend Connection
+
+1. In dashboard, click "New Project"
+2. Enter project name and passphrase
+3. Click "Create Project"
+4. Should succeed without "network error"
+
+### 5. Test All Pages
+
+Visit each page and verify colors:
+- [ ] Dashboard - `/dashboard`
+- [ ] Inbox - `/inbox`
+- [ ] Settings - `/settings`
+- [ ] Graph - `/graph`
+- [ ] Audit - `/audit`
+- [ ] Export - `/export`
+- [ ] Ask - `/ask`
+
+---
 
 ## Troubleshooting
 
-### Deployment Failed - Missing Secrets
-- **Error**: "Secret not found"
-- **Fix**: Add all required secrets in GitHub Settings
+### Issue: "Network error" when creating project
 
-### Build Failed - Type Errors
-- **Error**: TypeScript compilation errors
-- **Fix**: The workflow uses `|| true` to allow builds with type warnings
+**Cause**: Frontend can't reach backend
 
-### Deployment Failed - Clerk Error
-- **Error**: "Clerk publishable key is missing"
-- **Fix**: Ensure both `CLERK_SECRET_KEY` and `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` are set
+**Check:**
+1. Is `NEXT_PUBLIC_API_URL` set correctly?
+2. Is it plain text (not encrypted)?
+3. Did you redeploy after setting it?
 
-### Wrangler Deploy Failed
-- **Error**: "Authentication error"
-- **Fix**: Verify `CLOUDFLARE_API_TOKEN` has correct permissions
-
-## Environment Variables in Cloudflare
-
-After first deployment, also set environment variables in Cloudflare Dashboard:
-
-1. Go to: Workers & Pages → contextcache-frontend → Settings → Variables
-2. Add the same environment variables as GitHub secrets
-3. Redeploy for changes to take effect
-
-## CI/CD Workflow
-
-The deployment process:
-
-1. **Test** - Runs linting, type checking, tests
-2. **Build** - Builds Next.js for Cloudflare Workers using OpenNext
-3. **Deploy** - Deploys to Cloudflare Workers using Wrangler
-4. **Verify** - Creates deployment summary
-
-## Status Check
-
-Check GitHub Actions status:
-```
-https://github.com/thecontextcache/contextcache/actions
+**Fix:**
+```bash
+# Verify env var in Cloudflare dashboard
+# Then trigger redeploy:
+git commit --allow-empty -m "trigger: redeploy"
+git push origin main
 ```
 
-Check Cloudflare deployment:
+### Issue: Sign In button doesn't work
+
+**Cause**: Clerk not initialized
+
+**Check:**
+1. Is `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` set?
+2. Is it plain text (not encrypted)?
+3. Is the key correct?
+
+**Fix:**
+1. Go to Clerk Dashboard → API Keys
+2. Copy the publishable key (starts with `pk_`)
+3. Add to Cloudflare as plain text
+4. Redeploy
+
+### Issue: 401 Unauthorized errors
+
+**Cause**: Backend CORS not configured
+
+**Fix:**
+```bash
+./infra/cloudrun/update-cors.sh
 ```
-https://dash.cloudflare.com
+
+### Issue: Duplicate Cloudflare Workers
+
+**Cause**: Both manual and Git-integrated deployments
+
+**Fix:**
+1. Choose one deployment method
+2. Delete the other worker
+3. If "too many deployments" error:
+   - Go to Deployments tab
+   - Delete old deployments in batches
+   - Then delete the worker
+
+### Issue: Build fails in Cloudflare
+
+**Check logs:**
+1. Go to Workers & Pages → contextcache-frontend
+2. Click Deployments tab
+3. Click failed deployment
+4. View build logs
+
+**Common causes:**
+- Missing environment variables
+- `NEXT_PUBLIC_*` variables encrypted (should be plain text)
+- Build command incorrect
+
+---
+
+## Architecture Overview
+
 ```
+┌─────────────────────────────────────────────────────────┐
+│                    USERS                                 │
+└─────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────┐
+│              CLOUDFLARE WORKERS                          │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │  contextcache-frontend                          │   │
+│  │  - Next.js 15 SSR                               │   │
+│  │  - Clerk Authentication                         │   │
+│  │  - Domain: thecontextcache.com                  │   │
+│  └─────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
+                          ↓ HTTPS
+┌─────────────────────────────────────────────────────────┐
+│              GOOGLE CLOUD RUN (us-east1)                │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │  contextcache-api                               │   │
+│  │  - FastAPI                                      │   │
+│  │  - Clerk JWT verification                       │   │
+│  │  - End-to-end encryption                        │   │
+│  └─────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │  contextcache-worker                            │   │
+│  │  - Background jobs (Arq)                        │   │
+│  │  - Document processing                          │   │
+│  └─────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────┐
+│                   DATA LAYER                             │
+│  ┌────────────────────┐  ┌──────────────────────────┐  │
+│  │  Neon PostgreSQL   │  │  Upstash Redis           │  │
+│  │  - User data       │  │  - KEK/DEK cache         │  │
+│  │  - Projects        │  │  - Rate limiting         │  │
+│  │  - Documents       │  │  - Job queue             │  │
+│  │  - pgvector        │  │                          │  │
+│  └────────────────────┘  └──────────────────────────┘  │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Quick Reference
+
+### Useful Commands
+
+```bash
+# Backend logs
+gcloud logging tail "resource.labels.service_name=contextcache-api" --limit 50
+
+# Backend health check
+curl $(gcloud run services describe contextcache-api --region us-east1 --format 'value(status.url)')/health
+
+# Frontend deployment (manual)
+cd frontend && pnpm run deploy:cloudflare
+
+# Update CORS
+./infra/cloudrun/update-cors.sh
+
+# Trigger Git deployment
+git commit --allow-empty -m "trigger: deploy"
+git push origin main
+```
+
+### Important URLs
+
+- **Production Frontend**: https://thecontextcache.com/
+- **Workers.dev**: https://contextcache-frontend.doddanikhil.workers.dev/
+- **Cloudflare Dashboard**: https://dash.cloudflare.com/
+- **Google Cloud Console**: https://console.cloud.google.com/
+- **Clerk Dashboard**: https://dashboard.clerk.com/
+
+---
+
+## Support
+
+If you encounter issues:
+
+1. Check this troubleshooting guide
+2. Review Cloudflare Workers logs
+3. Review Cloud Run logs
+4. Check browser console for errors
+5. Verify all environment variables are set correctly
+
+Remember: `NEXT_PUBLIC_*` variables must be **plain text**, not secrets!
