@@ -1,7 +1,7 @@
-# Cloudflare Workers Configuration for ContextCache Frontend
+# Cloudflare Pages Configuration for ContextCache Frontend
 # This file configures the Cloudflare Workers runtime for Next.js SSR with OpenNext
 
-name = "contextcache-frontend"
+name = "contextcache"
 main = ".open-next/worker.js"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
@@ -11,11 +11,9 @@ compatibility_flags = ["nodejs_compat"]
 directory = ".open-next/assets"
 binding = "ASSETS"
 
-# Environment variables (set these in Cloudflare dashboard)
-# NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
-# CLERK_SECRET_KEY
-# NEXT_PUBLIC_API_URL
-# NEXT_PUBLIC_APP_ENV
-# NEXT_PUBLIC_ENABLE_ANALYTICS
-# NEXT_PUBLIC_ENABLE_EXPORT
-# NEXT_PUBLIC_ENABLE_GRAPH_VIEW
+# Environment variables (set these in Cloudflare Pages dashboard)
+# IMPORTANT: NEXT_PUBLIC_* variables must be PLAIN TEXT (not encrypted)
+# NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY (plain text)
+# CLERK_SECRET_KEY (secret/encrypted)
+# NEXT_PUBLIC_API_URL (plain text)
+# NEXT_PUBLIC_APP_ENV (plain text)

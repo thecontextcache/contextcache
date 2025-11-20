@@ -246,8 +246,8 @@ export default function Home() {
             <div>
               <h3 className="font-semibold text-foreground mb-3">Legal</h3>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li><a href="/LICENSE" className="hover:text-primary transition-colors">License</a></li>
-                <li><a href="/SECURITY.md" className="hover:text-primary transition-colors">Security</a></li>
+                <li><a href="https://github.com/thecontextcache/contextcache/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">License</a></li>
+                <li><a href="https://github.com/thecontextcache/contextcache/blob/main/SECURITY.md" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">Security</a></li>
               </ul>
             </div>
           </div>

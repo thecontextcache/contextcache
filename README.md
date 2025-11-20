@@ -1,126 +1,146 @@
 # ContextCache
 
-Privacy-first knowledge graphs for AI research and analysis
+**Privacy-first knowledge graph engine for AI research and analysis.**
 
----
+[![License](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
+[![Status](https://img.shields.io/badge/Status-Alpha-yellow.svg)](https://thecontextcache.com)
 
 ## Overview
 
-ContextCache transforms unstructured documents into queryable knowledge graphs with complete privacy and traceability. Built for researchers, analysts, and students who need AI-powered answers they can trust and verify.
+ContextCache is an enterprise-grade knowledge management system that combines zero-knowledge encryption with AI-powered semantic search. Your data is encrypted end-to-end, and your passphrase never leaves your device.
 
-## Key Features
+### Key Features
 
-### Privacy-First Architecture
-- **Zero-knowledge encryption**: Your passphrase never leaves your device
-- **Client-side encryption**: All data encrypted before transmission
-- **Argon2id key derivation**: Industry-standard cryptographic protection
+- **🔒 Zero-Knowledge Encryption** - End-to-end encryption with XChaCha20-Poly1305
+- **🧠 AI-Powered Search** - Semantic search using pgvector and multiple embedding providers
+- **🔐 Cryptographically Auditable** - BLAKE3 hash-linked audit chains
+- **⚡ Serverless & Scalable** - Built on Cloudflare Workers and Google Cloud Run
+- **🎯 Multi-Tenant** - Complete data isolation per user
+- **🤖 MCP Integration** - Model Context Protocol servers for AI agents
 
-### Intelligent Knowledge Extraction
-- **Quad-based storage**: Facts stored as subject-predicate-object-source tuples
-- **Hybrid search**: Combines BM25, dense embeddings, PageRank, and temporal decay
-- **Semantic understanding**: Natural language queries with contextual results
-- **Multiple AI providers**: Choose between HuggingFace (local), Ollama (self-hosted), OpenAI, or Anthropic
-- **Privacy-first embeddings**: Default to local processing with open-source models
+## Tech Stack
 
-### Complete Auditability
-- **Full provenance tracking**: Every fact linked to its source
-- **Cryptographic verification**: Tamper-evident event chains
-- **Confidence scoring**: Transparent reasoning and evidence paths
+**Frontend:**
+- Next.js 15 (React 19)
+- Tailwind CSS
+- Clerk Authentication
+- Cloudflare Pages
 
-### Cloud-Native Design
-- **Serverless architecture**: Auto-scaling with zero maintenance
-- **Multi-tenant support**: Secure project isolation
-- **Global performance**: Edge deployment with sub-100ms latency
+**Backend:**
+- FastAPI (Python 3.13)
+- PostgreSQL with pgvector (Neon)
+- Redis (Upstash)
+- Google Cloud Run
 
-## Technical Architecture
+**Security:**
+- XChaCha20-Poly1305 encryption
+- Argon2id key derivation
+- Ed25519 signatures
+- BLAKE3 hashing
 
-### Frontend
-- **Framework**: Next.js 15 with TypeScript
-- **Authentication**: Clerk
-- **Deployment**: Cloudflare Workers
-- **UI**: Modern, responsive design with dark mode support
+## Quick Start
 
-### Backend
-- **API**: FastAPI (Python)
-- **Database**: PostgreSQL with pgvector (Neon)
-- **Cache**: Redis (Upstash)
-- **Deployment**: Google Cloud Run
+### Prerequisites
 
-### MCP Server Integration
-ContextCache includes Model Context Protocol servers for:
-- Document extraction
-- Knowledge retrieval
-- Audit logging
-- Policy enforcement
+- Node.js 18+ and pnpm
+- Python 3.13+
+- Google Cloud account
+- Cloudflare account
+- Clerk account
+- Neon PostgreSQL database
+- Upstash Redis
+
+### Local Development
+
+```bash
+# Clone repository
+git clone https://github.com/thecontextcache/contextcache.git
+cd contextcache
+
+# Frontend setup
+cd frontend
+pnpm install
+cp .env.example .env.local
+# Edit .env.local with your keys
+pnpm dev
+
+# Backend setup (in new terminal)
+cd api
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env
+# Edit .env with your keys
+uvicorn main:app --reload
+```
+
+### Production Deployment
+
+See [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) for complete instructions.
+
+## Architecture
+
+```
+┌─────────────┐
+│   Browser   │
+└──────┬──────┘
+       │ HTTPS
+┌──────▼──────────────────┐
+│  Cloudflare Pages       │
+│  (Next.js Frontend)     │
+└──────┬──────────────────┘
+       │ HTTPS
+┌──────▼──────────────────┐
+│  Google Cloud Run       │
+│  (FastAPI Backend)      │
+└──────┬──────────────────┘
+       │
+┌──────▼──────────────────┐
+│  Neon PostgreSQL        │
+│  Upstash Redis          │
+└─────────────────────────┘
+```
 
 ## Security
 
-- **E2EE**: End-to-end encryption for all user data
-- **Zero-trust architecture**: No plaintext data on servers
-- **Cryptographic verification**: All operations are auditable
-- **Rate limiting**: Protection against abuse
-- **CORS policies**: Strict origin validation
+ContextCache implements defense-in-depth security:
 
-## Use Cases
+- **Encryption at Rest**: All data encrypted with user-derived keys
+- **Encryption in Transit**: TLS 1.3 for all connections
+- **Zero-Knowledge**: Server never sees unencrypted data or passphrases
+- **SQL Injection Prevention**: Parameterized queries only
+- **Authentication**: JWT-based with Clerk
+- **Authorization**: Resource-level ownership checks
+- **Rate Limiting**: Redis-based rate limiting
+- **Audit Logging**: Immutable, hash-linked audit chains
 
-**Academic Research**
-- Track citations and sources across papers
-- Build literature review knowledge bases
-- Verify claims with provenance
-
-**Business Intelligence**
-- Extract insights from reports and documents
-- Maintain audit trails for compliance
-- Query knowledge bases with natural language
-
-**Personal Knowledge Management**
-- Organize research notes and articles
-- Build interconnected knowledge graphs
-- Export and share findings securely
-
-## Technology Stack
-
-**Core Technologies**:
-- TypeScript, Python, PostgreSQL, Redis
-- Next.js 15, FastAPI, pgvector
-- Cloudflare Workers, Google Cloud Run
-
-**AI & Embeddings**:
-- Hugging Face Transformers (sentence-transformers)
-- Ollama (local LLM support)
-- OpenAI (optional)
-- Anthropic Claude (optional)
-
-**Key Libraries**:
-- Clerk (authentication)
-- Zustand (state management)
-- Axios (HTTP client)
-- Framer Motion (animations)
-- Tailwind CSS (styling)
+See [SECURITY.md](SECURITY.md) for security policy and reporting vulnerabilities.
 
 ## Documentation
 
-- [API Reference](docs/api-reference.md)
-- [Data Model](docs/data-model.md)
-- [Security Architecture](docs/security.md)
-- [MCP Integration](docs/mcp.md)
+- [Deployment Guide](DEPLOYMENT_GUIDE.md) - Production deployment instructions
+- [API Reference](docs/api-reference.md) - REST API documentation
+- [Data Model](docs/data-model.md) - Database schema and relationships
+- [MCP Documentation](docs/mcp.md) - Model Context Protocol integration
+- [Security](docs/security.md) - Security architecture and best practices
 
 ## License
 
-**Proprietary Software** - All Rights Reserved
+Proprietary software. All rights reserved.
 
-This software is proprietary and confidential. See [LICENSE](LICENSE) and [LICENSING.md](LICENSING.md) for details.
-
-During development phase: Internal use only. Commercial licenses will be available upon official release.
-
-## Contributing
-
-We welcome contributions. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting pull requests.
+See [LICENSE](LICENSE) and [LICENSING.md](LICENSING.md) for details.
 
 ## Support
 
-For issues or questions, please visit our [GitHub Issues](https://github.com/thecontextcache/contextcache/issues).
+For issues and questions:
+- Check the [documentation](docs/)
+- Review [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)
+- Open an issue on GitHub (for bugs only)
+
+## Status
+
+**Alpha Version** - Under active development. Not recommended for production use with sensitive data.
 
 ---
 
-Built with privacy, security, and transparency at the core.
+© 2024-2025 ContextCache. All rights reserved.

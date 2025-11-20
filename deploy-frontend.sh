@@ -1,7 +1,6 @@
 #!/bin/bash
-
 # ContextCache Frontend Deployment Script
-# Deploys to Cloudflare Workers using Wrangler
+# Deploys to Cloudflare Pages via Git integration
 
 set -e
 
@@ -22,32 +21,55 @@ if [ ! -f "frontend/package.json" ]; then
     exit 1
 fi
 
-cd frontend
+echo -e "${BLUE}📝 Deployment via Git Integration${NC}"
+echo ""
+echo "This will trigger automatic deployment on Cloudflare Pages."
+echo "Make sure you've:"
+echo "  1. Set environment variables in Cloudflare Pages dashboard"
+echo "  2. Committed all your changes"
+echo ""
 
-echo -e "${BLUE}📦 Installing dependencies...${NC}"
-pnpm install --frozen-lockfile
+read -p "Continue? (y/n) " -n 1 -r
+echo
+if [[ ! $REPLY =~ ^[Yy]$ ]]
+then
+    echo "Deployment cancelled."
+    exit 1
+fi
 
 echo ""
-echo -e "${BLUE}🔍 Running linter...${NC}"
-pnpm lint || echo -e "${YELLOW}⚠️  Linting warnings (continuing anyway)${NC}"
+echo -e "${BLUE}📦 Checking for uncommitted changes...${NC}"
+if [[ -n $(git status -s) ]]; then
+    echo -e "${YELLOW}⚠️  You have uncommitted changes:${NC}"
+    git status -s
+    echo ""
+    read -p "Commit changes now? (y/n) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        read -p "Enter commit message: " commit_msg
+        git add .
+        git commit -m "$commit_msg"
+    else
+        echo -e "${RED}❌ Please commit your changes before deploying${NC}"
+        exit 1
+    fi
+fi
 
 echo ""
-echo -e "${BLUE}🔨 Building for Cloudflare Workers...${NC}"
-pnpm run build:cloudflare
+echo -e "${BLUE}🚀 Pushing to main branch...${NC}"
+git push origin main
 
 echo ""
-echo -e "${BLUE}☁️  Deploying to Cloudflare...${NC}"
-pnpm run deploy:cloudflare
-
-echo ""
-echo -e "${GREEN}✅ Deployment complete!${NC}"
+echo -e "${GREEN}✅ Deployment triggered!${NC}"
 echo ""
 echo -e "${BLUE}📝 Next steps:${NC}"
-echo "1. Check your Cloudflare dashboard for the deployment URL"
-echo "2. Set environment variables in Cloudflare Workers settings:"
-echo "   - NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
-echo "   - CLERK_SECRET_KEY"
-echo "   - NEXT_PUBLIC_API_URL"
-echo "3. Test the deployment"
+echo "1. Go to Cloudflare Pages dashboard"
+echo "2. Monitor the deployment progress"
+echo "3. Once complete, visit: https://thecontextcache.com"
 echo ""
-
+echo -e "${YELLOW}⚠️  Remember to set these environment variables in Cloudflare:${NC}"
+echo "  - NEXT_PUBLIC_API_URL (plain text)"
+echo "  - NEXT_PUBLIC_APP_ENV (plain text)"
+echo "  - NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY (plain text)"
+echo "  - CLERK_SECRET_KEY (secret)"
+echo ""
