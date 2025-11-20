@@ -217,7 +217,7 @@ export default function InboxPage() {
               <button
                 type="submit"
                 disabled={uploading || !url}
-                className="px-6 py-3 bg-gradient-to-r gradient-primary text-white font-semibold rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                className="px-6 py-3 bg-gradient-primary text-white font-semibold rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               >
                 {uploading ? 'Fetching...' : 'Import'}
               </button>
@@ -250,14 +250,14 @@ export default function InboxPage() {
               onDrop={handleDrop}
               className={`border-2 border-dashed rounded-xl p-12 text-center transition-all ${
                 dragActive
-                  ? 'border-cyan-500 bg-cyan-500/5'
-                  : 'border-gray-300 dark:border-dark-surface-800 hover:border-cyan-500/50'
+                  ? 'border-secondary bg-secondary/10 dark:bg-secondary/20'
+                  : 'border-gray-300 dark:border-dark-surface-800 hover:border-secondary/50'
               }`}
             >
               <div className="space-y-4">
-                <div className="w-16 h-16 mx-auto bg-gradient-to-br from-cyan-500/10 to-blue-500/10 rounded-2xl flex items-center justify-center">
+                <div className="w-16 h-16 mx-auto bg-gradient-to-br from-secondary/10 to-secondary/20 rounded-2xl flex items-center justify-center">
                   <svg
-                    className="w-8 h-8 text-cyan-500"
+                    className="w-8 h-8 text-secondary dark:text-secondary"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -327,7 +327,7 @@ export default function InboxPage() {
                   type="button"
                   onClick={() => handleIngest()}
                   disabled={uploading}
-                  className="w-full px-6 py-3 bg-gradient-to-r gradient-primary text-white font-semibold rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-cyan-500/20"
+                  className="w-full px-6 py-3 bg-gradient-primary text-white font-semibold rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg"
                 >
                   {uploading ? (
                     <span className="flex items-center justify-center gap-2">

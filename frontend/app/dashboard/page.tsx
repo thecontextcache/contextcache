@@ -37,51 +37,22 @@ export default function DashboardPage() {
       return;
     }
   
-    const loadProjectStats = async () => {
+    const loadProjects = async () => {
       setLoading(true);
       setError(null);
       try {
-        // Projects are already loaded from localStorage via Zustand persist middleware
-        // Just need to refresh stats for the ones we have
-        
-        if (projects.length === 0) {
-          // No projects yet, that's fine
-          setLoading(false);
-          return;
-        }
-        
-        // Fetch fresh stats for each project (only once on mount)
-        const projectsWithStats = await Promise.all(
-          projects.map(async (project) => {
-            try {
-              const stats = await api.getProjectStats(project.id);
-              return {
-                ...project,
-                fact_count: stats.chunk_count || 0,
-                entity_count: stats.document_count || 0,
-              };
-            } catch (err: any) {
-              // Silently handle errors for individual projects
-              console.warn(`Failed to fetch stats for ${project.id}:`, err?.message || err);
-              return {
-                ...project,
-                fact_count: 0,
-                entity_count: 0,
-              };
-            }
-          })
-        );
-        
-        setProjects(projectsWithStats);
-      } catch (err) {
-        console.error('Failed to load project stats:', err);
-        // Don't block UI if stats fail
+        // Load projects directly from backend (single fast call)
+        const fetchedProjects = await api.listProjects();
+        setProjects(fetchedProjects);
+      } catch (err: any) {
+        console.error('Failed to load projects:', err);
+        setError(err?.response?.data?.detail || 'Failed to load projects');
       } finally {
         setLoading(false);
       }
     };
   
-    loadProjectStats();
+    loadProjects();
     //  FIX: Remove 'projects' from dependencies to prevent infinite loop
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authChecking, isSignedIn]); // Only run when auth state changes

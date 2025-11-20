@@ -79,6 +79,22 @@ export default function Home() {
               Your passphrase never leaves your device. Cloud-native, multi-tenant, and fully auditable.
             </p>
 
+            {/* Disclaimer */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.3 }}
+              className="p-4 rounded-xl bg-warning/10 dark:bg-warning/20 border border-warning/30 max-w-3xl mx-auto"
+            >
+              <p className="text-sm text-body dark:text-dark-text-muted leading-relaxed">
+                <strong className="text-warning-dark dark:text-warning">⚠️ Important:</strong> By using ContextCache, you acknowledge that:
+                (1) Your data is encrypted and we cannot recover it if you lose your master key,
+                (2) This is an alpha product under active development,
+                (3) We are not responsible for any data loss or issues arising from use of this service.
+                Use at your own risk.
+              </p>
+            </motion.div>
+
             {/* CTA Buttons */}
             <div className="flex flex-col sm:flex-row gap-4 justify-center items-center pt-4">
               <motion.button
@@ -88,7 +104,7 @@ export default function Home() {
                 className="group px-8 py-4 bg-gradient-primary text-white font-semibold rounded-xl
                            shadow-lg hover:shadow-xl transition-all flex items-center gap-2"
               >
-                Get Started
+                I Understand - Get Started
                 <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
               </motion.button>
               <motion.button
