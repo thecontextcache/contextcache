@@ -11,7 +11,19 @@ export function NavBar() {
   const pathname = usePathname();
   const { currentProject } = useProjectStore();
 
-  if (!currentProject || pathname === '/dashboard' || pathname === '/dashboard/new' || pathname === '/') {
+  // Show minimal navbar (just theme toggle) on landing and dashboard pages
+  const showFullNav = currentProject && pathname !== '/dashboard' && pathname !== '/dashboard/new' && pathname !== '/';
+  
+  if (pathname === '/') {
+    // On landing page, show theme toggle in top right
+    return (
+      <div className="fixed top-14 right-20 z-40">
+        <EnhancedThemeToggle />
+      </div>
+    );
+  }
+  
+  if (!showFullNav) {
     return null;
   }
 

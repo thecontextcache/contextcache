@@ -298,7 +298,7 @@ export default function InboxPage() {
 
             {/* Selected File & Upload Button - OUTSIDE drop zone */}
             {selectedFile && (
-              <div className="mt-6 p-6 bg-cyan-50 dark:bg-cyan-900/20 rounded-xl border-2 border-cyan-200 dark:border-cyan-800">
+              <div className="mt-6 p-6 bg-secondary/20 dark:bg-secondary/30 rounded-xl border-2 border-secondary dark:border-secondary">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-3">
                     <span className="text-2xl"></span>
@@ -371,7 +371,7 @@ export default function InboxPage() {
                 {documents.map((doc) => (
                   <div
                     key={doc.id}
-                    className="p-4 rounded-xl bg-surface dark:bg-dark-surface-800 border border-slate-200 dark:border-slate-700"
+                    className="p-4 rounded-xl bg-surface dark:bg-dark-surface-800 border-2 border-secondary/30 dark:border-secondary/50 shadow-sm"
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex-1">

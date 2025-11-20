@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { ThemeProvider } from '@/components/theme-provider';
-import { DarkModeToggle } from '@/components/dark-mode-toggle';
 import { NavBar } from '@/components/nav-bar';
 import { Disclaimer } from '@/components/disclaimer';
 import { ErrorBoundary } from '@/components/error-boundary';
@@ -75,11 +74,8 @@ export default function RootLayout({
                     </SignedIn>
                   </div>
                 </header>
-
-                {/*  Dark Mode Toggle - Self-positioning component */}
-                <DarkModeToggle />
                 
-                {/* Navigation */}
+                {/* Navigation (includes theme toggle) */}
                 <NavBar />
 
                 {/* Main content - Add padding bottom for disclaimer */}
