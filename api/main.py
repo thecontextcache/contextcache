@@ -35,6 +35,7 @@ from arq.connections import RedisSettings
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
 from cc_core.rate_limit import RateLimitMiddleware
+from cc_core.middleware import register_error_handlers, verify_project_ownership, get_user_from_clerk_id
 
 # Sentry initialization (optional)
 try:
@@ -138,6 +139,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Register secure error handlers (prevents information leakage)
+register_error_handlers(app)
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -185,8 +189,25 @@ async def log_requests(request: Request, call_next):
     return response
 
 # ============================================================================
-# HEALTH
+# ROOT & HEALTH
 # ============================================================================
+@app.get("/")
+async def root():
+    """Root endpoint - API information"""
+    return {
+        "name": "ContextCache API",
+        "version": "0.1.0",
+        "status": "operational",
+        "description": "Privacy-first memory engine for AI research",
+        "endpoints": {
+            "health": "/health",
+            "docs": "/docs",
+            "openapi": "/openapi.json"
+        },
+        "license": "Proprietary",
+        "contact": "thecontextcache@gmail.com"
+    }
+
 @app.get("/health")
 async def health(db: AsyncSession = Depends(get_db)):
     """Health check endpoint with detailed status"""

@@ -111,14 +111,15 @@ def verify_clerk_token(token: str) -> dict:
         print(f" JWT verification failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Token validation failed: {str(e)}",
+            detail="Invalid or expired token. Please sign in again.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     except Exception as e:
         print(f" Unexpected error during token verification: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Authentication error"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication failed. Please sign in again.",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
 
