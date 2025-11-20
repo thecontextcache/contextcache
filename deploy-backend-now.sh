@@ -35,6 +35,7 @@ echo "   Service: ${SERVICE_NAME}"
 echo ""
 
 # Deploy to Cloud Run with all necessary configs
+# Use ^:^ delimiter to handle URLs with colons and commas
 gcloud run deploy ${SERVICE_NAME} \
   --image ${IMAGE_NAME} \
   --region ${REGION} \
@@ -47,7 +48,7 @@ gcloud run deploy ${SERVICE_NAME} \
   --max-instances 10 \
   --port 8000 \
   --project ${PROJECT_ID} \
-  --set-env-vars "PYTHON_ENV=production,CORS_ORIGINS=https://thecontextcache.com,https://contextcache.pages.dev,http://localhost:3000" \
+  --set-env-vars "^:^PYTHON_ENV=production:CORS_ORIGINS=https://thecontextcache.com,https://contextcache.pages.dev,http://localhost:3000" \
   --set-secrets "DATABASE_URL=DATABASE_URL:latest,REDIS_URL=REDIS_URL:latest,CLERK_SECRET_KEY=CLERK_SECRET_KEY:latest,CLERK_PUBLISHABLE_KEY=CLERK_PUBLISHABLE_KEY:latest"
 
 echo ""
