@@ -41,11 +41,27 @@ export default function DashboardPage() {
       setLoading(true);
       setError(null);
       try {
+        // Check if session is unlocked first
+        const sessionStatus = await api.checkSessionStatus();
+        
+        if (!sessionStatus.unlocked) {
+          // Session locked - redirect to unlock page
+          router.push('/auth/unlock');
+          return;
+        }
+
         // Load projects directly from backend (single fast call)
         const fetchedProjects = await api.listProjects();
         setProjects(fetchedProjects);
       } catch (err: any) {
         console.error('Failed to load projects:', err);
+        
+        // If 401, session locked - redirect to unlock
+        if (err?.response?.status === 401) {
+          router.push('/auth/unlock');
+          return;
+        }
+        
         setError(err?.response?.data?.detail || 'Failed to load projects');
       } finally {
         setLoading(false);
