@@ -1,114 +1,71 @@
 # Licensing
 
-ContextCache is dual-licensed to balance open research with sustainable development.
+ContextCache is proprietary software currently in development.
 
-## For Non-Commercial Use: Apache 2.0
+## Proprietary License
 
-If you are using ContextCache for:
-- Academic research
-- Personal projects
-- Educational purposes
-- Non-profit organizations
-- Open-source projects
+- **License**: Proprietary Software License
+- **File**: [LICENSE](LICENSE)
+- **Status**: Development Phase
+- **Copyright**: © 2024-2025 ContextCache. All Rights Reserved.
 
-You may use ContextCache under the **Apache License 2.0**.
+## Current Status
 
-See [LICENSE-APACHE](LICENSE-APACHE) for full terms.
+This software is currently in active development and is **NOT open source**. All rights are reserved by ContextCache.
 
-### Apache 2.0 Summary
+### Development Phase Restrictions
 
-**You can:**
-- Use commercially in non-commercial contexts
-- Modify and distribute
-- Use privately
-- Include in larger works
-- Patent use (with grant)
+During the development phase:
+- ❌ No commercial use permitted
+- ❌ No redistribution allowed
+- ❌ No derivative works without permission
+- ❌ No reverse engineering
+- ✅ Internal development and testing only
 
-**You must:**
-- Include copyright notice
-- Include license copy
-- State changes made
-- Include NOTICE file (if provided)
+## Future Licensing
 
-**You cannot:**
-- Hold us liable
-- Use our trademarks without permission
+Upon official release, commercial licenses will be available. For inquiries about:
+- Early access programs
+- Partnership opportunities  
+- Enterprise licensing
+- Custom deployment options
 
-## For Commercial Evaluation: PolyForm Noncommercial
+Please contact: **thecontextcache@gmail.com**
 
-If you are:
-- Evaluating ContextCache for potential commercial use
-- Building internal prototypes
-- Testing in a commercial context
+## Third-Party Dependencies
 
-You may use ContextCache under the **PolyForm Noncommercial License 1.0.0**.
+ContextCache uses various open-source libraries and dependencies. These remain under their respective licenses:
+- See `api/requirements.txt` for Python dependencies
+- See `frontend/package.json` for JavaScript dependencies
 
-See [LICENSE-PolyForm-NC](LICENSE-PolyForm-NC) for full terms.
+All third-party dependencies are used in compliance with their respective licenses.
 
-### PolyForm Noncommercial Summary
+## Intellectual Property
 
-**You can:**
-- Use for evaluation and testing
-- Modify for internal assessment
-- Use in research and education
-
-**You cannot:**
-- Use in production commercial services
-- Sell or sublicense
-- Provide as a paid service
-
-## For Commercial Use: Contact Us
-
-If you want to use ContextCache in:
-- Production commercial applications
-- SaaS offerings
-- Enterprise deployments
-- Consulting/integration services
-
-Please contact us for a **commercial license**.
-
-📧 **Email**: iamdevnd@gmail.com
-
-## Which License Applies to Me?
-
-| Use Case | License |
-|----------|---------|
-| University research project | Apache 2.0 |
-| Personal knowledge management | Apache 2.0 |
-| Open-source tool integration | Apache 2.0 |
-| Non-profit organization | Apache 2.0 |
-| Evaluating for company use | PolyForm NC |
-| Internal corporate prototype | PolyForm NC |
-| Production SaaS product | Commercial (contact us) |
-| Paid consulting integration | Commercial (contact us) |
-| Enterprise on-premises deploy | Commercial (contact us) |
-
-## Why Dual License?
-
-We believe research and education should be freely accessible (Apache 2.0), while sustainable development for commercial use requires support (PolyForm NC + Commercial).
-
-This approach:
-- Keeps academic/personal use fully open
-- Allows evaluation before commitment
-- Funds ongoing development and security
-- Ensures long-term project health
+All code, documentation, designs, algorithms, and associated intellectual property are the exclusive property of ContextCache. This includes but is not limited to:
+- Source code and binaries
+- Documentation and guides
+- API designs and implementations
+- Database schemas and migrations
+- UI/UX designs and components
+- Cryptographic implementations
+- Knowledge graph algorithms
 
 ## Contributing
 
-By contributing to ContextCache, you agree:
-- Your contributions are licensed under both Apache 2.0 and PolyForm Noncommercial
+During the development phase, contributions are by invitation only. By contributing to ContextCache, you agree:
+- Your contributions become the property of ContextCache
 - You have the right to license your contributions
-- You waive moral rights that would prevent dual licensing
+- You assign all rights, title, and interest to ContextCache
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
-## Questions?
+## Contact
 
-- **General licensing**: thecontextcache@gmail.com
-- **Commercial inquiries**: thecontextcache@gmail.com
-- **Academic partnerships**: thecontextcache@gmail.com
-
+For any licensing questions or business inquiries:
+- **Email**: thecontextcache@gmail.com
+- **GitHub**: https://github.com/thecontextcache/contextcache
 
 ---
 
-**Note**: This document is a summary. The actual license texts ([LICENSE-APACHE](LICENSE-APACHE), [LICENSE-PolyForm-NC](LICENSE-PolyForm-NC)) govern all usage.
+**Last Updated**: November 2024

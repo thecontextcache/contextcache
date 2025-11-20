@@ -107,7 +107,11 @@ ContextCache includes Model Context Protocol servers for:
 
 ## License
 
-See [LICENSING.md](LICENSING.md) for details.
+**Proprietary Software** - All Rights Reserved
+
+This software is proprietary and confidential. See [LICENSE](LICENSE) and [LICENSING.md](LICENSING.md) for details.
+
+During development phase: Internal use only. Commercial licenses will be available upon official release.
 
 ## Contributing
 
