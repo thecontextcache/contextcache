@@ -22,14 +22,19 @@ echo "📦 Step 1: Building Docker image..."
 echo "   Image: ${IMAGE_NAME}"
 echo ""
 
-# Build and push image using Cloud Build
+# Build and push image using Cloud Build with custom Dockerfile
 gcloud builds submit \
   --tag ${IMAGE_NAME} \
   --project ${PROJECT_ID} \
   --timeout 20m \
   --machine-type e2-highcpu-8 \
-  --dockerfile infra/api.Dockerfile \
-  .
+  --config - <<EOF
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', '${IMAGE_NAME}', '-f', 'infra/api.Dockerfile', '--target', 'production', '.']
+images:
+- '${IMAGE_NAME}'
+EOF
 
 echo ""
 echo "📦 Step 2: Deploying to Cloud Run..."
