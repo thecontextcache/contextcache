@@ -7,17 +7,16 @@ echo ""
 echo "This will update the API to allow requests from:"
 echo "  - https://thecontextcache.com"
 echo "  - https://contextcache.pages.dev"
-echo "  - https://*.contextcache.pages.dev"
 echo "  - http://localhost:3000"
 echo ""
 
-# Set CORS origins
-CORS_ORIGINS="https://thecontextcache.com,https://contextcache.pages.dev,https://*.contextcache.pages.dev,http://localhost:3000"
+# Set CORS origins (no wildcards - they don't work well with gcloud)
+CORS_ORIGINS="https://thecontextcache.com,https://contextcache.pages.dev,http://localhost:3000"
 
 echo "Updating Cloud Run service..."
 gcloud run services update contextcache-api \
   --region us-east1 \
-  --update-env-vars "CORS_ORIGINS=${CORS_ORIGINS}"
+  --update-env-vars "^::^CORS_ORIGINS=${CORS_ORIGINS}"
 
 echo ""
 echo "✅ CORS updated successfully!"
