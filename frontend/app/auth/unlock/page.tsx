@@ -12,7 +12,7 @@ export default function UnlockPage() {
   const [masterKey, setMasterKey] = useState('');
   const [unlocking, setUnlocking] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isFirstTime, setIsFirstTime] = useState(false);
+  const [hasDownloaded, setHasDownloaded] = useState(false);
 
   const handleUnlock = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,10 +40,10 @@ export default function UnlockPage() {
         duration: 3000,
       });
 
-      // Redirect to dashboard
+      // Redirect to dashboard after a short delay
       setTimeout(() => {
         router.push('/dashboard');
-      }, 500);
+      }, 1000);
       
     } catch (err: any) {
       console.error('Failed to unlock session:', err);
@@ -52,20 +52,12 @@ export default function UnlockPage() {
       
       if (err.response) {
         if (err.response.status === 400) {
-          errorMessage = 'Incorrect master key';
-        } else if (err.response.status === 404) {
-          // First time user - need to set master key
-          setIsFirstTime(true);
-          errorMessage = 'First time? Your master key has been set!';
-          toast.success('Master key saved', {
-            description: 'Please save this key securely - you cannot recover it!',
-          });
-          // Try unlocking again
-          setTimeout(() => handleUnlock(e), 1000);
-          return;
+          errorMessage = 'Incorrect master key. Please try again.';
         } else if (err.response.data?.detail) {
           errorMessage = err.response.data.detail;
         }
+      } else {
+        errorMessage = 'Network error. Please check your connection.';
       }
       
       setError(errorMessage);
@@ -88,7 +80,11 @@ export default function UnlockPage() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    toast.success('Master key downloaded');
+    setHasDownloaded(true);
+    toast.success('Master key downloaded', {
+      description: 'Keep this file safe - you cannot recover your data without it!',
+      duration: 5000,
+    });
   };
 
   return (
@@ -156,10 +152,14 @@ export default function UnlockPage() {
               onClick={downloadMasterKey}
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-surface dark:bg-dark-surface-800 border border-secondary/30 text-secondary-700 dark:text-secondary rounded-lg hover:bg-secondary/10 dark:hover:bg-secondary/20 transition-all"
+              className={`w-full flex items-center justify-center gap-2 px-4 py-3 border rounded-lg transition-all ${
+                hasDownloaded
+                  ? 'bg-success/10 dark:bg-success/20 border-success/30 text-success'
+                  : 'bg-surface dark:bg-dark-surface-800 border-secondary/30 text-secondary-700 dark:text-secondary hover:bg-secondary/10 dark:hover:bg-secondary/20'
+              }`}
             >
               <Download className="w-4 h-4" />
-              Download Master Key Backup
+              {hasDownloaded ? '✓ Master Key Downloaded' : 'Download Master Key Backup (Required)'}
             </motion.button>
           )}
 
@@ -174,10 +174,23 @@ export default function UnlockPage() {
             </motion.div>
           )}
 
+          {/* Warning if not downloaded */}
+          {masterKey.length >= 20 && !hasDownloaded && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="p-4 rounded-xl bg-warning/10 dark:bg-warning/20 border border-warning/30"
+            >
+              <p className="text-sm text-warning dark:text-warning/90 font-medium">
+                ⚠️ Please download your master key backup before continuing
+              </p>
+            </motion.div>
+          )}
+
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={unlocking || masterKey.length < 20}
+            disabled={unlocking || masterKey.length < 20 || !hasDownloaded}
             className="w-full py-4 bg-gradient-primary text-white font-semibold rounded-xl shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all transform hover:scale-[1.02] active:scale-[0.98]"
           >
             {unlocking ? (
