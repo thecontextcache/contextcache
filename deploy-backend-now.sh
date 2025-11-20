@@ -25,15 +25,8 @@ echo ""
 # Build and push image using Cloud Build with custom Dockerfile
 gcloud builds submit \
   --project ${PROJECT_ID} \
-  --timeout 20m \
-  --machine-type e2-highcpu-8 \
-  --config - <<EOF
-steps:
-- name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-t', '${IMAGE_NAME}', '-f', 'infra/api.Dockerfile', '--target', 'production', '.']
-images:
-- '${IMAGE_NAME}'
-EOF
+  --config cloudbuild-api-deploy.yaml \
+  .
 
 echo ""
 echo "📦 Step 2: Deploying to Cloud Run..."
