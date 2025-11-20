@@ -641,6 +641,7 @@ async def get_project_stats(
 async def update_project(
     project_id: str,
     name: str = Form(...),
+    current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Update project name"""
@@ -657,13 +658,25 @@ async def update_project(
             detail="Project name cannot be empty"
         )
     
+    # Get user and verify project ownership
     result = await db.execute(
-        select(ProjectDB).where(ProjectDB.id == project_id)
+        select(UserDB).where(UserDB.clerk_user_id == current_user["clerk_user_id"])
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    result = await db.execute(
+        select(ProjectDB).where(
+            ProjectDB.id == project_id,
+            ProjectDB.user_id == user.id
+        )
     )
     project = result.scalar_one_or_none()
     
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail="Project not found or access denied")
     
     project.name = name
     await db.commit()
@@ -697,81 +710,61 @@ async def update_project(
 @app.delete("/projects/{project_id}")
 async def delete_project(
     project_id: str,
+    current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Delete a project"""
-    result = await db.execute(select(ProjectDB).where(ProjectDB.id == project_id))
+    # Get user and verify project ownership
+    result = await db.execute(
+        select(UserDB).where(UserDB.clerk_user_id == current_user["clerk_user_id"])
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    result = await db.execute(
+        select(ProjectDB).where(
+            ProjectDB.id == project_id,
+            ProjectDB.user_id == user.id
+        )
+    )
     project = result.scalar_one_or_none()
+    
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail="Project not found or access denied")
 
     await db.delete(project)
     await db.commit()
     return {"message": "Project deleted successfully"}
 
 
-@app.get("/projects/{project_id}/stats")
-async def get_project_stats(
-    project_id: str,
-    db: AsyncSession = Depends(get_db)
-):
-    """Get project statistics"""
-    result = await db.execute(
-        select(ProjectDB).where(ProjectDB.id == project_id)
-    )
-    project = result.scalar_one_or_none()
-    
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    
-    # Document count
-    doc_count_result = await db.execute(
-        select(func.count()).select_from(DocumentDB).where(DocumentDB.project_id == project_id)
-    )
-    doc_count = doc_count_result.scalar() or 0
-    
-    # Chunk count (facts)
-    chunk_count_result = await db.execute(
-        select(func.count())
-        .select_from(DocumentChunkDB)
-        .join(DocumentDB, DocumentChunkDB.document_id == DocumentDB.id)
-        .where(DocumentDB.project_id == project_id)
-    )
-    chunk_count = chunk_count_result.scalar() or 0
-    
-    # Storage size estimate
-    size_result = await db.execute(
-        select(func.sum(func.length(DocumentChunkDB.text)))
-        .select_from(DocumentChunkDB)
-        .join(DocumentDB, DocumentChunkDB.document_id == DocumentDB.id)
-        .where(DocumentDB.project_id == project_id)
-    )
-    total_chars = size_result.scalar() or 0
-    storage_bytes = total_chars * 2
-    
-    return {
-        "project_id": project_id,
-        "document_count": doc_count,
-        "chunk_count": chunk_count,
-        "storage_bytes": storage_bytes,
-        "storage_mb": round(storage_bytes / (1024 * 1024), 2),
-    }
-
-
 @app.get("/projects/{project_id}/graph")
 async def get_project_graph(
     project_id: str,
+    current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get knowledge graph for visualization (REAL DATA)"""
-    # Verify project exists
+    # Get user and verify project ownership
     result = await db.execute(
-        select(ProjectDB).where(ProjectDB.id == project_id)
+        select(UserDB).where(UserDB.clerk_user_id == current_user["clerk_user_id"])
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    result = await db.execute(
+        select(ProjectDB).where(
+            ProjectDB.id == project_id,
+            ProjectDB.user_id == user.id
+        )
     )
     project = result.scalar_one_or_none()
     
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail="Project not found or access denied")
     
     # Query REAL chunks and documents from database
     result = await db.execute(
@@ -834,17 +827,29 @@ async def get_project_graph(
 async def get_project_audit_log(
     project_id: str,
     limit: int = 100,
+    current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get audit event log for a project"""
-    # Verify project exists
+    # Get user and verify project ownership
     result = await db.execute(
-        select(ProjectDB).where(ProjectDB.id == project_id)
+        select(UserDB).where(UserDB.clerk_user_id == current_user["clerk_user_id"])
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    result = await db.execute(
+        select(ProjectDB).where(
+            ProjectDB.id == project_id,
+            ProjectDB.user_id == user.id
+        )
     )
     project = result.scalar_one_or_none()
     
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail="Project not found or access denied")
     
     # Query audit events
     audit_query = text("""
@@ -878,16 +883,29 @@ async def get_project_audit_log(
 @app.post("/projects/{project_id}/compute-ranking")
 async def trigger_ranking(
     project_id: str,
+    current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Trigger background ranking computation"""
+    # Get user and verify project ownership
     result = await db.execute(
-        select(ProjectDB).where(ProjectDB.id == project_id)
+        select(UserDB).where(UserDB.clerk_user_id == current_user["clerk_user_id"])
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    result = await db.execute(
+        select(ProjectDB).where(
+            ProjectDB.id == project_id,
+            ProjectDB.user_id == user.id
+        )
     )
     project = result.scalar_one_or_none()
 
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail="Project not found or access denied")
 
     # Queue job if Redis is available
     if hasattr(app.state, 'redis_pool') and app.state.redis_pool:
@@ -927,12 +945,33 @@ async def ingest_document(
     source_url: str = Form(None),
     file: UploadFile = File(None),
     background: bool = Form(False),
+    current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Ingest a document (file or URL) and create chunks with embeddings.
     If background=True and Redis is configured, queues the job.
     """
+    # Verify project ownership first
+    result = await db.execute(
+        select(UserDB).where(UserDB.clerk_user_id == current_user["clerk_user_id"])
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    result = await db.execute(
+        select(ProjectDB).where(
+            ProjectDB.id == project_id,
+            ProjectDB.user_id == user.id
+        )
+    )
+    project = result.scalar_one_or_none()
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found or access denied")
+    
     doc_service = DocumentService()
     embedding_service = EmbeddingService()
 
@@ -1112,7 +1151,7 @@ async def ingest_document(
         # Get DEK for encryption
         key_service = get_key_service()
         encryption_service = get_encryption_service()
-        session_id = current_user.get("session_id") if "current_user" in locals() else None
+        session_id = current_user["session_id"]
         dek = None
 
         if session_id:
@@ -1199,6 +1238,7 @@ async def list_documents(
     project_id: str,
     limit: int = 20,
     offset: int = 0,
+    current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """List documents for a project"""
@@ -1207,6 +1247,26 @@ async def list_documents(
         raise HTTPException(status_code=400, detail="Limit must be between 1 and 100")
     if offset < 0:
         raise HTTPException(status_code=400, detail="Offset must be non-negative")
+    
+    # Verify project ownership
+    result = await db.execute(
+        select(UserDB).where(UserDB.clerk_user_id == current_user["clerk_user_id"])
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    result = await db.execute(
+        select(ProjectDB).where(
+            ProjectDB.id == project_id,
+            ProjectDB.user_id == user.id
+        )
+    )
+    project = result.scalar_one_or_none()
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found or access denied")
     
     result = await db.execute(
         select(DocumentDB)
