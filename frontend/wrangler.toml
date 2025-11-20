@@ -14,9 +14,11 @@ pages_build_output_dir = ".open-next"
 # directory = ".open-next/assets"
 # binding = "ASSETS"
 
-# Environment variables (set these in Cloudflare Pages dashboard)
-# IMPORTANT: NEXT_PUBLIC_* variables must be PLAIN TEXT (not encrypted)
-# NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY (plain text)
-# CLERK_SECRET_KEY (secret/encrypted)
-# NEXT_PUBLIC_API_URL (plain text)
-# NEXT_PUBLIC_APP_ENV (plain text)
+# Environment variables for Cloudflare Pages
+[vars]
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = "pk_live_Y2xlcmsudGhlY29udGV4dGNhY2hlLmNvbSQ"
+NEXT_PUBLIC_API_URL = "https://contextcache-api-ktdjdc66ca-ue.a.run.app"
+NEXT_PUBLIC_APP_ENV = "production"
+
+# Secrets (encrypted variables) - Set via Dashboard:
+# CLERK_SECRET_KEY - Must be added as a Secret in Cloudflare Pages Dashboard
