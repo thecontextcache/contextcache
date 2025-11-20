@@ -47,17 +47,37 @@ export default function UnlockPage() {
       
     } catch (err: any) {
       console.error('Failed to unlock session:', err);
+      console.error('Error details:', {
+        status: err.response?.status,
+        statusText: err.response?.statusText,
+        data: err.response?.data,
+        message: err.message,
+        config: {
+          url: err.config?.url,
+          baseURL: err.config?.baseURL,
+          method: err.config?.method,
+        }
+      });
       
       let errorMessage = 'Failed to unlock session';
       
       if (err.response) {
-        if (err.response.status === 400) {
+        const status = err.response.status;
+        if (status === 400) {
           errorMessage = 'Incorrect master key. Please try again.';
+        } else if (status === 404) {
+          errorMessage = 'API endpoint not found. Please check if the backend is running.';
+        } else if (status === 401) {
+          errorMessage = 'Authentication failed. Please sign out and sign in again.';
+        } else if (status === 500) {
+          errorMessage = 'Server error. Please try again later.';
         } else if (err.response.data?.detail) {
           errorMessage = err.response.data.detail;
+        } else {
+          errorMessage = `HTTP ${status}: ${err.response.statusText || 'Unknown error'}`;
         }
-      } else {
-        errorMessage = 'Network error. Please check your connection.';
+      } else if (err.message) {
+        errorMessage = `Network error: ${err.message}`;
       }
       
       setError(errorMessage);
