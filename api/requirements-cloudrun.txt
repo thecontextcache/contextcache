@@ -1,5 +1,5 @@
-# Cloud Run requirements - all dependencies except heavy ML packages
-# Excludes: torch, transformers, sentence-transformers (large CUDA dependencies)
+# Cloud Run requirements - lightweight ML packages for embeddings
+# Uses CPU-only versions of ML libraries
 
 # Copy from requirements.txt but exclude ML packages
 aiofiles==24.1.0
@@ -70,3 +70,13 @@ watchfiles==1.1.0
 websockets==15.0.1
 yarl==1.22.0
 
+# ML/Embedding packages (needed for document processing)
+sentence-transformers==5.1.1
+torch==2.8.0
+transformers==4.57.0
+huggingface-hub==0.35.3
+tokenizers==0.22.1
+safetensors==0.6.2
+numpy==2.3.3
+scikit-learn==1.7.2
+scipy==1.16.2
