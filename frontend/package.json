@@ -9,7 +9,7 @@
     "dev": "next dev",
     "build": "next build && npm run postbuild",
     "build:nolint": "next build --no-lint",
-    "build:cloudflare": "opennextjs-cloudflare build",
+    "build:cloudflare": "opennextjs-cloudflare build && cp .open-next/worker.js .open-next/_worker.js",
     "preview:cloudflare": "opennextjs-cloudflare preview",
     "deploy:cloudflare": "pnpm wrangler pages deploy .open-next --project-name=contextcache",
     "postbuild": "rm -rf .next/cache",
