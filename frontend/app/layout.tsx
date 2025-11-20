@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { ThemeProvider } from '@/components/theme-provider';
-import { NavBar } from '@/components/nav-bar';
 import { Disclaimer } from '@/components/disclaimer';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from 'sonner';
@@ -78,9 +77,6 @@ export default function RootLayout({
                     </SignedIn>
                   </div>
                 </header>
-                
-                {/* Navigation (includes theme toggle) */}
-                <NavBar />
 
                 {/* Main content - Add padding bottom for disclaimer */}
                 <div className="min-h-screen pb-20">{children}</div>
