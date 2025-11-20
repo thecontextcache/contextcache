@@ -5,16 +5,13 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import api from '@/lib/api';
 import { useProjectStore } from '@/lib/store/project';
-import { deriveKey } from '@/lib/crypto';
 import { toast } from 'sonner';
 
 export default function NewProjectPage() {
   const router = useRouter();
-  const { addProject, setCurrentProject, setEncryptionKey } = useProjectStore();
+  const { addProject, setCurrentProject } = useProjectStore();
   
   const [name, setName] = useState('');
-  const [passphrase, setPassphrase] = useState('');
-  const [confirmPassphrase, setConfirmPassphrase] = useState('');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,41 +26,26 @@ export default function NewProjectPage() {
       return;
     }
 
-    if (!passphrase) {
-      setError('Passphrase is required');
-      toast.error('Passphrase is required');
-      return;
-    }
-
-    if (passphrase.length < 20) {
-      setError('Passphrase must be at least 20 characters');
-      toast.error('Passphrase must be at least 20 characters');
-      return;
-    }
-
-    if (passphrase !== confirmPassphrase) {
-      setError('Passphrases do not match');
-      toast.error('Passphrases do not match');
+    if (name.trim().length < 3) {
+      setError('Project name must be at least 3 characters');
+      toast.error('Project name must be at least 3 characters');
       return;
     }
 
     setCreating(true);
 
     try {
+      // Create project without passphrase (uses user's master key)
+      const formData = new FormData();
+      formData.append('name', name.trim());
 
-      //  FIX: Use the createProject method from api (not api.client.post directly)
-      const projectData = await api.createProject(name.trim(), passphrase);
+      const projectData = await api.createProject(name.trim());
 
-
-      // Step 2: Derive encryption key from passphrase + salt
-
-      const encryptionKey = await deriveKey(passphrase, projectData.salt);
-
-      // Step 3: Store project metadata (with salt) in localStorage
+      // Store project metadata
       const newProject = {
         id: projectData.id,
         name: projectData.name,
-        salt: projectData.salt,  //  Save salt for future key derivation
+        salt: '', // No longer used - kept for backwards compatibility
         fact_count: 0,
         entity_count: 0,
         created_at: projectData.created_at || new Date().toISOString(),
@@ -72,9 +54,6 @@ export default function NewProjectPage() {
       
       addProject(newProject);
       setCurrentProject(newProject);
-      
-      // Step 4: Store encryption key in memory (NOT localStorage!)
-      setEncryptionKey(projectData.id, encryptionKey);
 
       toast.success('Project created successfully!', {
         description: `"${newProject.name}" is ready to use`,
@@ -87,21 +66,16 @@ export default function NewProjectPage() {
       }, 500);
       
     } catch (err: any) {
-      console.error(' Failed to create project:', err);
-      console.error('Error details:', {
-        message: err.message,
-        response: err.response?.data,
-        status: err.response?.status,
-        hasRequest: !!err.request,
-      });
+      console.error('❌ Failed to create project:', err);
       
       // Handle different error types
       let errorMessage = 'Failed to create project. Please try again.';
       
       if (err.response) {
-        // Server responded with error
         if (err.response.status === 401) {
-          errorMessage = 'Authentication required. Please sign in again.';
+          errorMessage = 'Session locked. Please unlock your account first.';
+          // Redirect to unlock page
+          setTimeout(() => router.push('/auth/unlock'), 2000);
         } else if (err.response.status === 400) {
           errorMessage = err.response.data?.detail || 'Invalid project data';
         } else if (err.response.status === 409) {
@@ -110,9 +84,7 @@ export default function NewProjectPage() {
           errorMessage = err.response.data.detail;
         }
       } else if (err.request) {
-        // Network error - no response received
-        errorMessage = 'Network error. Please check your connection and try again.';
-        console.error('No response from server. Check backend configuration.');
+        errorMessage = 'Network error. Please check your connection.';
       } else if (err.message) {
         errorMessage = err.message;
       }
@@ -144,7 +116,7 @@ export default function NewProjectPage() {
                 Create New Project
               </h1>
               <p className="text-body dark:text-dark-text-muted mt-2">
-                Secure your knowledge with zero-knowledge encryption
+                Organize your knowledge with end-to-end encryption
               </p>
             </div>
           </div>
@@ -160,7 +132,7 @@ export default function NewProjectPage() {
         >
           <form onSubmit={handleCreate} className="space-y-6">
             {/* Project Name */}
-            <div className="p-8 rounded-2xl bg-surface dark:bg-dark-surface-800 backdrop-blur-sm border border-gray-200 dark:border-dark-surface-800">
+            <div className="p-8 rounded-2xl bg-surface dark:bg-dark-surface-800 backdrop-blur-sm border border-gray-200 dark:border-dark-surface-800 shadow-lg">
               <label className="block text-sm font-medium text-body dark:text-dark-text-muted mb-3">
                 Project Name
               </label>
@@ -169,52 +141,28 @@ export default function NewProjectPage() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="My Research Project"
-                className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-dark-surface-800 bg-surface dark:bg-dark-bg-900 text-headline dark:text-dark-text-primary placeholder:text-gray-400 dark:placeholder:text-dark-text-muted focus:ring-2 focus:ring-secondary focus:border-transparent transition-all"
+                className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-dark-surface-800 bg-background dark:bg-dark-bg-900 text-headline dark:text-dark-text-primary placeholder:text-gray-400 dark:placeholder:text-dark-text-muted focus:ring-2 focus:ring-secondary-700 dark:focus:ring-secondary focus:border-transparent transition-all"
                 disabled={creating}
                 autoFocus
               />
+              <p className="text-sm text-body dark:text-dark-text-muted mt-2">
+                Choose a descriptive name for your project (minimum 3 characters)
+              </p>
             </div>
 
-            {/* Passphrase */}
-            <div className="p-8 rounded-2xl bg-surface dark:bg-dark-surface-800 backdrop-blur-sm border border-gray-200 dark:border-dark-surface-800">
-              <label className="block text-sm font-medium text-body dark:text-dark-text-muted mb-3">
-                Passphrase (minimum 20 characters)
-              </label>
-              <input
-                type="password"
-                value={passphrase}
-                onChange={(e) => setPassphrase(e.target.value)}
-                placeholder="Enter a strong passphrase..."
-                className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-dark-surface-800 bg-surface dark:bg-dark-bg-900 text-headline dark:text-dark-text-primary placeholder:text-gray-400 dark:placeholder:text-dark-text-muted focus:ring-2 focus:ring-secondary focus:border-transparent transition-all mb-4"
-                disabled={creating}
-              />
-              
-              <label className="block text-sm font-medium text-body dark:text-dark-text-muted mb-3">
-                Confirm Passphrase
-              </label>
-              <input
-                type="password"
-                value={confirmPassphrase}
-                onChange={(e) => setConfirmPassphrase(e.target.value)}
-                placeholder="Confirm your passphrase..."
-                className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-dark-surface-800 bg-surface dark:bg-dark-bg-900 text-headline dark:text-dark-text-primary placeholder:text-gray-400 dark:placeholder:text-dark-text-muted focus:ring-2 focus:ring-secondary focus:border-transparent transition-all"
-                disabled={creating}
-              />
-
-              {/* Security Warning */}
-              <div className="mt-4 p-4 rounded-xl bg-warning/10 dark:bg-warning/20 border border-warning/30">
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-warning/20 dark:bg-warning/30 flex items-center justify-center flex-shrink-0">
-                    <span className="text-lg">⚠️</span>
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold text-warning-dark dark:text-warning mb-1">
-                      Zero-Knowledge Security
-                    </p>
-                    <p className="text-sm text-warning-dark dark:text-warning/80 leading-relaxed">
-                      Your passphrase never leaves your device. If you lose it, your data cannot be recovered. Consider storing it in a password manager.
-                    </p>
-                  </div>
+            {/* Security Info */}
+            <div className="p-6 rounded-xl bg-secondary/10 dark:bg-secondary/20 border border-secondary/30">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-lg bg-secondary/20 dark:bg-secondary/30 flex items-center justify-center flex-shrink-0">
+                  <span className="text-xl">🔒</span>
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-secondary-700 dark:text-secondary mb-2">
+                    Protected by Your Master Key
+                  </p>
+                  <p className="text-sm text-body dark:text-dark-text-muted leading-relaxed">
+                    All projects are encrypted with your master key. Your data is secure and private by default.
+                  </p>
                 </div>
               </div>
             </div>
@@ -236,8 +184,8 @@ export default function NewProjectPage() {
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={creating || !name.trim() || passphrase.length < 20 || passphrase !== confirmPassphrase}
-              className="w-full py-4 bg-gradient-primary text-white font-semibold rounded-xl shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              disabled={creating || !name.trim() || name.trim().length < 3}
+              className="w-full py-4 bg-gradient-primary text-white font-semibold rounded-xl shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all transform hover:scale-[1.02] active:scale-[0.98]"
             >
               {creating ? (
                 <span className="flex items-center justify-center gap-2">

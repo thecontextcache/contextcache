@@ -91,11 +91,15 @@ class APIClient {
   // -------------------------
   //  Projects
   // -------------------------
-  async createProject(name: string, passphrase: string): Promise<Project> {
-    //  FIX: Send JSON body with both name and passphrase
-    const response = await this.client.post<Project>('/projects', {
-      name: name,
-      passphrase: passphrase,
+  async createProject(name: string): Promise<Project> {
+    // Send form data with project name only (backend uses master key)
+    const formData = new FormData();
+    formData.append('name', name);
+    
+    const response = await this.client.post<Project>('/projects', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
     });
     return response.data;
   }
