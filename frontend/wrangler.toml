@@ -2,14 +2,17 @@
 # This file configures the Cloudflare Workers runtime for Next.js SSR with OpenNext
 
 name = "contextcache"
-main = ".open-next/worker.js"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
-# Static assets configuration
-[assets]
-directory = ".open-next/assets"
-binding = "ASSETS"
+# For Cloudflare Pages, specify the build output directory
+pages_build_output_dir = ".open-next"
+
+# The following are only needed for Workers deployment (not Pages)
+# main = ".open-next/worker.js"
+# [assets]
+# directory = ".open-next/assets"
+# binding = "ASSETS"
 
 # Environment variables (set these in Cloudflare Pages dashboard)
 # IMPORTANT: NEXT_PUBLIC_* variables must be PLAIN TEXT (not encrypted)
