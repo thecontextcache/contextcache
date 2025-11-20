@@ -143,7 +143,7 @@ export default function InboxPage() {
 
   if (!currentProject) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-cyan-50 to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 px-4">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br background dark:dark:bg-dark-bg-900 px-4">
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -151,16 +151,16 @@ export default function InboxPage() {
         >
           <div className="text-6xl"></div>
           <div className="space-y-2">
-            <h2 className="text-2xl font-semibold text-slate-900 dark:text-white">
+            <h2 className="text-2xl font-semibold text-headline dark:text-dark-text-primary">
               No Project Selected
             </h2>
-            <p className="text-slate-600 dark:text-slate-400">
+            <p className="text-body dark:text-dark-text-muted">
               Please select or create a project first
             </p>
           </div>
           <button
             onClick={() => router.push('/dashboard')}
-            className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-lg hover:opacity-90 transition-opacity font-medium"
+            className="px-6 py-3 bg-gradient-to-r gradient-primary text-white rounded-lg hover:opacity-90 transition-opacity font-medium"
           >
             Go to Dashboard
           </button>
@@ -170,22 +170,22 @@ export default function InboxPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-cyan-50 to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+    <div className="min-h-screen bg-gradient-to-br background dark:dark:bg-dark-bg-900">
       {/* Header */}
-      <div className="border-b border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm">
+      <div className="border-b border-gray-200 dark:border-dark-surface-800 bg-surface/50 dark:bg-dark-surface-800/50 backdrop-blur-sm">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 dark:text-white tracking-tight">
+              <h1 className="text-3xl sm:text-4xl font-bold text-headline dark:text-dark-text-primary tracking-tight">
                 Inbox
               </h1>
-              <p className="text-slate-600 dark:text-slate-400 mt-2">
+              <p className="text-body dark:text-dark-text-muted mt-2">
                 Import documents to {currentProject.name}
               </p>
             </div>
             <button
               onClick={() => router.push('/dashboard')}
-              className="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+              className="px-4 py-2 text-body dark:text-dark-text-muted hover:text-slate-900 dark:hover:text-white transition-colors"
             >
               ← Back
             </button>
@@ -200,9 +200,9 @@ export default function InboxPage() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="p-8 rounded-2xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border border-slate-200 dark:border-slate-700"
+            className="p-8 rounded-2xl bg-surface dark:bg-dark-surface-800 backdrop-blur-sm border border-slate-200 dark:border-slate-700"
           >
-            <h2 className="text-xl font-semibold text-slate-900 dark:text-white mb-4">
+            <h2 className="text-xl font-semibold text-headline dark:text-dark-text-primary mb-4">
               Import from URL
             </h2>
             <form onSubmit={handleUrlSubmit} className="flex gap-3">
@@ -211,13 +211,13 @@ export default function InboxPage() {
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="https://example.com/document.pdf"
-                className="flex-1 px-4 py-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all"
+                className="flex-1 px-4 py-3 rounded-lg border border-gray-300 dark:border-dark-surface-800 bg-surface dark:bg-dark-bg-900 text-headline dark:text-dark-text-primary placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all"
                 disabled={uploading}
               />
               <button
                 type="submit"
                 disabled={uploading || !url}
-                className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-semibold rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                className="px-6 py-3 bg-gradient-to-r gradient-primary text-white font-semibold rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               >
                 {uploading ? 'Fetching...' : 'Import'}
               </button>
@@ -236,9 +236,9 @@ export default function InboxPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="p-8 rounded-2xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border border-slate-200 dark:border-slate-700"
+            className="p-8 rounded-2xl bg-surface dark:bg-dark-surface-800 backdrop-blur-sm border border-slate-200 dark:border-slate-700"
           >
-            <h2 className="text-xl font-semibold text-slate-900 dark:text-white mb-4">
+            <h2 className="text-xl font-semibold text-headline dark:text-dark-text-primary mb-4">
               Upload Files
             </h2>
 
@@ -251,7 +251,7 @@ export default function InboxPage() {
               className={`border-2 border-dashed rounded-xl p-12 text-center transition-all ${
                 dragActive
                   ? 'border-cyan-500 bg-cyan-500/5'
-                  : 'border-slate-300 dark:border-slate-600 hover:border-cyan-500/50'
+                  : 'border-gray-300 dark:border-dark-surface-800 hover:border-cyan-500/50'
               }`}
             >
               <div className="space-y-4">
@@ -271,7 +271,7 @@ export default function InboxPage() {
                   </svg>
                 </div>
                 <div>
-                  <p className="text-lg font-medium text-slate-900 dark:text-white">
+                  <p className="text-lg font-medium text-headline dark:text-dark-text-primary">
                     {dragActive ? 'Drop file here' : 'Drag & drop a file here'}
                   </p>
                   <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
@@ -303,7 +303,7 @@ export default function InboxPage() {
                   <div className="flex items-center gap-3">
                     <span className="text-2xl"></span>
                     <div>
-                      <p className="font-semibold text-slate-900 dark:text-white">
+                      <p className="font-semibold text-headline dark:text-dark-text-primary">
                         {selectedFile.name}
                       </p>
                       <p className="text-sm text-slate-500 dark:text-slate-400">
@@ -327,7 +327,7 @@ export default function InboxPage() {
                   type="button"
                   onClick={() => handleIngest()}
                   disabled={uploading}
-                  className="w-full px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-semibold rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-cyan-500/20"
+                  className="w-full px-6 py-3 bg-gradient-to-r gradient-primary text-white font-semibold rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-cyan-500/20"
                 >
                   {uploading ? (
                     <span className="flex items-center justify-center gap-2">
@@ -364,18 +364,18 @@ export default function InboxPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.2 }}
             >
-              <h2 className="text-xl font-semibold text-slate-900 dark:text-white mb-4">
+              <h2 className="text-xl font-semibold text-headline dark:text-dark-text-primary mb-4">
                 Uploaded Documents ({documents.length})
               </h2>
               <div className="space-y-3">
                 {documents.map((doc) => (
                   <div
                     key={doc.id}
-                    className="p-4 rounded-xl bg-white/80 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700"
+                    className="p-4 rounded-xl bg-surface dark:bg-dark-surface-800 border border-slate-200 dark:border-slate-700"
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex-1">
-                        <p className="font-medium text-slate-900 dark:text-white">
+                        <p className="font-medium text-headline dark:text-dark-text-primary">
                           {doc.source_url || doc.name || 'Untitled'}
                         </p>
                         <p className="text-sm text-slate-500 dark:text-slate-400">

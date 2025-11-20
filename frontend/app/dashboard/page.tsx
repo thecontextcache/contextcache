@@ -113,10 +113,10 @@ export default function DashboardPage() {
   // Show loading while checking auth
   if (!isLoaded || authChecking) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-cyan-50 to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 flex items-center justify-center">
+      <div className="min-h-screen bg-background dark:bg-dark-bg-900 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-500 mx-auto mb-4"></div>
-          <p className="text-slate-600 dark:text-slate-400">Checking authentication...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-body dark:text-dark-text-muted">Checking authentication...</p>
         </div>
       </div>
     );
@@ -125,9 +125,9 @@ export default function DashboardPage() {
   // Redirect to home if not signed in (will be handled by useEffect, show loading)
   if (!isSignedIn) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-cyan-50 to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 flex items-center justify-center">
+      <div className="min-h-screen bg-background dark:bg-dark-bg-900 flex items-center justify-center">
         <div className="text-center">
-          <p className="text-slate-600 dark:text-slate-400">Redirecting to sign in...</p>
+          <p className="text-body dark:text-dark-text-muted">Redirecting to sign in...</p>
         </div>
       </div>
     );
@@ -135,16 +135,16 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-cyan-50 to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+      <div className="min-h-screen bg-background dark:bg-dark-bg-900">
         {/* Header Skeleton */}
-        <div className="border-b border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm">
+        <div className="border-b border-gray-200 dark:border-dark-surface-800 bg-surface/50 dark:bg-dark-surface-800/50 backdrop-blur-sm">
           <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="space-y-3">
-                <div className="h-10 w-48 bg-slate-200 dark:bg-slate-700 rounded-lg animate-pulse" />
-                <div className="h-4 w-32 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
+                <div className="h-10 w-48 bg-gray-200 dark:bg-dark-surface-800 rounded-lg animate-pulse" />
+                <div className="h-4 w-32 bg-gray-200 dark:bg-dark-surface-800 rounded animate-pulse" />
               </div>
-              <div className="h-12 w-40 bg-slate-200 dark:bg-slate-700 rounded-xl animate-pulse" />
+              <div className="h-12 w-40 bg-gray-200 dark:bg-dark-surface-800 rounded-xl animate-pulse" />
             </div>
           </div>
         </div>
@@ -155,15 +155,15 @@ export default function DashboardPage() {
             {[1, 2, 3].map((i) => (
               <div
                 key={i}
-                className="p-6 rounded-2xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border border-slate-200 dark:border-slate-700"
+                className="p-6 rounded-2xl bg-surface dark:bg-dark-surface-800 backdrop-blur-sm border border-gray-200 dark:border-dark-surface-800"
               >
                 <div className="space-y-4">
-                  <div className="h-7 w-3/4 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
+                  <div className="h-7 w-3/4 bg-gray-200 dark:bg-dark-surface-800 rounded animate-pulse" />
                   <div className="space-y-3">
                     {[1, 2, 3].map((j) => (
                       <div key={j} className="flex items-center justify-between py-2">
-                        <div className="h-4 w-20 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
-                        <div className="h-4 w-12 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
+                        <div className="h-4 w-20 bg-gray-200 dark:bg-dark-surface-800 rounded animate-pulse" />
+                        <div className="h-4 w-12 bg-gray-200 dark:bg-dark-surface-800 rounded animate-pulse" />
                       </div>
                     ))}
                   </div>
@@ -178,20 +178,20 @@ export default function DashboardPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-cyan-50 to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 px-4">
+      <div className="min-h-screen flex items-center justify-center bg-background dark:bg-dark-bg-900 px-4">
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           className="text-center max-w-md space-y-6"
         >
-          <div className="text-6xl"></div>
+          <div className="text-6xl">⚠️</div>
           <div className="space-y-2">
-            <h2 className="text-2xl font-semibold text-slate-900 dark:text-white">Connection Error</h2>
-            <p className="text-slate-600 dark:text-slate-400">{error}</p>
+            <h2 className="text-2xl font-semibold text-headline dark:text-dark-text-primary">Connection Error</h2>
+            <p className="text-body dark:text-dark-text-muted">{error}</p>
           </div>
           <button
             onClick={handleRetry}
-            className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-lg hover:opacity-90 transition-opacity font-medium"
+            className="px-6 py-3 bg-gradient-primary hover:opacity-90 text-white rounded-lg transition-opacity font-medium"
           >
             Try Again
           </button>
@@ -201,16 +201,16 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-cyan-50 to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+    <div className="min-h-screen bg-background dark:bg-dark-bg-900">
       {/* Header */}
-      <div className="border-b border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm sticky top-0 z-10">
+      <div className="border-b border-gray-200 dark:border-dark-surface-800 bg-surface/50 dark:bg-dark-surface-800/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 dark:text-white tracking-tight">
+              <h1 className="text-3xl sm:text-4xl font-bold text-headline dark:text-dark-text-primary tracking-tight">
                 Projects
               </h1>
-              <p className="text-slate-600 dark:text-slate-400 mt-2">
+              <p className="text-body dark:text-dark-text-muted mt-2">
                 {projects.length === 0
                   ? 'Create your first knowledge project'
                   : `${projects.length} ${projects.length === 1 ? 'project' : 'projects'}`}
@@ -220,7 +220,7 @@ export default function DashboardPage() {
               onClick={() => router.push('/dashboard/new')}
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
-              className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-semibold rounded-xl shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/30 transition-all"
+              className="px-6 py-3 bg-gradient-primary text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all"
             >
               + New Project
             </motion.button>
@@ -237,14 +237,14 @@ export default function DashboardPage() {
             animate={{ opacity: 1, y: 0 }}
             className="max-w-2xl mx-auto text-center py-20 space-y-8"
           >
-            <div className="w-24 h-24 mx-auto bg-gradient-to-br from-cyan-500/10 to-blue-500/10 rounded-3xl flex items-center justify-center">
-              <span className="text-5xl"></span>
+            <div className="w-24 h-24 mx-auto bg-gradient-primary/10 rounded-3xl flex items-center justify-center">
+              <span className="text-5xl">📁</span>
             </div>
             <div className="space-y-3">
-              <h2 className="text-2xl font-semibold text-slate-900 dark:text-white">
+              <h2 className="text-2xl font-semibold text-headline dark:text-dark-text-primary">
                 No projects yet
               </h2>
-              <p className="text-slate-600 dark:text-slate-400 text-lg leading-relaxed max-w-md mx-auto">
+              <p className="text-body dark:text-dark-text-muted text-lg leading-relaxed max-w-md mx-auto">
                 Create your first project to start building your knowledge graph with privacy-first encryption
               </p>
             </div>
@@ -252,7 +252,7 @@ export default function DashboardPage() {
               onClick={() => router.push('/dashboard/new')}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              className="inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-semibold rounded-xl shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/30 transition-all"
+              className="inline-flex items-center gap-2 px-8 py-4 bg-gradient-primary text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all"
             >
               <span className="text-xl">+</span>
               Create Your First Project
@@ -276,38 +276,38 @@ export default function DashboardPage() {
                 onClick={() => handleProjectClick(project)}
                 className="group relative cursor-pointer"
               >
-                <div className="h-full p-6 rounded-2xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border border-slate-200 dark:border-slate-700 hover:border-cyan-500/50 hover:shadow-xl hover:shadow-cyan-500/10 transition-all duration-300">
+                <div className="h-full p-6 rounded-2xl bg-surface dark:bg-dark-surface-800 backdrop-blur-sm border border-gray-200 dark:border-dark-surface-800 hover:border-secondary hover:shadow-xl hover:shadow-secondary/10 transition-all duration-300">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-xl font-semibold text-slate-900 dark:text-white group-hover:text-cyan-500 transition-colors">
+                    <h3 className="text-xl font-semibold text-headline dark:text-dark-text-primary group-hover:text-secondary transition-colors">
                       {project.name}
                     </h3>
                     {isProjectUnlocked(project.id) ? (
-                      <span className="text-green-500 text-xl" title="Unlocked">
-                        
+                      <span className="text-success text-xl" title="Unlocked">
+                        🔓
                       </span>
                     ) : (
-                      <span className="text-slate-400 text-xl" title="Locked - click to unlock">
-                        
+                      <span className="text-gray-400 dark:text-dark-text-muted text-xl" title="Locked - click to unlock">
+                        🔒
                       </span>
                     )}
                   </div>
 
                   <div className="space-y-3 text-sm">
-                    <div className="flex items-center justify-between py-2 border-b border-slate-200 dark:border-slate-700">
-                      <span className="text-slate-600 dark:text-slate-400">Facts</span>
-                      <span className="font-semibold text-slate-900 dark:text-white">
+                    <div className="flex items-center justify-between py-2 border-b border-gray-200 dark:border-dark-surface-800">
+                      <span className="text-body dark:text-dark-text-muted">Facts</span>
+                      <span className="font-semibold text-headline dark:text-dark-text-primary">
                         {project.fact_count?.toLocaleString() || 0}
                       </span>
                     </div>
-                    <div className="flex items-center justify-between py-2 border-b border-slate-200 dark:border-slate-700">
-                      <span className="text-slate-600 dark:text-slate-400">Entities</span>
-                      <span className="font-semibold text-slate-900 dark:text-white">
+                    <div className="flex items-center justify-between py-2 border-b border-gray-200 dark:border-dark-surface-800">
+                      <span className="text-body dark:text-dark-text-muted">Entities</span>
+                      <span className="font-semibold text-headline dark:text-dark-text-primary">
                         {project.entity_count?.toLocaleString() || 0}
                       </span>
                     </div>
                     <div className="flex items-center justify-between py-2">
-                      <span className="text-slate-600 dark:text-slate-400">Created</span>
-                      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                      <span className="text-body dark:text-dark-text-muted">Created</span>
+                      <span className="text-xs font-medium text-body dark:text-dark-text-muted">
                         {new Date(project.created_at).toLocaleDateString('en-US', {
                           month: 'short',
                           day: 'numeric',
@@ -319,7 +319,7 @@ export default function DashboardPage() {
 
                   <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
                     <svg
-                      className="w-5 h-5 text-cyan-500"
+                      className="w-5 h-5 text-secondary"
                       fill="none"
                       viewBox="0 0 24 24"
                       stroke="currentColor"

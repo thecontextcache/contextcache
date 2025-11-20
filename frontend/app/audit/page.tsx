@@ -90,7 +90,7 @@ export default function AuditPage() {
 
   if (!currentProject) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-cyan-50 to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 px-4">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br background dark:dark:bg-dark-bg-900 px-4">
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -98,16 +98,16 @@ export default function AuditPage() {
         >
           <div className="text-6xl"></div>
           <div className="space-y-2">
-            <h2 className="text-2xl font-semibold text-slate-900 dark:text-white">
+            <h2 className="text-2xl font-semibold text-headline dark:text-dark-text-primary">
               No Project Selected
             </h2>
-            <p className="text-slate-600 dark:text-slate-400">
+            <p className="text-body dark:text-dark-text-muted">
               Please select or create a project first
             </p>
           </div>
           <button
             onClick={() => router.push('/dashboard')}
-            className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-lg hover:opacity-90 transition-opacity font-medium"
+            className="px-6 py-3 bg-gradient-to-r gradient-primary text-white rounded-lg hover:opacity-90 transition-opacity font-medium"
           >
             Go to Dashboard
           </button>
@@ -118,36 +118,36 @@ export default function AuditPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-cyan-50 to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br background dark:dark:bg-dark-bg-900">
         <div className="text-center space-y-4">
           <motion.div
             animate={{ rotate: 360 }}
             transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
             className="w-12 h-12 border-4 border-cyan-500/30 border-t-cyan-500 rounded-full mx-auto"
           />
-          <p className="text-slate-600 dark:text-slate-400">Loading audit log...</p>
+          <p className="text-body dark:text-dark-text-muted">Loading audit log...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-cyan-50 to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+    <div className="min-h-screen bg-gradient-to-br background dark:dark:bg-dark-bg-900">
       {/* Header */}
-      <div className="border-b border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm">
+      <div className="border-b border-gray-200 dark:border-dark-surface-800 bg-surface/50 dark:bg-dark-surface-800/50 backdrop-blur-sm">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 dark:text-white tracking-tight">
+              <h1 className="text-3xl sm:text-4xl font-bold text-headline dark:text-dark-text-primary tracking-tight">
                 Audit Log
               </h1>
-              <p className="text-slate-600 dark:text-slate-400 mt-2">
+              <p className="text-body dark:text-dark-text-muted mt-2">
                 Cryptographic event chain for {currentProject.name}
               </p>
             </div>
             <button
               onClick={() => router.push('/dashboard')}
-              className="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+              className="px-4 py-2 text-body dark:text-dark-text-muted hover:text-slate-900 dark:hover:text-white transition-colors"
             >
               ← Back
             </button>
@@ -156,7 +156,7 @@ export default function AuditPage() {
       </div>
 
       {/* Controls */}
-      <div className="border-b border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm">
+      <div className="border-b border-gray-200 dark:border-dark-surface-800 bg-surface/50 dark:bg-dark-surface-800/50 backdrop-blur-sm">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             {/* Filter */}
@@ -170,8 +170,8 @@ export default function AuditPage() {
                   onClick={() => setFilterType(type)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all capitalize ${
                     filterType === type
-                      ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white'
-                      : 'bg-white/50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-800'
+                      ? 'bg-gradient-to-r gradient-primary text-white'
+                      : 'bg-white/50 dark:bg-slate-800/50 text-body dark:text-dark-text-muted hover:bg-white dark:hover:bg-slate-800'
                   }`}
                 >
                   {type.replace(/_/g, ' ')}
@@ -190,7 +190,7 @@ export default function AuditPage() {
               </button>
               <button
                 onClick={handleExport}
-                className="px-4 py-2 bg-white/80 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-white dark:hover:bg-slate-800 transition-all text-sm font-medium"
+                className="px-4 py-2 bg-surface dark:bg-dark-surface-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-white dark:hover:bg-slate-800 transition-all text-sm font-medium"
               >
                 ↓ Export
               </button>
@@ -219,7 +219,7 @@ export default function AuditPage() {
                       }`}>
                         {verified ? 'Chain Verified' : 'Chain Broken'}
                       </p>
-                      <p className="text-sm text-slate-600 dark:text-slate-400">
+                      <p className="text-sm text-body dark:text-dark-text-muted">
                         {verified
                           ? `All ${events.length} events verified. No tampering detected.`
                           : 'Hash mismatch detected. Chain integrity compromised.'}
@@ -252,15 +252,15 @@ export default function AuditPage() {
                     className="relative pl-20"
                   >
                     {/* Icon */}
-                    <div className="absolute left-0 w-16 h-16 bg-gradient-to-br from-cyan-500 to-blue-500 rounded-2xl flex items-center justify-center text-2xl shadow-lg shadow-cyan-500/20">
+                    <div className="absolute left-0 w-16 h-16 bg-gradient-to-br gradient-primary rounded-2xl flex items-center justify-center text-2xl shadow-lg shadow-cyan-500/20">
                       {getEventIcon(event.event_type)}
                     </div>
 
                     {/* Event Card */}
-                    <div className="p-6 rounded-2xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border border-slate-200 dark:border-slate-700 hover:border-cyan-500/50 transition-all">
+                    <div className="p-6 rounded-2xl bg-surface dark:bg-dark-surface-800 backdrop-blur-sm border border-slate-200 dark:border-slate-700 hover:border-cyan-500/50 transition-all">
                       <div className="flex items-start justify-between gap-4 mb-3">
                         <div>
-                          <h3 className="text-lg font-semibold text-slate-900 dark:text-white capitalize">
+                          <h3 className="text-lg font-semibold text-headline dark:text-dark-text-primary capitalize">
                             {event.event_type.replace(/_/g, ' ')}
                           </h3>
                           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
@@ -300,7 +300,7 @@ export default function AuditPage() {
                       <div className="space-y-2 text-xs font-mono">
                         <div className="flex items-start gap-2">
                           <span className="text-slate-400 dark:text-slate-500 shrink-0">Prev:</span>
-                          <span className="text-slate-600 dark:text-slate-400 break-all">
+                          <span className="text-body dark:text-dark-text-muted break-all">
                             {event.prev_hash.slice(0, 16)}...
                           </span>
                         </div>
@@ -327,10 +327,10 @@ export default function AuditPage() {
             >
               <div className="text-6xl"></div>
               <div className="space-y-2">
-                <h3 className="text-xl font-semibold text-slate-900 dark:text-white">
+                <h3 className="text-xl font-semibold text-headline dark:text-dark-text-primary">
                   No events found
                 </h3>
-                <p className="text-slate-600 dark:text-slate-400">
+                <p className="text-body dark:text-dark-text-muted">
                   Try changing the filter or perform some actions
                 </p>
               </div>

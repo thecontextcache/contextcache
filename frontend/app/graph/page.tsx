@@ -84,7 +84,7 @@ export default function GraphPage() {
 
   if (!currentProject) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-cyan-50 to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 px-4">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br background dark:dark:bg-dark-bg-900 px-4">
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -92,16 +92,16 @@ export default function GraphPage() {
         >
           <div className="text-6xl"></div>
           <div className="space-y-2">
-            <h2 className="text-2xl font-semibold text-slate-900 dark:text-white">
+            <h2 className="text-2xl font-semibold text-headline dark:text-dark-text-primary">
               No Project Selected
             </h2>
-            <p className="text-slate-600 dark:text-slate-400">
+            <p className="text-body dark:text-dark-text-muted">
               Please select or create a project first
             </p>
           </div>
           <button
             onClick={() => router.push('/dashboard')}
-            className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-lg hover:opacity-90 transition-opacity font-medium"
+            className="px-6 py-3 bg-gradient-to-r gradient-primary text-white rounded-lg hover:opacity-90 transition-opacity font-medium"
           >
             Go to Dashboard
           </button>
@@ -112,26 +112,26 @@ export default function GraphPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-cyan-50 to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br background dark:dark:bg-dark-bg-900">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-500 mx-auto"></div>
-          <p className="mt-4 text-slate-600 dark:text-slate-400">Loading knowledge graph...</p>
+          <p className="mt-4 text-body dark:text-dark-text-muted">Loading knowledge graph...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-cyan-50 to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+    <div className="min-h-screen bg-gradient-to-br background dark:dark:bg-dark-bg-900">
       {/* Header */}
-      <div className="border-b border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm">
+      <div className="border-b border-gray-200 dark:border-dark-surface-800 bg-surface/50 dark:bg-dark-surface-800/50 backdrop-blur-sm">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 dark:text-white tracking-tight">
+              <h1 className="text-3xl sm:text-4xl font-bold text-headline dark:text-dark-text-primary tracking-tight">
                 Knowledge Graph
               </h1>
-              <p className="text-slate-600 dark:text-slate-400 mt-2">
+              <p className="text-body dark:text-dark-text-muted mt-2">
                 {graphData.nodes.length === 0 ? (
                   'No data yet - upload documents to see the graph'
                 ) : (
@@ -141,7 +141,7 @@ export default function GraphPage() {
             </div>
             <button
               onClick={() => router.push('/dashboard')}
-              className="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+              className="px-4 py-2 text-body dark:text-dark-text-muted hover:text-slate-900 dark:hover:text-white transition-colors"
             >
               ← Back
             </button>
@@ -158,15 +158,15 @@ export default function GraphPage() {
             className="text-center"
           >
             <div className="text-6xl mb-6"></div>
-            <h2 className="text-2xl font-semibold text-slate-900 dark:text-white mb-4">
+            <h2 className="text-2xl font-semibold text-headline dark:text-dark-text-primary mb-4">
               No Graph Data Yet
             </h2>
-            <p className="text-slate-600 dark:text-slate-400 mb-8">
+            <p className="text-body dark:text-dark-text-muted mb-8">
               Upload documents in the Inbox to build your knowledge graph
             </p>
             <button
               onClick={() => router.push('/inbox')}
-              className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-lg hover:opacity-90 transition-opacity font-medium"
+              className="px-6 py-3 bg-gradient-to-r gradient-primary text-white rounded-lg hover:opacity-90 transition-opacity font-medium"
             >
               Go to Inbox
             </button>
@@ -175,7 +175,7 @@ export default function GraphPage() {
       ) : (
         <>
           {/* Controls */}
-          <div className="border-b border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm">
+          <div className="border-b border-gray-200 dark:border-dark-surface-800 bg-surface/50 dark:bg-dark-surface-800/50 backdrop-blur-sm">
             <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-4">
               <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                 {/* Search */}
@@ -185,7 +185,7 @@ export default function GraphPage() {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Search nodes..."
-                    className="w-full px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all"
+                    className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-dark-surface-800 bg-surface dark:bg-dark-bg-900 text-headline dark:text-dark-text-primary placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all"
                   />
                 </div>
 
@@ -205,8 +205,8 @@ export default function GraphPage() {
                         onClick={() => setOverlay(option.value as any)}
                         className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                           overlay === option.value
-                            ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-lg'
-                            : 'bg-white/50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-800'
+                            ? 'bg-gradient-to-r gradient-primary text-white shadow-lg'
+                            : 'bg-white/50 dark:bg-slate-800/50 text-body dark:text-dark-text-muted hover:bg-white dark:hover:bg-slate-800'
                         }`}
                       >
                         <span>{option.icon}</span>
@@ -227,7 +227,7 @@ export default function GraphPage() {
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  className="relative rounded-2xl overflow-hidden bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border border-slate-200 dark:border-slate-700 shadow-xl"
+                  className="relative rounded-2xl overflow-hidden bg-surface dark:bg-dark-surface-800 backdrop-blur-sm border border-slate-200 dark:border-slate-700 shadow-xl"
                   style={{ height: 'calc(100vh - 400px)', minHeight: '600px' }}
                 >
                   <GraphViewer
@@ -248,10 +248,10 @@ export default function GraphPage() {
                       initial={{ opacity: 0, x: 20 }}
                       animate={{ opacity: 1, x: 0 }}
                       exit={{ opacity: 0, x: 20 }}
-                      className="sticky top-24 p-6 rounded-2xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border border-slate-200 dark:border-slate-700 space-y-6"
+                      className="sticky top-24 p-6 rounded-2xl bg-surface dark:bg-dark-surface-800 backdrop-blur-sm border border-slate-200 dark:border-slate-700 space-y-6"
                     >
                       <div className="flex items-center justify-between">
-                        <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
+                        <h3 className="text-lg font-semibold text-headline dark:text-dark-text-primary">
                           Node Details
                         </h3>
                         <button
@@ -268,7 +268,7 @@ export default function GraphPage() {
                           <label className="text-sm text-slate-500 dark:text-slate-400">
                             Name
                           </label>
-                          <p className="text-lg font-semibold text-slate-900 dark:text-white mt-1">
+                          <p className="text-lg font-semibold text-headline dark:text-dark-text-primary mt-1">
                             {selectedNode.label}
                           </p>
                         </div>
@@ -329,10 +329,10 @@ export default function GraphPage() {
                                     key={i}
                                     className="text-sm p-2 rounded-lg bg-slate-50 dark:bg-slate-900/50"
                                   >
-                                    <span className="text-slate-600 dark:text-slate-400">
+                                    <span className="text-body dark:text-dark-text-muted">
                                       {edge.label}
                                     </span>{' '}
-                                    <span className="font-medium text-slate-900 dark:text-white">
+                                    <span className="font-medium text-headline dark:text-dark-text-primary">
                                       {connectedNode?.label.substring(0, 30)}
                                       {connectedNode && connectedNode.label.length > 30 ? '...' : ''}
                                     </span>
@@ -362,25 +362,25 @@ export default function GraphPage() {
             </div>
 
             {/* Legend */}
-            <div className="mt-6 p-6 rounded-2xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border border-slate-200 dark:border-slate-700">
-              <h4 className="text-sm font-semibold text-slate-900 dark:text-white mb-4">
+            <div className="mt-6 p-6 rounded-2xl bg-surface dark:bg-dark-surface-800 backdrop-blur-sm border border-slate-200 dark:border-slate-700">
+              <h4 className="text-sm font-semibold text-headline dark:text-dark-text-primary mb-4">
                 Graph Controls
               </h4>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                 <div className="flex items-center gap-2">
-                  <span className="text-slate-600 dark:text-slate-400"> Drag</span>
+                  <span className="text-body dark:text-dark-text-muted"> Drag</span>
                   <span className="text-slate-500 dark:text-slate-500">Pan canvas</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-slate-600 dark:text-slate-400"> Click</span>
+                  <span className="text-body dark:text-dark-text-muted"> Click</span>
                   <span className="text-slate-500 dark:text-slate-500">Select node</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-slate-600 dark:text-slate-400"> Scroll</span>
+                  <span className="text-body dark:text-dark-text-muted"> Scroll</span>
                   <span className="text-slate-500 dark:text-slate-500">Zoom in/out</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-slate-600 dark:text-slate-400"> Hover</span>
+                  <span className="text-body dark:text-dark-text-muted"> Hover</span>
                   <span className="text-slate-500 dark:text-slate-500">
                     Highlight connections
                   </span>

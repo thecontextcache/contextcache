@@ -118,7 +118,7 @@ export default function ExportPage() {
 
   if (!currentProject) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-cyan-50 to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 px-4">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br background dark:dark:bg-dark-bg-900 px-4">
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -126,16 +126,16 @@ export default function ExportPage() {
         >
           <div className="text-6xl"></div>
           <div className="space-y-2">
-            <h2 className="text-2xl font-semibold text-slate-900 dark:text-white">
+            <h2 className="text-2xl font-semibold text-headline dark:text-dark-text-primary">
               No Project Selected
             </h2>
-            <p className="text-slate-600 dark:text-slate-400">
+            <p className="text-body dark:text-dark-text-muted">
               Please select or create a project first
             </p>
           </div>
           <button
             onClick={() => router.push('/dashboard')}
-            className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-lg hover:opacity-90 transition-opacity font-medium"
+            className="px-6 py-3 bg-gradient-to-r gradient-primary text-white rounded-lg hover:opacity-90 transition-opacity font-medium"
           >
             Go to Dashboard
           </button>
@@ -145,22 +145,22 @@ export default function ExportPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-cyan-50 to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+    <div className="min-h-screen bg-gradient-to-br background dark:dark:bg-dark-bg-900">
       {/* Header */}
-      <div className="border-b border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm">
+      <div className="border-b border-gray-200 dark:border-dark-surface-800 bg-surface/50 dark:bg-dark-surface-800/50 backdrop-blur-sm">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 dark:text-white tracking-tight">
+              <h1 className="text-3xl sm:text-4xl font-bold text-headline dark:text-dark-text-primary tracking-tight">
                 Export & Import
               </h1>
-              <p className="text-slate-600 dark:text-slate-400 mt-2">
+              <p className="text-body dark:text-dark-text-muted mt-2">
                 Share knowledge from {currentProject.name}
               </p>
             </div>
             <button
               onClick={() => router.push('/dashboard')}
-              className="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+              className="px-4 py-2 text-body dark:text-dark-text-muted hover:text-slate-900 dark:hover:text-white transition-colors"
             >
               ← Back
             </button>
@@ -173,11 +173,11 @@ export default function ExportPage() {
         <div className="max-w-4xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Export Section */}
           <div className="space-y-6">
-            <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Export</h2>
+            <h2 className="text-2xl font-bold text-headline dark:text-dark-text-primary">Export</h2>
 
             {/* Format Selection */}
-            <div className="p-6 rounded-2xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border border-slate-200 dark:border-slate-700">
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
+            <div className="p-6 rounded-2xl bg-surface dark:bg-dark-surface-800 backdrop-blur-sm border border-slate-200 dark:border-slate-700">
+              <h3 className="text-lg font-semibold text-headline dark:text-dark-text-primary mb-4">
                 Choose Format
               </h3>
               <div className="space-y-3">
@@ -213,7 +213,7 @@ export default function ExportPage() {
                     onClick={() => setExportFormat(format.id as ExportFormat)}
                     className={`w-full p-4 rounded-xl text-left transition-all relative ${
                       exportFormat === format.id
-                        ? 'bg-gradient-to-br from-cyan-500 to-blue-500 text-white shadow-lg'
+                        ? 'bg-gradient-to-br gradient-primary text-white shadow-lg'
                         : 'bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 hover:border-cyan-500/50'
                     }`}
                   >
@@ -229,7 +229,7 @@ export default function ExportPage() {
                           className={`font-semibold mb-1 ${
                             exportFormat === format.id
                               ? 'text-white'
-                              : 'text-slate-900 dark:text-white'
+                              : 'text-headline dark:text-dark-text-primary'
                           }`}
                         >
                           {format.name}
@@ -251,8 +251,8 @@ export default function ExportPage() {
             </div>
 
             {/* Export Options */}
-            <div className="p-6 rounded-2xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border border-slate-200 dark:border-slate-700">
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
+            <div className="p-6 rounded-2xl bg-surface dark:bg-dark-surface-800 backdrop-blur-sm border border-slate-200 dark:border-slate-700">
+              <h3 className="text-lg font-semibold text-headline dark:text-dark-text-primary mb-4">
                 Include
               </h3>
               <div className="space-y-3">
@@ -289,7 +289,7 @@ export default function ExportPage() {
             <button
               onClick={handleExport}
               disabled={exporting}
-              className="w-full py-4 bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-semibold rounded-xl shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/30 disabled:opacity-50 transition-all"
+              className="w-full py-4 bg-gradient-to-r gradient-primary text-white font-semibold rounded-xl shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/30 disabled:opacity-50 transition-all"
             >
               {exporting ? 'Exporting...' : ` Export as ${exportFormat.toUpperCase()}`}
             </button>
@@ -297,15 +297,15 @@ export default function ExportPage() {
 
           {/* Import Section */}
           <div className="space-y-6">
-            <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Import</h2>
+            <h2 className="text-2xl font-bold text-headline dark:text-dark-text-primary">Import</h2>
 
-            <div className="p-6 rounded-2xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border border-slate-200 dark:border-slate-700">
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
+            <div className="p-6 rounded-2xl bg-surface dark:bg-dark-surface-800 backdrop-blur-sm border border-slate-200 dark:border-slate-700">
+              <h3 className="text-lg font-semibold text-headline dark:text-dark-text-primary mb-4">
                 Import Memory Pack
               </h3>
               <form onSubmit={handleImport} className="space-y-6">
                 {/* File Input */}
-                <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-xl p-8 text-center hover:border-cyan-500 transition-colors">
+                <div className="border-2 border-dashed border-gray-300 dark:border-dark-surface-800 rounded-xl p-8 text-center hover:border-cyan-500 transition-colors">
                   <input
                     type="file"
                     accept=".json"
@@ -315,7 +315,7 @@ export default function ExportPage() {
                   />
                   <label htmlFor="import-file" className="cursor-pointer">
                     <div className="text-5xl mb-4"></div>
-                    <p className="text-slate-900 dark:text-white font-medium mb-1">
+                    <p className="text-headline dark:text-dark-text-primary font-medium mb-1">
                       {importFile ? importFile.name : 'Choose Memory Pack file'}
                     </p>
                     <p className="text-sm text-slate-500 dark:text-slate-400">
@@ -349,7 +349,7 @@ export default function ExportPage() {
                           >
                             {signatureValid ? 'Signature Valid' : 'Signature Invalid'}
                           </p>
-                          <p className="text-sm text-slate-600 dark:text-slate-400">
+                          <p className="text-sm text-body dark:text-dark-text-muted">
                             {signatureValid
                               ? 'Memory Pack verified. Safe to import.'
                               : 'Ed25519 verification failed. Do not import.'}
@@ -364,7 +364,7 @@ export default function ExportPage() {
                 <button
                   type="submit"
                   disabled={!importFile || importing}
-                  className="w-full py-4 bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-semibold rounded-xl shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/30 disabled:opacity-50 transition-all"
+                  className="w-full py-4 bg-gradient-to-r gradient-primary text-white font-semibold rounded-xl shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/30 disabled:opacity-50 transition-all"
                 >
                   {importing ? 'Verifying & Importing...' : ' Import & Verify'}
                 </button>

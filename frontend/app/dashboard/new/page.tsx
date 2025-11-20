@@ -111,8 +111,8 @@ export default function NewProjectPage() {
         }
       } else if (err.request) {
         // Network error - no response received
-        errorMessage = 'Network error. Is the backend running at http://localhost:8000?';
-        console.error('No response from server. Check if backend is running.');
+        errorMessage = 'Network error. Please check your connection and try again.';
+        console.error('No response from server. Check backend configuration.');
       } else if (err.message) {
         errorMessage = err.message;
       }
@@ -128,22 +128,22 @@ export default function NewProjectPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-cyan-50 to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+    <div className="min-h-screen bg-background dark:bg-dark-bg-900">
       {/* Header */}
-      <div className="border-b border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm">
+      <div className="border-b border-gray-200 dark:border-dark-surface-800 bg-surface/50 dark:bg-dark-surface-800/50 backdrop-blur-sm">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="flex items-center gap-4">
             <button
               onClick={() => router.push('/dashboard')}
-              className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+              className="text-body dark:text-dark-text-muted hover:text-headline dark:hover:text-dark-text-primary transition-colors"
             >
               ← Back
             </button>
             <div>
-              <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 dark:text-white tracking-tight">
+              <h1 className="text-3xl sm:text-4xl font-bold text-headline dark:text-dark-text-primary tracking-tight">
                 Create New Project
               </h1>
-              <p className="text-slate-600 dark:text-slate-400 mt-2">
+              <p className="text-body dark:text-dark-text-muted mt-2">
                 Secure your knowledge with zero-knowledge encryption
               </p>
             </div>
@@ -160,8 +160,8 @@ export default function NewProjectPage() {
         >
           <form onSubmit={handleCreate} className="space-y-6">
             {/* Project Name */}
-            <div className="p-8 rounded-2xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border border-slate-200 dark:border-slate-700">
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
+            <div className="p-8 rounded-2xl bg-surface dark:bg-dark-surface-800 backdrop-blur-sm border border-gray-200 dark:border-dark-surface-800">
+              <label className="block text-sm font-medium text-body dark:text-dark-text-muted mb-3">
                 Project Name
               </label>
               <input
@@ -169,15 +169,15 @@ export default function NewProjectPage() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="My Research Project"
-                className="w-full px-4 py-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all"
+                className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-dark-surface-800 bg-surface dark:bg-dark-bg-900 text-headline dark:text-dark-text-primary placeholder:text-gray-400 dark:placeholder:text-dark-text-muted focus:ring-2 focus:ring-secondary focus:border-transparent transition-all"
                 disabled={creating}
                 autoFocus
               />
             </div>
 
             {/* Passphrase */}
-            <div className="p-8 rounded-2xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border border-slate-200 dark:border-slate-700">
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
+            <div className="p-8 rounded-2xl bg-surface dark:bg-dark-surface-800 backdrop-blur-sm border border-gray-200 dark:border-dark-surface-800">
+              <label className="block text-sm font-medium text-body dark:text-dark-text-muted mb-3">
                 Passphrase (minimum 20 characters)
               </label>
               <input
@@ -185,11 +185,11 @@ export default function NewProjectPage() {
                 value={passphrase}
                 onChange={(e) => setPassphrase(e.target.value)}
                 placeholder="Enter a strong passphrase..."
-                className="w-full px-4 py-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all mb-4"
+                className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-dark-surface-800 bg-surface dark:bg-dark-bg-900 text-headline dark:text-dark-text-primary placeholder:text-gray-400 dark:placeholder:text-dark-text-muted focus:ring-2 focus:ring-secondary focus:border-transparent transition-all mb-4"
                 disabled={creating}
               />
               
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
+              <label className="block text-sm font-medium text-body dark:text-dark-text-muted mb-3">
                 Confirm Passphrase
               </label>
               <input
@@ -197,21 +197,21 @@ export default function NewProjectPage() {
                 value={confirmPassphrase}
                 onChange={(e) => setConfirmPassphrase(e.target.value)}
                 placeholder="Confirm your passphrase..."
-                className="w-full px-4 py-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all"
+                className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-dark-surface-800 bg-surface dark:bg-dark-bg-900 text-headline dark:text-dark-text-primary placeholder:text-gray-400 dark:placeholder:text-dark-text-muted focus:ring-2 focus:ring-secondary focus:border-transparent transition-all"
                 disabled={creating}
               />
 
               {/* Security Warning */}
-              <div className="mt-4 p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+              <div className="mt-4 p-4 rounded-xl bg-warning/10 dark:bg-warning/20 border border-warning/30">
                 <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center flex-shrink-0">
-                    <span className="text-lg"></span>
+                  <div className="w-8 h-8 rounded-lg bg-warning/20 dark:bg-warning/30 flex items-center justify-center flex-shrink-0">
+                    <span className="text-lg">⚠️</span>
                   </div>
                   <div className="flex-1">
-                    <p className="text-sm font-semibold text-amber-900 dark:text-amber-200 mb-1">
+                    <p className="text-sm font-semibold text-warning-dark dark:text-warning mb-1">
                       Zero-Knowledge Security
                     </p>
-                    <p className="text-sm text-amber-800 dark:text-amber-300 leading-relaxed">
+                    <p className="text-sm text-warning-dark dark:text-warning/80 leading-relaxed">
                       Your passphrase never leaves your device. If you lose it, your data cannot be recovered. Consider storing it in a password manager.
                     </p>
                   </div>
@@ -224,11 +224,11 @@ export default function NewProjectPage() {
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="p-4 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800"
+                className="p-4 rounded-xl bg-error/10 dark:bg-error/20 border border-error/30"
               >
                 <div className="flex items-start gap-3">
-                  <span className="text-red-500 text-lg"></span>
-                  <p className="text-sm text-red-700 dark:text-red-300 flex-1">{error}</p>
+                  <span className="text-error text-lg">❌</span>
+                  <p className="text-sm text-error dark:text-error/90 flex-1">{error}</p>
                 </div>
               </motion.div>
             )}
@@ -237,7 +237,7 @@ export default function NewProjectPage() {
             <button
               type="submit"
               disabled={creating || !name.trim() || passphrase.length < 20 || passphrase !== confirmPassphrase}
-              className="w-full py-4 bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-semibold rounded-xl shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              className="w-full py-4 bg-gradient-primary text-white font-semibold rounded-xl shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all"
             >
               {creating ? (
                 <span className="flex items-center justify-center gap-2">

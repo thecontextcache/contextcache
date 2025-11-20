@@ -17,16 +17,13 @@ const isProtectedRoute = createRouteMatcher([
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
-  // Only protect routes if Clerk is properly configured
-  // This prevents blocking the entire app if env vars are missing
+  // Protect routes that require authentication
   if (isProtectedRoute(req)) {
     try {
       await auth.protect();
     } catch (error) {
-      // If Clerk fails to initialize (missing env vars), allow request through
-      // and let client-side Clerk handle authentication
-      console.warn('Clerk middleware failed:', error);
-      // Don't block the request - let it through
+      // Log error but let client-side Clerk handle auth
+      console.warn('Clerk middleware error:', error);
     }
   }
 });
