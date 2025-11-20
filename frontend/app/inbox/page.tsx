@@ -6,6 +6,7 @@ import { useProjectStore } from '@/lib/store/project';
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 import { toast } from 'sonner';
+import { PageNav } from '@/components/page-nav';
 
 export default function InboxPage() {
   const router = useRouter();
@@ -173,23 +174,26 @@ export default function InboxPage() {
     <div className="min-h-screen bg-gradient-to-br background dark:dark:bg-dark-bg-900">
       {/* Header */}
       <div className="border-b border-gray-200 dark:border-dark-surface-800 bg-surface/50 dark:bg-dark-surface-800/50 backdrop-blur-sm">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="flex items-center justify-between">
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="flex items-center justify-between mb-4">
             <div>
-              <h1 className="text-3xl sm:text-4xl font-bold text-headline dark:text-dark-text-primary tracking-tight">
-                Inbox
+              <h1 className="text-2xl sm:text-3xl font-bold text-headline dark:text-dark-text-primary tracking-tight">
+                {currentProject.name}
               </h1>
-              <p className="text-body dark:text-dark-text-muted mt-2">
-                Import documents to {currentProject.name}
+              <p className="text-sm text-body dark:text-dark-text-muted mt-1">
+                Import and manage your documents
               </p>
             </div>
             <button
               onClick={() => router.push('/dashboard')}
-              className="px-4 py-2 text-body dark:text-dark-text-muted hover:text-slate-900 dark:hover:text-white transition-colors"
+              className="px-4 py-2 text-sm text-body dark:text-dark-text-muted hover:text-headline dark:hover:text-dark-text-primary transition-colors"
             >
-              ← Back
+              ← Dashboard
             </button>
           </div>
+          
+          {/* Embedded Navigation */}
+          <PageNav currentPage="inbox" />
         </div>
       </div>
 

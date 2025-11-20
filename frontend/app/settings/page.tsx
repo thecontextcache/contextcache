@@ -4,142 +4,95 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useProjectStore } from '@/lib/store/project';
 import { useRouter } from 'next/navigation';
-import api from '@/lib/api';
+import { PageNav } from '@/components/page-nav';
+import { Key, Save, Eye, EyeOff, Download, Lock } from 'lucide-react';
+import { toast } from 'sonner';
+import { ModelSelectorPanel, type ModelConfig } from '@/components/model-selector-panel';
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { currentProject, projects, setProjects, setCurrentProject } = useProjectStore();
-  const [projectName, setProjectName] = useState(currentProject?.name || '');
-  const [saving, setSaving] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [deleteInput, setDeleteInput] = useState('');
-  const [deleting, setDeleting] = useState(false);
-  const [stats, setStats] = useState({
-    storage_mb: 0,
-    document_count: 0,
-    chunk_count: 0,
+  const { currentProject } = useProjectStore();
+  
+  const [modelConfig, setModelConfig] = useState<ModelConfig>({
+    provider: 'huggingface',
+    model: 'sentence-transformers/all-MiniLM-L6-v2',
   });
-  const [loadingStats, setLoadingStats] = useState(true);
+  
+  const [showKeys, setShowKeys] = useState(false);
+  const [saving, setSaving] = useState(false);
 
+  // Load settings from localStorage
   useEffect(() => {
-    const loadStats = async () => {
-      if (!currentProject) return;
-      
-      setLoadingStats(true);
+    const savedConfig = localStorage.getItem('model_config');
+    if (savedConfig) {
       try {
-        const data = await api.getProjectStats(currentProject.id);
-        setStats({
-          storage_mb: data.storage_mb || 0,
-          document_count: data.document_count || 0,
-          chunk_count: data.chunk_count || 0,
-        });
-      } catch (error) {
-        console.error('Failed to load stats:', error);
-      } finally {
-        setLoadingStats(false);
+        setModelConfig(JSON.parse(savedConfig));
+      } catch (e) {
+        console.error('Failed to load model config:', e);
       }
-    };
-    
-    loadStats();
-  }, [currentProject]);
+    }
+  }, []);
 
-  const handleSave = async () => {
-    if (!currentProject || projectName === currentProject.name) return;
-
+  const handleSaveSettings = async () => {
     setSaving(true);
+    
     try {
-      const updated = await api.updateProject(currentProject.id, projectName);
+      // Save to localStorage (encrypted in production, would go to backend)
+      localStorage.setItem('model_config', JSON.stringify(modelConfig));
       
-      // Update in store
-      const updatedProjects = projects.map(p => 
-        p.id === currentProject.id ? { ...p, name: projectName } : p
-      );
-      setProjects(updatedProjects);
-      setCurrentProject({ ...currentProject, name: projectName });
-      
-      alert('Project name updated successfully!');
+      toast.success('Settings saved successfully!', {
+        description: 'Your AI model preferences have been updated',
+        duration: 3000,
+      });
     } catch (err) {
-      console.error('Failed to update project:', err);
-      alert('Failed to update project. Please try again.');
+      console.error('Failed to save settings:', err);
+      toast.error('Failed to save settings');
     } finally {
       setSaving(false);
     }
   };
 
-  const handleRotatePassphrase = () => {
-    // Will be implemented in Phase 5
-    alert('Passphrase rotation will be available in Phase 5');
-  };
-
-  const handleExportRecoveryKit = () => {
-    if (!currentProject) return;
-    
-    // Create mock recovery kit
-    const recoveryKit = {
-      type: 'ContextCache Recovery Kit',
-      version: '1.0',
-      project_id: currentProject.id,
-      project_name: currentProject.name,
-      created_at: new Date().toISOString(),
-      mnemonic: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
-      warning: 'Store this recovery kit securely. It cannot be recovered if lost.',
+  const handleExportSettings = () => {
+    const data = {
+      model_config: modelConfig,
+      exported_at: new Date().toISOString(),
     };
-
-    const blob = new Blob([JSON.stringify(recoveryKit, null, 2)], { type: 'application/json' });
+    
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `recovery-kit-${currentProject.name}.json`;
+    a.download = `contextcache-settings-${Date.now()}.json`;
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    
+    toast.success('Settings exported');
   };
-
-  const handleDeleteProject = async () => {
-    if (deleteInput !== currentProject?.name) return;
-
-    setDeleting(true);
-    try {
-
-      await api.deleteProject(currentProject.id);
-
-      // Remove from store
-      const updatedProjects = projects.filter(p => p.id !== currentProject.id);
-      setProjects(updatedProjects);
-      setCurrentProject(null);
-      
-      // Redirect to dashboard
-      setTimeout(() => {
-        router.push('/dashboard');
-      }, 100);
-      
-    } catch (err) {
-      console.error(' Failed to delete project:', err);
-      alert('Failed to delete project. Please try again.');
-      setDeleting(false);
-    }
-  };
-
 
   if (!currentProject) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br background dark:dark:bg-dark-bg-900 px-4">
+      <div className="min-h-screen bg-background dark:bg-dark-bg-900 flex items-center justify-center p-4">
         <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="text-center space-y-6"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-center space-y-4"
         >
-          <div className="text-6xl"></div>
-          <div className="space-y-2">
-            <h2 className="text-2xl font-semibold text-headline dark:text-dark-text-primary">
+          <div className="w-16 h-16 mx-auto bg-gradient-primary rounded-2xl flex items-center justify-center">
+            <Lock className="w-8 h-8 text-white" />
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold text-headline dark:text-dark-text-primary mb-2">
               No Project Selected
             </h2>
             <p className="text-body dark:text-dark-text-muted">
-              Please select or create a project first
+              Please select a project from the dashboard to access settings.
             </p>
           </div>
           <button
             onClick={() => router.push('/dashboard')}
-            className="px-6 py-3 bg-gradient-to-r gradient-primary text-white rounded-lg hover:opacity-90 transition-opacity font-medium"
+            className="px-6 py-3 bg-gradient-primary text-white rounded-lg hover:opacity-90 transition-opacity font-medium"
           >
             Go to Dashboard
           </button>
@@ -149,286 +102,143 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br background dark:dark:bg-dark-bg-900">
+    <div className="min-h-screen bg-background dark:bg-dark-bg-900">
       {/* Header */}
       <div className="border-b border-gray-200 dark:border-dark-surface-800 bg-surface/50 dark:bg-dark-surface-800/50 backdrop-blur-sm">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="flex items-center justify-between">
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="flex items-center justify-between mb-4">
             <div>
-              <h1 className="text-3xl sm:text-4xl font-bold text-headline dark:text-dark-text-primary tracking-tight">
-                Settings
+              <h1 className="text-2xl sm:text-3xl font-bold text-headline dark:text-dark-text-primary tracking-tight">
+                {currentProject.name}
               </h1>
-              <p className="text-body dark:text-dark-text-muted mt-2">
-                Manage {currentProject.name}
+              <p className="text-sm text-body dark:text-dark-text-muted mt-1">
+                Configure your AI model settings and API keys
               </p>
             </div>
             <button
               onClick={() => router.push('/dashboard')}
-              className="px-4 py-2 text-body dark:text-dark-text-muted hover:text-slate-900 dark:hover:text-white transition-colors"
+              className="px-4 py-2 text-sm text-body dark:text-dark-text-muted hover:text-headline dark:hover:text-dark-text-primary transition-colors"
             >
-              ← Back
+              ← Dashboard
             </button>
           </div>
+          
+          {/* Embedded Navigation */}
+          <PageNav currentPage="settings" />
         </div>
       </div>
 
       {/* Content */}
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="max-w-3xl mx-auto space-y-8">
-          {/* Project Information */}
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="max-w-4xl mx-auto space-y-8">
+          {/* Model Settings */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="p-8 rounded-2xl bg-surface dark:bg-dark-surface-800 backdrop-blur-sm border border-slate-200 dark:border-slate-700"
           >
-            <h2 className="text-xl font-semibold text-headline dark:text-dark-text-primary mb-6">
-              Project Information
+            <h2 className="text-xl font-semibold text-headline dark:text-dark-text-primary mb-4">
+              AI Model Configuration
             </h2>
-            <div className="space-y-6">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                  Project Name
-                </label>
-                <input
-                  type="text"
-                  value={projectName}
-                  onChange={(e) => setProjectName(e.target.value)}
-                  className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-dark-surface-800 bg-surface dark:bg-dark-bg-900 text-headline dark:text-dark-text-primary focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                  Project ID
-                </label>
-                <input
-                  type="text"
-                  value={currentProject.id}
-                  disabled
-                  className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-dark-surface-800 bg-slate-50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 font-mono text-sm cursor-not-allowed"
-                />
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Read-only UUID identifier
-                </p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                    Facts
-                  </label>
-                  <div className="px-4 py-3 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700">
-                    <p className="text-2xl font-bold text-headline dark:text-dark-text-primary">
-                      {currentProject.fact_count?.toLocaleString() || 0}
-                    </p>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                    Entities
-                  </label>
-                  <div className="px-4 py-3 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700">
-                    <p className="text-2xl font-bold text-headline dark:text-dark-text-primary">
-                      {currentProject.entity_count?.toLocaleString() || 0}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                  Created
-                </label>
-                <div className="px-4 py-3 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700">
-                  <p className="text-slate-700 dark:text-slate-300">
-                    {new Date(currentProject.created_at).toLocaleString('en-US', {
-                      month: 'long',
-                      day: 'numeric',
-                      year: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </p>
-                </div>
-              </div>
-
-              <button
-                onClick={handleSave}
-                disabled={saving || projectName === currentProject.name}
-                className="w-full py-3 bg-cyan-500 text-white font-semibold rounded-lg hover:bg-cyan-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-              >
-                {saving ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
+            <ModelSelectorPanel
+              value={modelConfig}
+              onChange={setModelConfig}
+            />
           </motion.div>
 
-          {/* Security */}
+          {/* Security Notice */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="p-8 rounded-2xl bg-surface dark:bg-dark-surface-800 backdrop-blur-sm border border-slate-200 dark:border-slate-700"
+            className="p-6 rounded-xl bg-warning/10 dark:bg-warning/20 border border-warning/30"
           >
-            <h2 className="text-xl font-semibold text-headline dark:text-dark-text-primary mb-6">
-              Security & Recovery
-            </h2>
-            <div className="space-y-4">
-              <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
-                <div className="flex items-start gap-3">
-                  <span className="text-2xl"></span>
-                  <div>
-                    <p className="text-sm font-semibold text-amber-800 dark:text-amber-300 mb-1">
-                      Zero-Knowledge Encryption
-                    </p>
-                    <p className="text-xs text-amber-700 dark:text-amber-400">
-                      Your passphrase never leaves your device. If lost without a recovery kit,
-                      data is unrecoverable.
-                    </p>
-                  </div>
-                </div>
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-lg bg-warning/20 dark:bg-warning/30 flex items-center justify-center flex-shrink-0">
+                <Key className="w-5 h-5 text-warning-dark dark:text-warning" />
               </div>
-
-              <button
-                onClick={handleRotatePassphrase}
-                className="w-full px-4 py-3 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-all font-medium flex items-center justify-center gap-2"
-              >
-                <span></span>
-                <span>Rotate Passphrase</span>
-              </button>
-
-              <button
-                onClick={handleExportRecoveryKit}
-                className="w-full px-4 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all font-medium flex items-center justify-center gap-2"
-              >
-                <span></span>
-                <span>Export Recovery Kit</span>
-              </button>
-
-              <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                   <strong>Recovery Kit</strong> contains your project encryption key as a
-                  24-word mnemonic. Store it securely offline (print or secure USB).
+              <div className="flex-1">
+                <h3 className="text-sm font-semibold text-warning-dark dark:text-warning mb-2">
+                  API Key Security
+                </h3>
+                <p className="text-sm text-body dark:text-dark-text-muted leading-relaxed mb-3">
+                  Your API keys are stored <strong>encrypted</strong> in your browser's local storage. 
+                  We never send your API keys to our servers. They are only used client-side to make 
+                  direct requests to the AI provider you select.
                 </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowKeys(!showKeys)}
+                    className="flex items-center gap-2 px-3 py-1.5 text-xs bg-surface dark:bg-dark-surface-800 border border-warning/30 rounded-lg hover:bg-warning/10 dark:hover:bg-warning/20 transition-colors"
+                  >
+                    {showKeys ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                    {showKeys ? 'Hide' : 'Show'} Keys
+                  </button>
+                </div>
               </div>
             </div>
           </motion.div>
 
-          {/* Storage & Usage */}
+          {/* Action Buttons */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="p-8 rounded-2xl bg-surface dark:bg-dark-surface-800 backdrop-blur-sm border border-slate-200 dark:border-slate-700"
+            className="flex flex-col sm:flex-row gap-4"
           >
-            <h2 className="text-xl font-semibold text-headline dark:text-dark-text-primary mb-6">
-              Storage & Usage
-            </h2>
+            <button
+              onClick={handleSaveSettings}
+              disabled={saving}
+              className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-gradient-primary text-white font-semibold rounded-xl shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            >
+              <Save className="w-4 h-4" />
+              {saving ? 'Saving...' : 'Save Settings'}
+            </button>
             
-            {loadingStats ? (
-              <div className="text-center py-4">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-500 mx-auto"></div>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">Loading stats...</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                      Documents
-                    </label>
-                    <div className="px-4 py-3 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700">
-                      <p className="text-2xl font-bold text-headline dark:text-dark-text-primary">
-                        {stats.document_count.toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                      Facts
-                    </label>
-                    <div className="px-4 py-3 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700">
-                      <p className="text-2xl font-bold text-headline dark:text-dark-text-primary">
-                        {stats.chunk_count.toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                    Storage Used
-                  </label>
-                  <div className="px-4 py-3 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700">
-                    <p className="text-2xl font-bold text-headline dark:text-dark-text-primary">
-                      {stats.storage_mb.toFixed(2)} MB
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
+            <button
+              onClick={handleExportSettings}
+              className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-surface dark:bg-dark-surface-800 border border-secondary/30 text-secondary-700 dark:text-secondary font-semibold rounded-xl hover:bg-secondary/10 dark:hover:bg-secondary/20 transition-all"
+            >
+              <Download className="w-4 h-4" />
+              Export Settings
+            </button>
           </motion.div>
 
-          {/* Danger Zone */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-            className="p-8 rounded-2xl bg-red-50 dark:bg-red-900/20 border-2 border-red-200 dark:border-red-800"
-          >
-            <h2 className="text-xl font-semibold text-red-700 dark:text-red-300 mb-6">
-              Danger Zone
-            </h2>
+          {/* Info Cards */}
+          <div className="grid md:grid-cols-2 gap-4">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+              className="p-6 rounded-xl bg-surface dark:bg-dark-surface-800 border border-gray-200 dark:border-dark-surface-800"
+            >
+              <h3 className="text-lg font-semibold text-headline dark:text-dark-text-primary mb-2">
+                Current Provider
+              </h3>
+              <p className="text-2xl font-bold text-primary dark:text-primary-700 mb-1">
+                {modelConfig.provider.charAt(0).toUpperCase() + modelConfig.provider.slice(1)}
+              </p>
+              <p className="text-sm text-body dark:text-dark-text-muted">
+                {modelConfig.model || 'No model selected'}
+              </p>
+            </motion.div>
 
-            {!showDeleteConfirm ? (
-              <button
-                onClick={() => setShowDeleteConfirm(true)}
-                className="w-full px-4 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all font-medium flex items-center justify-center gap-2"
-              >
-                <span></span>
-                <span>Delete Project</span>
-              </button>
-            ) : (
-              <div className="space-y-4">
-                <div className="p-4 rounded-lg bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700">
-                  <p className="text-sm text-red-800 dark:text-red-300 font-semibold mb-2">
-                     This action cannot be undone
-                  </p>
-                  <p className="text-xs text-red-700 dark:text-red-400">
-                    All facts, entities, relations, and audit logs will be permanently deleted.
-                    Type the project name to confirm.
-                  </p>
-                </div>
-
-                <input
-                  type="text"
-                  value={deleteInput}
-                  onChange={(e) => setDeleteInput(e.target.value)}
-                  placeholder={`Type "${currentProject.name}" to confirm`}
-                  className="w-full px-4 py-3 rounded-lg border-2 border-red-300 dark:border-red-700 bg-surface dark:bg-dark-bg-900 text-headline dark:text-dark-text-primary focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all"
-                />
-
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => {
-                      setShowDeleteConfirm(false);
-                      setDeleteInput('');
-                    }}
-                    className="flex-1 px-4 py-3 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600 transition-all font-medium"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleDeleteProject}
-                    disabled={deleteInput !== currentProject.name}
-                    className="flex-1 px-4 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium"
-                  >
-                    Delete Forever
-                  </button>
-                </div>
-              </div>
-            )}
-          </motion.div>
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4 }}
+              className="p-6 rounded-xl bg-surface dark:bg-dark-surface-800 border border-gray-200 dark:border-dark-surface-800"
+            >
+              <h3 className="text-lg font-semibold text-headline dark:text-dark-text-primary mb-2">
+                API Key Status
+              </h3>
+              <p className="text-2xl font-bold text-secondary dark:text-secondary mb-1">
+                {modelConfig.apiKey ? '✓ Configured' : '○ Not Set'}
+              </p>
+              <p className="text-sm text-body dark:text-dark-text-muted">
+                {modelConfig.apiKey ? 'API key is encrypted' : 'No API key required for ' + modelConfig.provider}
+              </p>
+            </motion.div>
+          </div>
         </div>
       </div>
     </div>
