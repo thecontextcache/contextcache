@@ -79,6 +79,9 @@ next-env.d.ts
 *.pem
 secrets/
 
+# Exception: Allow .env.cloudrun (no secrets, just config)
+!.env.cloudrun
+
 # Database Setup Files (contain sensitive schema/setup info)
 *_SETUP.sql
 *_COMPLETE_SETUP.sql
