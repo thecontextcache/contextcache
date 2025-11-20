@@ -24,7 +24,6 @@ echo ""
 
 # Build and push image using Cloud Build with custom Dockerfile
 gcloud builds submit \
-  --tag ${IMAGE_NAME} \
   --project ${PROJECT_ID} \
   --timeout 20m \
   --machine-type e2-highcpu-8 \
