@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 import { toast } from 'sonner';
 import { PageNav } from '@/components/page-nav';
+import { ModelSelectorPanel, type ModelConfig } from '@/components/model-selector-panel';
 
 export default function InboxPage() {
   const router = useRouter();
@@ -19,9 +20,32 @@ export default function InboxPage() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Model configuration (loaded from localStorage, remembered)
+  const [modelConfig, setModelConfig] = useState<ModelConfig>({
+    provider: 'huggingface',
+    model: 'sentence-transformers/all-MiniLM-L6-v2',
+  });
+
   // Document loading state
   const [documents, setDocuments] = useState<any[]>([]);
   const [loadingDocs, setLoadingDocs] = useState(false);
+
+  // Load saved model config on mount
+  useEffect(() => {
+    const savedConfig = localStorage.getItem('model_config');
+    if (savedConfig) {
+      try {
+        setModelConfig(JSON.parse(savedConfig));
+      } catch (e) {
+        console.error('Failed to load model config:', e);
+      }
+    }
+  }, []);
+
+  // Save model config whenever it changes
+  useEffect(() => {
+    localStorage.setItem('model_config', JSON.stringify(modelConfig));
+  }, [modelConfig]);
 
   // Load documents from backend
   const loadDocuments = async () => {
@@ -200,10 +224,22 @@ export default function InboxPage() {
       {/* Main Content */}
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="max-w-4xl mx-auto space-y-8">
+          {/* Model Selector */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+          >
+            <ModelSelectorPanel
+              value={modelConfig}
+              onChange={setModelConfig}
+            />
+          </motion.div>
+
           {/* URL Input */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
             className="p-8 rounded-2xl bg-surface dark:bg-dark-surface-800 backdrop-blur-sm border border-slate-200 dark:border-slate-700"
           >
             <h2 className="text-xl font-semibold text-headline dark:text-dark-text-primary mb-4">
