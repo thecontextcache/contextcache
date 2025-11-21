@@ -12,7 +12,7 @@ import { EnhancedThemeToggle } from '@/components/enhanced-theme-toggle';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'ContextCache - Privacy-first memory engine for AI',
+  title: 'thecontextcache - Privacy-first memory engine for AI',
   description: 'Local-first, zero-knowledge memory system with explainable answers',
   viewport: {
     width: 'device-width',
@@ -55,11 +55,11 @@ export default function RootLayout({
                   
                   {/* Auth controls */}
                   <div className="container mx-auto px-4 py-3 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
+                    <a href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity cursor-pointer">
                       <span className="text-xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-                        ContextCache™
+                        thecontextcache™
                       </span>
-                    </div>
+                    </a>
                     
                     <div className="flex items-center gap-3">
                       {/* Theme Toggle */}

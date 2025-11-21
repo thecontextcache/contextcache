@@ -1,8 +1,8 @@
-# ContextCache
+# thecontextcache™
 
 **Privacy-First AI Knowledge Management**
 
-ContextCache is a proprietary knowledge management system that combines end-to-end encryption with advanced AI retrieval capabilities.
+thecontextcache™ is a proprietary knowledge management system that combines end-to-end encryption with advanced AI retrieval capabilities.
 
 ## Features
 
@@ -32,6 +32,8 @@ ContextCache is a proprietary knowledge management system that combines end-to-e
 
 This software is proprietary. See [LICENSE](LICENSE) for details.
 
+**Note**: The ™ symbol indicates a trademark claim. thecontextcache is not currently registered with any trademark office.
+
 ## Support
 
 - **Developer**: dn@thecontextcache.com
@@ -43,4 +45,4 @@ https://thecontextcache.com
 
 ---
 
-© 2025 ContextCache. All rights reserved.
+© 2025 thecontextcache™. All rights reserved.

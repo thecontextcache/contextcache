@@ -19,7 +19,7 @@ export default function SecurityPage() {
             </div>
             <h1 className="text-4xl font-bold mb-4">Security & Privacy</h1>
             <p className="text-muted-foreground text-lg">
-              How ContextCache™ protects your data
+              How thecontextcache™ protects your data
             </p>
           </div>
 
@@ -68,7 +68,7 @@ export default function SecurityPage() {
                   Third-Party Services Disclaimer
                 </h3>
                 <p className="text-sm text-yellow-800 dark:text-yellow-200 mb-3">
-                  ContextCache™ uses various third-party services and tools for development, deployment, 
+                  thecontextcache™ uses various third-party services and tools for development, deployment, 
                   and operation including but not limited to:
                 </p>
                 <ul className="text-sm text-yellow-800 dark:text-yellow-200 space-y-1 ml-4 list-disc">
@@ -81,7 +81,7 @@ export default function SecurityPage() {
                 </ul>
                 <p className="text-sm text-yellow-800 dark:text-yellow-200 mt-3 font-medium">
                   In the event that any of these third-party services experience security vulnerabilities, 
-                  data breaches, or other incidents, ContextCache™ is not liable for any damages, losses, 
+                  data breaches, or other incidents, thecontextcache™ is not liable for any damages, losses, 
                   or unauthorized access to data resulting from such third-party incidents. Users acknowledge 
                   and accept this risk by using our service.
                 </p>

@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 import { toast } from 'sonner';
 import { PageNav } from '@/components/page-nav';
-import { ModelSelectorPanel, type ModelConfig } from '@/components/model-selector-panel';
+import { SimpleModelSelector, type SimpleModelConfig } from '@/components/simple-model-selector';
 
 export default function InboxPage() {
   const router = useRouter();
@@ -15,15 +15,14 @@ export default function InboxPage() {
 
   const [dragActive, setDragActive] = useState(false);
   const [url, setUrl] = useState('');
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [fileInputKey, setFileInputKey] = useState<number>(Date.now());
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Model configuration (loaded from localStorage, remembered)
-  const [modelConfig, setModelConfig] = useState<ModelConfig>({
-    provider: 'huggingface',
-    model: 'sentence-transformers/all-MiniLM-L6-v2',
+  const [modelConfig, setModelConfig] = useState<SimpleModelConfig>({
+    mode: 'smart',
   });
 
   // Document loading state
@@ -71,17 +70,17 @@ export default function InboxPage() {
   }, [currentProject]);
 
   // Handle ingestion (upload or URL)
-  const handleIngest = async (fileToUpload?: File) => {
+  const handleIngest = async (filesToUpload?: File[]) => {
 
     if (!currentProject) {
       toast.error('No project selected!');
       return;
     }
 
-    const file = fileToUpload || selectedFile;
+    const files = filesToUpload || selectedFiles;
 
-    if (!file && !url) {
-      toast.error('Please select a file or enter a URL');
+    if (files.length === 0 && !url) {
+      toast.error('Please select files or enter a URL');
       return;
     }
 
@@ -89,28 +88,50 @@ export default function InboxPage() {
     setError(null);
 
     try {
-      console.log(' Uploading to API...', {
-        projectId: currentProject.id,
-        file: file?.name,
-        url,
-      });
+      // If URL, just ingest that
+      if (url && files.length === 0) {
+        console.log('📤 Uploading URL to API...', { projectId: currentProject.id, url });
+        await api.ingestDocument(currentProject.id, undefined, url);
+        toast.success('Document ingested successfully!', { description: url, duration: 3000 });
+      } 
+      // If files, process each one
+      else if (files.length > 0) {
+        const total = files.length;
+        let completed = 0;
+        let failed = 0;
 
-      await api.ingestDocument(currentProject.id, file || undefined, url || undefined);
+        toast.info(`Uploading ${total} document${total > 1 ? 's' : ''}...`);
 
-      toast.success('Document ingested successfully!', {
-        description: file ? file.name : url,
-        duration: 3000,
-      });
+        for (const file of files) {
+          try {
+            console.log(`📤 Uploading ${file.name} to API...`, { projectId: currentProject.id });
+            await api.ingestDocument(currentProject.id, file, undefined);
+            completed++;
+            toast.success(`${file.name} uploaded (${completed}/${total})`);
+          } catch (err) {
+            failed++;
+            console.error(`❌ Failed to upload ${file.name}:`, err);
+            toast.error(`Failed: ${file.name}`);
+          }
+        }
+
+        if (completed > 0) {
+          toast.success(`${completed} document${completed > 1 ? 's' : ''} processed successfully!`);
+        }
+        if (failed > 0) {
+          toast.error(`${failed} document${failed > 1 ? 's' : ''} failed`);
+        }
+      }
 
       // Reset form
-      setSelectedFile(null);
+      setSelectedFiles([]);
       setUrl('');
       setFileInputKey(Date.now());
 
       // Reload documents
       await loadDocuments();
     } catch (err) {
-      console.error(' Failed to ingest document:', err);
+      console.error('❌ Failed to ingest document:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to ingest document';
       setError(errorMessage);
       toast.error('Upload failed', {
@@ -140,11 +161,10 @@ export default function InboxPage() {
       e.stopPropagation();
       setDragActive(false);
 
-      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-        const file = e.dataTransfer.files[0];
-
-        setSelectedFile(file);
-        await handleIngest(file); // Pass file directly
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        const files = Array.from(e.dataTransfer.files);
+        setSelectedFiles(files);
+        await handleIngest(files); // Pass files directly
       }
     },
     [currentProject]
@@ -153,9 +173,9 @@ export default function InboxPage() {
   // Handle file input change
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     e.preventDefault();
-    if (e.target.files && e.target.files[0]) {
-
-      setSelectedFile(e.target.files[0]);
+    if (e.target.files && e.target.files.length > 0) {
+      const files = Array.from(e.target.files);
+      setSelectedFiles(files);
     }
   };
 
@@ -229,7 +249,7 @@ export default function InboxPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
           >
-            <ModelSelectorPanel
+            <SimpleModelSelector
               value={modelConfig}
               onChange={setModelConfig}
             />
@@ -322,7 +342,7 @@ export default function InboxPage() {
                 {/* File Browse Button - Separated */}
                 <div className="pt-4">
                   <label className="inline-block cursor-pointer px-6 py-3 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-all font-medium">
-                     Choose File
+                     Choose Files (up to 3)
                     <input
                       key={fileInputKey}
                       type="file"
@@ -330,36 +350,40 @@ export default function InboxPage() {
                       accept=".pdf,.txt,.doc,.docx"
                       className="hidden"
                       disabled={uploading}
+                      multiple
                     />
                   </label>
                 </div>
               </div>
             </div>
 
-            {/* Selected File & Upload Button - OUTSIDE drop zone */}
-            {selectedFile && (
+            {/* Selected Files & Upload Button - OUTSIDE drop zone */}
+            {selectedFiles.length > 0 && (
               <div className="mt-6 p-6 bg-secondary/20 dark:bg-secondary/30 rounded-xl border-2 border-secondary dark:border-secondary">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-3">
                     <span className="text-2xl"></span>
                     <div>
                       <p className="font-semibold text-headline dark:text-dark-text-primary">
-                        {selectedFile.name}
+                        {selectedFiles.length} file{selectedFiles.length > 1 ? 's' : ''} selected
                       </p>
-                      <p className="text-sm text-slate-500 dark:text-slate-400">
-                        {(selectedFile.size / 1024).toFixed(1)} KB
-                      </p>
+                      <div className="text-sm text-slate-500 dark:text-slate-400 space-y-1">
+                        {selectedFiles.slice(0, 3).map((file, idx) => (
+                          <div key={idx}>📄 {file.name} ({(file.size / 1024).toFixed(1)} KB)</div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                   <button
                     type="button"
                     onClick={() => {
-                      setSelectedFile(null);
+                      setSelectedFiles([]);
                       setFileInputKey(Date.now());
                     }}
                     className="text-slate-400 hover:text-red-500 transition-colors"
+                    disabled={uploading}
                   >
-                    
+                    ✕
                   </button>
                 </div>
 

@@ -79,7 +79,7 @@ export default function ExportPage() {
             '@type': 'Dataset',
             name: currentProject.name,
             datePublished: new Date().toISOString(),
-            creator: { '@type': 'Person', name: 'ContextCache User' },
+            creator: { '@type': 'Person', name: 'thecontextcache User' },
             distribution: [],
           },
           null,

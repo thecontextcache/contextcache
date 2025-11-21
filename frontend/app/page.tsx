@@ -75,7 +75,7 @@ export default function Home() {
 
             {/* Subtitle */}
             <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-              ContextCache is a privacy-first knowledge graph engine for AI research and analysis.
+              thecontextcache is a privacy-first knowledge graph engine for AI research and analysis.
               Your passphrase never leaves your device. Cloud-native, multi-tenant, and fully auditable.
             </p>
 
@@ -87,7 +87,7 @@ export default function Home() {
               className="p-4 rounded-xl bg-warning/10 dark:bg-warning/20 border border-warning/30 max-w-3xl mx-auto"
             >
               <p className="text-sm text-body dark:text-dark-text-muted leading-relaxed">
-                <strong className="text-warning-dark dark:text-warning">⚠️ Important:</strong> By using ContextCache, you acknowledge that:
+                <strong className="text-warning-dark dark:text-warning">⚠️ Important:</strong> By using thecontextcache, you acknowledge that:
                 (1) Your data is encrypted and we cannot recover it if you lose your master key,
                 (2) This is an alpha product under active development,
                 (3) We are not responsible for any data loss or issues arising from use of this service.
@@ -248,7 +248,7 @@ export default function Home() {
         <div className="container mx-auto max-w-6xl">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-center md:text-left">
             <div>
-              <h3 className="font-semibold text-foreground mb-3">ContextCache</h3>
+              <h3 className="font-semibold text-foreground mb-3">thecontextcache</h3>
               <p className="text-sm text-muted-foreground">
                 Privacy-first knowledge graphs for AI research and analysis.
               </p>
@@ -269,7 +269,7 @@ export default function Home() {
             </div>
           </div>
           <div className="mt-8 pt-8 border-t border-border text-center text-sm text-muted-foreground">
-            <p>© 2024-2025 ContextCache. All rights reserved. Proprietary software.</p>
+            <p>© 2024-2025 thecontextcache. All rights reserved. Proprietary software.</p>
           </div>
         </div>
       </footer>

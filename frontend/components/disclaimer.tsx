@@ -27,7 +27,7 @@ export function Disclaimer() {
             <p className="text-xs sm:text-sm text-amber-900 dark:text-amber-200 leading-snug">
               <strong className="font-semibold">Reality Check:</strong>{' '}
               <span className="hidden sm:inline">
-                ContextCache tries hard, but perfection is a myth. We're chasing it though—one hallucination-free fact at a time. Double-check the important stuff.
+                thecontextcache tries hard, but perfection is a myth. We're chasing it though—one hallucination-free fact at a time. Double-check the important stuff.
               </span>
               <span className="inline sm:hidden">
                 AI isn't perfect. Double-check important info.
