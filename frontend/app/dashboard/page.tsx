@@ -6,7 +6,6 @@ import api from '@/lib/api';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
-import UnlockProjectModal from '@/components/unlock-project-modal';
 import type { Project } from '@/lib/types';
 
 export default function DashboardPage() {
@@ -16,10 +15,6 @@ export default function DashboardPage() {
   const [authChecking, setAuthChecking] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [unlockModal, setUnlockModal] = useState<{ isOpen: boolean; project: Project | null }>({
-    isOpen: false,
-    project: null,
-  });
 
   // Auth guard - redirect if not signed in
   useEffect(() => {
@@ -88,23 +83,10 @@ export default function DashboardPage() {
   };
 
   const handleProjectClick = (project: Project) => {
-    // Check if project is already unlocked (has encryption key in memory)
-    if (isProjectUnlocked(project.id)) {
-      // Already unlocked, proceed to inbox
-      setCurrentProject(project);
-      router.push('/inbox');
-    } else {
-      // Not unlocked, show unlock modal
-      setUnlockModal({ isOpen: true, project });
-    }
-  };
-
-  const handleUnlockSuccess = () => {
-    // Project was unlocked successfully, proceed to inbox
-    if (unlockModal.project) {
-      setCurrentProject(unlockModal.project);
-      router.push('/inbox');
-    }
+    // Simplified: No per-project locking, just set current project and go to inbox
+    // Session unlock (master key) is sufficient for all projects
+    setCurrentProject(project);
+    router.push('/inbox');
   };
 
   // Show loading while checking auth
@@ -336,15 +318,6 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Unlock Modal */}
-      {unlockModal.project && (
-        <UnlockProjectModal
-          project={unlockModal.project}
-          isOpen={unlockModal.isOpen}
-          onClose={() => setUnlockModal({ isOpen: false, project: null })}
-          onUnlock={handleUnlockSuccess}
-        />
-      )}
     </div>
   );
 }
