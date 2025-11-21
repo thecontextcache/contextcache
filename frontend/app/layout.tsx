@@ -61,6 +61,21 @@ export default function RootLayout({
                       </span>
                     </a>
                     
+                    {/* Navigation Links */}
+                    <nav className="hidden md:flex items-center gap-6">
+                      <a href="/pricing" className="text-sm font-medium text-body dark:text-dark-text-muted hover:text-primary transition-colors">
+                        Pricing
+                      </a>
+                      <SignedIn>
+                        <a href="/dashboard" className="text-sm font-medium text-body dark:text-dark-text-muted hover:text-primary transition-colors">
+                          Dashboard
+                        </a>
+                        <a href="/account" className="text-sm font-medium text-body dark:text-dark-text-muted hover:text-primary transition-colors">
+                          Account
+                        </a>
+                      </SignedIn>
+                    </nav>
+                    
                     <div className="flex items-center gap-3">
                       {/* Theme Toggle */}
                       <EnhancedThemeToggle />
