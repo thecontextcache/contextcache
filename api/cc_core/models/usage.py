@@ -34,7 +34,7 @@ class UsageLogDB(Base):
     
     # Metadata
     project_id = Column(UUID(as_uuid=True), nullable=True)
-    metadata = Column(Text, nullable=True)  # JSON string
+    meta_data = Column(Text, nullable=True)  # JSON string (renamed from 'metadata' to avoid SQLAlchemy conflict)
     
     # Tampering prevention
     record_hash = Column(String(64), nullable=False)  # SHA256 of this record
@@ -59,7 +59,7 @@ class UsageLogDB(Base):
             'resource_id': str(self.resource_id) if self.resource_id else None,
             'quantity': self.quantity,
             'project_id': str(self.project_id) if self.project_id else None,
-            'metadata': self.metadata,
+            'meta_data': self.meta_data,
             'created_at': self.created_at.isoformat(),
             'previous_hash': self.previous_hash,
         }
