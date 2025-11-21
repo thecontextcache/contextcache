@@ -1,3 +1,9 @@
+# SQL Migration Files (contain sensitive data)
+*.sql
+RUN_IN_NEON.sql
+USAGE_TRACKING_MIGRATION.sql
+NEON_COMPLETE_SETUP.sql
+
 # Python
 __pycache__/
 *.py[cod]
