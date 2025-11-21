@@ -6,8 +6,9 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 from pydantic import BaseModel, Field
-from sqlalchemy import Column, String, LargeBinary, DateTime, func
+from sqlalchemy import Column, String, LargeBinary, DateTime, func, Boolean
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.orm import relationship
 from cc_core.storage.database import Base
 import uuid
 
@@ -20,8 +21,16 @@ class UserDB(Base):
     clerk_user_id = Column(String(255), unique=True, nullable=False, index=True)
     email = Column(String(255), nullable=False)
     kek_salt = Column(LargeBinary, nullable=False)  # Salt for deriving KEK from passphrase
+    
+    # Admin role
+    is_admin = Column(Boolean, default=False, nullable=False)
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    usage_logs = relationship("UsageLogDB", back_populates="user", cascade="all, delete-orphan")
+    quota = relationship("UserQuotaDB", back_populates="user", uselist=False, cascade="all, delete-orphan")
 
 
 class UserResponse(BaseModel):

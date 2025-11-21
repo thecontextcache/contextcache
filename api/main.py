@@ -26,7 +26,9 @@ from cc_core.services.embedding_service import EmbeddingService
 from cc_core.services.key_service import get_key_service
 from cc_core.services.encryption_service import get_encryption_service
 from cc_core.services.llm_service import LLMService, LLMConfig
+from cc_core.services.usage_service import UsageService
 from cc_core.auth import get_current_user, get_optional_user
+from cc_core.auth.admin import require_admin
 from datetime import datetime
 from dotenv import load_dotenv
 from cc_core.crypto import Hasher
@@ -1600,3 +1602,118 @@ async def query_with_answer(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Query with answer failed: {str(e)}")
+
+
+# ============================================================================
+# USAGE TRACKING & ADMIN
+# ============================================================================
+@app.get("/usage/me")
+async def get_my_usage(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get current user's usage stats"""
+    from cc_core.auth import get_user_from_clerk_id
+    
+    user = await get_user_from_clerk_id(db, current_user["clerk_user_id"])
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    usage_service = UsageService()
+    stats = await usage_service.get_user_usage_stats(db, user.id)
+    
+    return {
+        "user_id": str(user.id),
+        "email": user.email,
+        "usage": stats,
+    }
+
+
+@app.get("/admin/usage/all")
+async def get_all_usage(
+    admin_user: UserDB = Depends(require_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Admin endpoint: View all users' usage
+    Requires admin role
+    """
+    from cc_core.models.usage import UserQuotaDB
+    
+    result = await db.execute(
+        select(UserQuotaDB, UserDB.email)
+        .join(UserDB, UserQuotaDB.user_id == UserDB.id)
+    )
+    rows = result.all()
+    
+    users_usage = []
+    for quota, email in rows:
+        users_usage.append({
+            'email': email,
+            'tier': quota.tier,
+            'documents': f"{quota.documents_used}/{quota.documents_limit}",
+            'facts': f"{quota.facts_used}/{quota.facts_limit}",
+            'queries': f"{quota.queries_used}/{quota.queries_limit}",
+            'locked': quota.locked,
+            'lock_reason': quota.lock_reason,
+        })
+    
+    return {
+        "total_users": len(users_usage),
+        "users": users_usage,
+    }
+
+
+@app.post("/admin/users/{user_id}/lock")
+async def lock_user(
+    user_id: str,
+    reason: str = Form(...),
+    admin_user: UserDB = Depends(require_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Admin endpoint: Lock a user account
+    """
+    from cc_core.models.usage import UserQuotaDB
+    import uuid as uuid_lib
+    
+    result = await db.execute(
+        select(UserQuotaDB).where(UserQuotaDB.user_id == uuid_lib.UUID(user_id))
+    )
+    quota = result.scalar_one_or_none()
+    
+    if not quota:
+        raise HTTPException(status_code=404, detail="User quota not found")
+    
+    quota.locked = True
+    quota.lock_reason = reason
+    await db.commit()
+    
+    return {"message": f"User {user_id} locked", "reason": reason}
+
+
+@app.post("/admin/users/{user_id}/unlock")
+async def unlock_user(
+    user_id: str,
+    admin_user: UserDB = Depends(require_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Admin endpoint: Unlock a user account
+    """
+    from cc_core.models.usage import UserQuotaDB
+    import uuid as uuid_lib
+    
+    result = await db.execute(
+        select(UserQuotaDB).where(UserQuotaDB.user_id == uuid_lib.UUID(user_id))
+    )
+    quota = result.scalar_one_or_none()
+    
+    if not quota:
+        raise HTTPException(status_code=404, detail="User quota not found")
+    
+    quota.locked = False
+    quota.lock_reason = None
+    await db.commit()
+    
+    return {"message": f"User {user_id} unlocked"}
