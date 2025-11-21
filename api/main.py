@@ -315,15 +315,17 @@ async def unlock_session(
             detail=f"Failed to derive encryption key: {str(e)}"
         )
     
-    # Store KEK in Redis (session-bound, 1 hour TTL)
+    # Store KEK in Redis (session-bound, 48 hour TTL)
     session_id = current_user["session_id"]
-    await key_service.store_kek(session_id, kek, ttl=3600)
+    TTL_HOURS = 48
+    ttl_seconds = TTL_HOURS * 3600
+    await key_service.store_kek(session_id, kek, ttl=ttl_seconds)
     
     return UnlockSessionResponse(
         status="unlocked",
         user_id=str(user.id),
         session_id=session_id,
-        expires_in=3600,
+        expires_in=ttl_seconds,
     )
 
 
@@ -1138,14 +1140,9 @@ async def ingest_document(
         chunk_texts = [c["text"] for c in chunks]
         print(f" Created {len(chunks)} chunks")
 
-        # Create embeddings (NON-BLOCKING!)
+        # Create embeddings (async)
         print(" Generating embeddings (this may take a moment)...")
-        loop = asyncio.get_event_loop()
-        embeddings = await loop.run_in_executor(
-            executor,
-            embedding_service.embed_batch,
-            chunk_texts
-        )
+        embeddings = await embedding_service.embed_batch(chunk_texts)
         print(f" Embeddings generated: {len(embeddings)}")
 
         # Get KEK for encryption (simplified: use KEK directly, no per-project DEK)

@@ -46,39 +46,48 @@ export default function RootLayout({
           <ErrorBoundary>
             <ThemeProvider>
               <APIProvider>
-                {/* Alpha banner */}
-                <div className="relative z-40 bg-primary text-primary-foreground px-4 py-2 text-center text-sm font-medium safe-padding">
-                  Alpha Version - Under Active Development
-                </div>
-
-                {/* Clerk Auth Header - positioned below banner */}
-                <header className="fixed top-10 right-0 z-50 p-4">
-                  <div className="flex items-center gap-3">
-                    {/* Theme Toggle */}
-                    <EnhancedThemeToggle />
+                {/* Header with banner and auth */}
+                <header className="sticky top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border">
+                  {/* Alpha banner */}
+                  <div className="bg-primary text-primary-foreground px-4 py-2 text-center text-sm font-medium">
+                    Alpha Version - Under Active Development
+                  </div>
+                  
+                  {/* Auth controls */}
+                  <div className="container mx-auto px-4 py-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl font-bold bg-gradient-primary bg-clip-text text-transparent">
+                        ContextCache
+                      </span>
+                    </div>
                     
-                    <SignedOut>
-                      <SignUpButton mode="modal">
-                        <button className="px-4 py-2 text-sm font-medium border border-primary text-primary dark:text-primary-700 hover:bg-primary/10 rounded-lg shadow-sm transition-all">
-                          Sign Up
-                        </button>
-                      </SignUpButton>
-                      <SignInButton mode="modal">
-                        <button className="px-4 py-2 text-sm font-medium bg-gradient-primary hover:opacity-90 text-white rounded-lg shadow-sm transition-all">
-                          Sign In
-                        </button>
-                      </SignInButton>
-                    </SignedOut>
-                    <SignedIn>
-                      <UserButton
-                        appearance={{
-                          elements: {
-                            avatarBox: "w-10 h-10 rounded-full border-2 border-primary"
-                          }
-                        }}
-                        afterSignOutUrl="/"
-                      />
-                    </SignedIn>
+                    <div className="flex items-center gap-3">
+                      {/* Theme Toggle */}
+                      <EnhancedThemeToggle />
+                      
+                      <SignedOut>
+                        <SignUpButton mode="modal">
+                          <button className="px-4 py-2 text-sm font-medium border border-primary text-primary dark:text-primary-700 hover:bg-primary/10 rounded-lg transition-all">
+                            Sign Up
+                          </button>
+                        </SignUpButton>
+                        <SignInButton mode="modal">
+                          <button className="px-4 py-2 text-sm font-medium bg-gradient-primary hover:opacity-90 text-white rounded-lg transition-all">
+                            Sign In
+                          </button>
+                        </SignInButton>
+                      </SignedOut>
+                      <SignedIn>
+                        <UserButton
+                          appearance={{
+                            elements: {
+                              avatarBox: "w-10 h-10 rounded-full border-2 border-primary"
+                            }
+                          }}
+                          afterSignOutUrl="/"
+                        />
+                      </SignedIn>
+                    </div>
                   </div>
                 </header>
 
