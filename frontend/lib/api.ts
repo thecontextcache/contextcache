@@ -190,6 +190,35 @@ class APIClient {
     return response.data;
   }
 
+  async queryWithAnswer(
+    projectId: string,
+    query: string,
+    options?: {
+      limit?: number;
+      llmProvider?: 'smart' | 'openai' | 'anthropic' | 'databricks' | 'ollama';
+      llmModel?: string;
+      llmApiKey?: string;
+      llmBaseUrl?: string;
+    }
+  ): Promise<any> {
+    const formData = new FormData();
+    formData.append('project_id', projectId);
+    formData.append('query', query);
+    formData.append('limit', (options?.limit || 5).toString());
+    formData.append('llm_provider', options?.llmProvider || 'smart');
+    
+    if (options?.llmModel) formData.append('llm_model', options.llmModel);
+    if (options?.llmApiKey) formData.append('llm_api_key', options.llmApiKey);
+    if (options?.llmBaseUrl) formData.append('llm_base_url', options.llmBaseUrl);
+
+    const response = await this.client.post('/query/answer', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  }
+
   // -------------------------
   //  Health Check
   // -------------------------

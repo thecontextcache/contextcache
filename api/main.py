@@ -25,6 +25,7 @@ from cc_core.services.document_service import DocumentService
 from cc_core.services.embedding_service import EmbeddingService
 from cc_core.services.key_service import get_key_service
 from cc_core.services.encryption_service import get_encryption_service
+from cc_core.services.llm_service import LLMService, LLMConfig
 from cc_core.auth import get_current_user, get_optional_user
 from datetime import datetime
 from dotenv import load_dotenv
@@ -1487,3 +1488,115 @@ async def query_rag_cag(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"RAG+CAG query failed: {str(e)}")
+
+
+# ============================================================================
+# QUERY WITH LLM ANSWER GENERATION
+# ============================================================================
+@app.post("/query/answer")
+async def query_with_answer(
+    project_id: str = Form(...),
+    query: str = Form(...),
+    limit: int = Form(5),
+    llm_provider: str = Form("smart"),  # 'smart', 'openai', 'anthropic', 'databricks', 'ollama'
+    llm_model: str = Form(None),
+    llm_api_key: str = Form(None),
+    llm_base_url: str = Form(None),
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Query documents and generate human-readable answer using LLM
+    
+    Providers:
+    - smart: Free extractive answer (no external API)
+    - openai: GPT-4 (requires API key)
+    - anthropic: Claude (requires API key)
+    - databricks: Databricks Foundation Models (requires API key + base URL)
+    - ollama: Local Ollama (requires base URL, default: http://localhost:11434)
+    """
+    # Validate query
+    if not query or len(query.strip()) < 1:
+        raise HTTPException(status_code=400, detail="Query cannot be empty")
+    
+    if len(query) > 1000:
+        raise HTTPException(status_code=400, detail="Query too long")
+    
+    # Validate limit
+    if limit < 1 or limit > 20:
+        raise HTTPException(status_code=400, detail="Limit must be between 1 and 20")
+    
+    embedding_service = EmbeddingService()
+    key_service = get_key_service()
+    encryption_service = get_encryption_service()
+    session_id = current_user["session_id"]
+    
+    try:
+        # Step 1: Retrieve relevant chunks (same as /query endpoint)
+        kek = await key_service.get_kek(session_id)
+        query_embedding = embedding_service.embed_text(query)
+        
+        result = await db.execute(
+            select(
+                DocumentChunkDB,
+                DocumentDB.source_url,
+                (1 - DocumentChunkDB.embedding.cosine_distance(query_embedding)).label("similarity"),
+            )
+            .join(DocumentDB, DocumentChunkDB.document_id == DocumentDB.id)
+            .where(DocumentDB.project_id == project_id)
+            .order_by(text("similarity DESC"))
+            .limit(limit)
+        )
+        
+        rows = result.all()
+        context_chunks = []
+        
+        for row in rows:
+            chunk, source_url, similarity = row
+            
+            # Decrypt chunk text
+            chunk_text = chunk.text
+            if chunk.encrypted_text and chunk.nonce and kek:
+                try:
+                    chunk_text = encryption_service.decrypt_content(
+                        chunk.encrypted_text,
+                        chunk.nonce,
+                        kek
+                    )
+                except Exception as e:
+                    print(f"⚠️ Decryption failed for chunk {chunk.id}: {e}")
+                    chunk_text = chunk.text
+            
+            context_chunks.append({
+                "chunk_id": str(chunk.id),
+                "document_id": str(chunk.document_id),
+                "source_url": source_url,
+                "text": chunk_text,
+                "similarity": float(similarity),
+                "chunk_index": chunk.chunk_index,
+            })
+        
+        # Step 2: Generate answer using LLM
+        llm_config = LLMConfig(
+            provider=llm_provider,
+            model=llm_model or "thecontextcache-smart",
+            api_key=llm_api_key,
+            base_url=llm_base_url,
+        )
+        
+        llm_service = LLMService(llm_config)
+        answer_data = await llm_service.generate_answer(query, context_chunks)
+        
+        return {
+            "query": query,
+            "answer": answer_data['answer'],
+            "sources": answer_data['sources'],
+            "model_used": answer_data['model_used'],
+            "method": answer_data['method'],
+            "chunks_retrieved": len(context_chunks),
+        }
+    
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Query with answer failed: {str(e)}")
