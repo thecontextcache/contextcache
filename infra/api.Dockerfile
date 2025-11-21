@@ -39,10 +39,10 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements (use lightweight Cloud Run version)
-COPY api/requirements-cloudrun.txt ./requirements.txt
+# Copy requirements (use full requirements for production)
+COPY api/requirements.txt ./requirements.txt
 
-# Install Python dependencies (lightweight for Cloud Run)
+# Install Python dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
