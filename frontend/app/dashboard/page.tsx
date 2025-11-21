@@ -7,6 +7,8 @@ import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
 import type { Project } from '@/lib/types';
+import { MoreVertical, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -15,6 +17,8 @@ export default function DashboardPage() {
   const [authChecking, setAuthChecking] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showDeleteMenu, setShowDeleteMenu] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   // Auth guard - redirect if not signed in
   useEffect(() => {
@@ -87,6 +91,36 @@ export default function DashboardPage() {
     // Session unlock (master key) is sufficient for all projects
     setCurrentProject(project);
     router.push('/inbox');
+  };
+
+  const handleDeleteProject = async (projectId: string, projectName: string) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${projectName}"?\n\nThis will permanently delete all documents, facts, entities, and audit logs. This action CANNOT be undone.`
+    );
+    
+    if (!confirmed) return;
+
+    setDeleting(projectId);
+    setShowDeleteMenu(null);
+
+    try {
+      await api.deleteProject(projectId);
+      
+      // Remove from local state
+      const updatedProjects = projects.filter(p => p.id !== projectId);
+      setProjects(updatedProjects);
+      
+      toast.success('Project deleted', {
+        description: `"${projectName}" has been permanently deleted`,
+      });
+    } catch (err) {
+      console.error('Failed to delete project:', err);
+      toast.error('Delete failed', {
+        description: err instanceof Error ? err.message : 'Could not delete project',
+      });
+    } finally {
+      setDeleting(null);
+    }
   };
 
   // Show loading while checking auth
@@ -256,19 +290,55 @@ export default function DashboardPage() {
                 className="group relative cursor-pointer"
               >
                 <div className="h-full p-6 rounded-2xl bg-surface dark:bg-dark-surface-800 backdrop-blur-sm border border-gray-200 dark:border-dark-surface-800 hover:border-secondary hover:shadow-xl hover:shadow-secondary/10 transition-all duration-300">
+                  {/* Header with delete menu */}
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-xl font-semibold text-headline dark:text-dark-text-primary group-hover:text-secondary transition-colors">
                       {project.name}
                     </h3>
-                    {isProjectUnlocked(project.id) ? (
-                      <span className="text-success text-xl" title="Unlocked">
-                        🔓
-                      </span>
-                    ) : (
-                      <span className="text-gray-400 dark:text-dark-text-muted text-xl" title="Locked - click to unlock">
-                        🔒
-                      </span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {isProjectUnlocked(project.id) ? (
+                        <span className="text-success text-xl" title="Unlocked">
+                          🔓
+                        </span>
+                      ) : (
+                        <span className="text-gray-400 dark:text-dark-text-muted text-xl" title="Locked - click to unlock">
+                          🔒
+                        </span>
+                      )}
+                      
+                      {/* 3-dot menu */}
+                      <div className="relative">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowDeleteMenu(showDeleteMenu === project.id ? null : project.id);
+                          }}
+                          className="p-1 hover:bg-gray-200 dark:hover:bg-dark-bg-900 rounded-lg transition-colors"
+                          disabled={deleting === project.id}
+                        >
+                          <MoreVertical className="h-5 w-5 text-body dark:text-dark-text-muted" />
+                        </button>
+                        
+                        {showDeleteMenu === project.id && (
+                          <div 
+                            className="absolute right-0 top-8 z-50 w-48 bg-surface dark:bg-dark-surface-800 border border-gray-200 dark:border-dark-surface-800 rounded-lg shadow-xl py-1"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteProject(project.id, project.name);
+                              }}
+                              className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2 transition-colors"
+                              disabled={deleting === project.id}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              {deleting === project.id ? 'Deleting...' : 'Delete Project'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
 
                   <div className="space-y-3 text-sm">
