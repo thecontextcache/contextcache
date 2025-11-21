@@ -18,7 +18,9 @@ class ProjectDB(Base):
     id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     name = Column(String, nullable=False)
-    salt = Column(LargeBinary, nullable=False)
+    salt = Column(LargeBinary, nullable=True)  # Legacy, kept for compatibility
+    encrypted_dek = Column(LargeBinary, nullable=True)  # Data Encryption Key encrypted with user's KEK
+    dek_nonce = Column(LargeBinary, nullable=True)  # Nonce for DEK encryption
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
