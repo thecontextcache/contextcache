@@ -1052,12 +1052,18 @@ async def ingest_document(
                 print(" Extracting PDF text...")
                 text = await doc_service.extract_text_from_pdf(file_content)
             elif file_ext == ".txt":
-                try:
-                    text = file_content.decode("utf-8")
-                except UnicodeDecodeError:
+                # Try multiple encodings
+                for encoding in ["utf-8", "utf-8-sig", "latin-1", "cp1252", "iso-8859-1"]:
+                    try:
+                        text = file_content.decode(encoding)
+                        print(f" Decoded text file with {encoding} encoding")
+                        break
+                    except (UnicodeDecodeError, AttributeError):
+                        continue
+                else:
                     raise HTTPException(
                         status_code=400,
-                        detail="Invalid text file encoding. Must be UTF-8"
+                        detail="Unable to decode text file. Please save as UTF-8"
                     )
             else:
                 raise HTTPException(
