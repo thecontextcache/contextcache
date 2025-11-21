@@ -435,25 +435,19 @@ async def create_project(
             detail="User not found. Please unlock session first."
         )
     
-    # Generate random DEK for this project (32 bytes)
-    dek = key_service.generate_dek()
+    # Simplified: Use KEK directly for all projects (no per-project DEK)
+    # KEK is already cached in Redis from /auth/unlock
     
-    # Encrypt DEK with KEK
-    encrypted_dek, dek_nonce = await key_service.encrypt_dek_with_kek(dek, kek)
-    
-    # Create project record
+    # Create project record (no DEK needed)
     db_project = ProjectDB(
         name=name,
         user_id=user.id,
-        encrypted_dek=encrypted_dek,
-        dek_nonce=dek_nonce
+        encrypted_dek=None,  # Not used in simplified model
+        dek_nonce=None
     )
     db.add(db_project)
     await db.commit()
     await db.refresh(db_project)
-    
-    # Cache DEK in Redis (5 min TTL)
-    await key_service.store_dek(session_id, str(db_project.id), dek, ttl=300)
     
     print(f" Project created: {db_project.name} (id: {str(db_project.id)[:8]}...)")
 
@@ -1154,41 +1148,26 @@ async def ingest_document(
         )
         print(f" Embeddings generated: {len(embeddings)}")
 
-        # Get DEK for encryption
+        # Get KEK for encryption (simplified: use KEK directly, no per-project DEK)
         key_service = get_key_service()
         encryption_service = get_encryption_service()
         session_id = current_user["session_id"]
-        dek = None
+        kek = None
 
         if session_id:
-            dek = await key_service.get_dek(session_id, project_id)
-            if not dek:
-                # Try to decrypt DEK from database
-                result = await db.execute(
-                    select(ProjectDB).where(ProjectDB.id == project_id)
-                )
-                project = result.scalar_one_or_none()
-                if project and project.encrypted_dek:
-                    kek = await key_service.get_kek(session_id)
-                    if kek:
-                        dek = await key_service.decrypt_dek_with_kek(
-                            project.encrypted_dek,
-                            project.dek_nonce,
-                            kek
-                        )
-                        await key_service.store_dek(session_id, project_id, dek, ttl=300)
+            kek = await key_service.get_kek(session_id)
 
-        # Store chunks (with encryption if DEK available)
-        print(f" Storing chunks{' (encrypted)' if dek else ' (plaintext - no DEK)'}...")
+        # Store chunks (with encryption if KEK available)
+        print(f" Storing chunks{' (encrypted)' if kek else ' (plaintext - no KEK)'}...")
         for chunk, embedding in zip(chunks, embeddings):
             chunk_text = chunk["text"]
             encrypted_text = None
             nonce = None
 
-            # Encrypt if DEK is available
-            if dek:
+            # Encrypt if KEK is available
+            if kek:
                 try:
-                    encrypted_text, nonce = encryption_service.encrypt_content(chunk_text, dek)
+                    encrypted_text, nonce = encryption_service.encrypt_content(chunk_text, kek)
                 except Exception as e:
                     print(f" Encryption failed, storing plaintext: {e}")
 
@@ -1352,23 +1331,8 @@ async def query_documents(
     session_id = current_user["session_id"]
 
     try:
-        # Get DEK for decryption
-        dek = await key_service.get_dek(session_id, project_id)
-        if not dek:
-            # Try to decrypt DEK from database
-            result = await db.execute(
-                select(ProjectDB).where(ProjectDB.id == project_id)
-            )
-            project = result.scalar_one_or_none()
-            if project and project.encrypted_dek:
-                kek = await key_service.get_kek(session_id)
-                if kek:
-                    dek = await key_service.decrypt_dek_with_kek(
-                        project.encrypted_dek,
-                        project.dek_nonce,
-                        kek
-                    )
-                    await key_service.store_dek(session_id, project_id, dek, ttl=300)
+        # Get KEK for decryption (simplified: use KEK directly)
+        kek = await key_service.get_kek(session_id)
 
         query_embedding = embedding_service.embed_text(query)
 
@@ -1391,12 +1355,12 @@ async def query_documents(
 
             # Decrypt chunk text if encrypted
             chunk_text = chunk.text
-            if chunk.encrypted_text and chunk.nonce and dek:
+            if chunk.encrypted_text and chunk.nonce and kek:
                 try:
                     chunk_text = encryption_service.decrypt_content(
                         chunk.encrypted_text,
                         chunk.nonce,
-                        dek
+                        kek
                     )
                 except Exception as e:
                     print(f" Decryption failed for chunk {chunk.id}, using plaintext: {e}")
@@ -1456,16 +1420,8 @@ async def query_rag_cag(
         encryption_service = get_encryption_service()
         session_id = current_user["session_id"]
         
-        # Get DEK
-        dek = await key_service.get_dek(session_id, project_id)
-        if not dek:
-            result = await db.execute(select(ProjectDB).where(ProjectDB.id == project_id))
-            project = result.scalar_one_or_none()
-            if project and project.encrypted_dek:
-                kek = await key_service.get_kek(session_id)
-                if kek:
-                    dek = await key_service.decrypt_dek_with_kek(project.encrypted_dek, project.dek_nonce, kek)
-                    await key_service.store_dek(session_id, project_id, dek, ttl=300)
+        # Get KEK (simplified: use KEK directly)
+        kek = await key_service.get_kek(session_id)
         
         # Fetch chunks
         query_embedding = await embedding_service.embed_text(query)
@@ -1482,9 +1438,9 @@ async def query_rag_cag(
         for row in rows:
             chunk, source_url, similarity = row
             chunk_text = chunk.text
-            if chunk.encrypted_text and chunk.nonce and dek:
+            if chunk.encrypted_text and chunk.nonce and kek:
                 try:
-                    chunk_text = encryption_service.decrypt_content(chunk.encrypted_text, chunk.nonce, dek)
+                    chunk_text = encryption_service.decrypt_content(chunk.encrypted_text, chunk.nonce, kek)
                 except:
                     pass
             
