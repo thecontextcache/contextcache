@@ -1204,14 +1204,39 @@ async def ingest_document(
             )
             db.add(chunk_record)
 
+        # Extract and rank facts (optional, can be disabled for performance)
+        fact_count = 0
+        try:
+            print(" Extracting facts from text...")
+            from cc_core.services.rag_cag_service import RAGCAGService
+            rag_cag = RAGCAGService(embedding_service=embedding_service)
+            
+            # Extract facts from the full text
+            fact_result = await rag_cag.extract_and_rank_facts(
+                text=text,
+                project_id=project_id,
+                source_type=source_type,
+                source_id=str(document.id)
+            )
+            
+            fact_count = fact_result.get("count", 0)
+            print(f" Extracted {fact_count} facts")
+            
+            # TODO: Store facts in database (facts table)
+            # For now, we just count them
+            
+        except Exception as e:
+            print(f" Fact extraction failed (non-fatal): {e}")
+            # Continue without facts
+        
         # Update document status
         document.status = DocumentStatus.completed.value
-        document.fact_count = len(chunks)
+        document.fact_count = fact_count if fact_count > 0 else len(chunks)
         document.processed_at = datetime.utcnow()
 
         await db.commit()
         await db.refresh(document)
-        print(f" Document processing complete!")
+        print(f" Document processing complete! ({len(chunks)} chunks, {fact_count} facts)")
 
         return DocumentResponse(
             id=document.id,
@@ -1395,3 +1420,117 @@ async def query_documents(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
+
+# ============================================================================
+# RAG + CAG QUERY
+# ============================================================================
+@app.post("/query/rag-cag")
+async def query_rag_cag(
+    project_id: str = Form(...),
+    query: str = Form(...),
+    limit: int = Form(10),
+    user_tier: str = Form("free"),
+    region: str = Form("global"),
+    apply_rules: bool = Form(False),
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Enhanced query using RAG + CAG
+    
+    RAG: Retrieves relevant facts and document chunks
+    CAG: Applies user context, rules, and personalization
+    """
+    if not query or len(query.strip()) < 1:
+        raise HTTPException(status_code=400, detail="Query cannot be empty")
+    if len(query) > 1000:
+        raise HTTPException(status_code=400, detail="Query too long")
+    if limit < 1 or limit > 50:
+        raise HTTPException(status_code=400, detail="Limit must be between 1 and 50")
+    
+    try:
+        from cc_core.services.rag_cag_service import RAGCAGService
+        embedding_service = EmbeddingService()
+        rag_cag = RAGCAGService(embedding_service=embedding_service)
+        key_service = get_key_service()
+        encryption_service = get_encryption_service()
+        session_id = current_user["session_id"]
+        
+        # Get DEK
+        dek = await key_service.get_dek(session_id, project_id)
+        if not dek:
+            result = await db.execute(select(ProjectDB).where(ProjectDB.id == project_id))
+            project = result.scalar_one_or_none()
+            if project and project.encrypted_dek:
+                kek = await key_service.get_kek(session_id)
+                if kek:
+                    dek = await key_service.decrypt_dek_with_kek(project.encrypted_dek, project.dek_nonce, kek)
+                    await key_service.store_dek(session_id, project_id, dek, ttl=300)
+        
+        # Fetch chunks
+        query_embedding = await embedding_service.embed_text(query)
+        result = await db.execute(
+            select(DocumentChunkDB, DocumentDB.source_url, (1 - DocumentChunkDB.embedding.cosine_distance(query_embedding)).label("similarity"))
+            .join(DocumentDB, DocumentChunkDB.document_id == DocumentDB.id)
+            .where(DocumentDB.project_id == project_id)
+            .order_by(text("similarity DESC"))
+            .limit(limit * 2)
+        )
+        
+        rows = result.all()
+        chunks = []
+        for row in rows:
+            chunk, source_url, similarity = row
+            chunk_text = chunk.text
+            if chunk.encrypted_text and chunk.nonce and dek:
+                try:
+                    chunk_text = encryption_service.decrypt_content(chunk.encrypted_text, chunk.nonce, dek)
+                except:
+                    pass
+            
+            chunks.append({
+                "chunk_id": str(chunk.id),
+                "document_id": str(chunk.document_id),
+                "source_url": source_url,
+                "text": chunk_text,
+                "embedding": chunk.embedding,
+                "similarity": float(similarity),
+                "chunk_index": chunk.chunk_index,
+            })
+        
+        # RAG: Retrieve
+        rag_results = await rag_cag.retrieve_chunks(query=query, chunks=chunks, top_k=limit)
+        
+        # CAG: Apply context
+        user_context = {"tier": user_tier, "region": region, "user_id": current_user.get("clerk_user_id"), "session_id": session_id}
+        rules = {"min_tier": "free", "allowed_regions": ["global", region]} if apply_rules else {}
+        cag_results = await rag_cag.apply_context_rules(results=rag_results, user_context=user_context, rules=rules)
+        
+        # Format
+        formatted = []
+        for result in cag_results:
+            chunk_data = result["chunk"]
+            formatted.append({
+                "chunk_id": chunk_data["chunk_id"],
+                "document_id": chunk_data["document_id"],
+                "source_url": chunk_data["source_url"],
+                "text": chunk_data["text"],
+                "rag_score": result.get("score", 0.0),
+                "cag_score": result.get("personalized_score", 0.0),
+                "chunk_index": chunk_data["chunk_index"],
+                "cag_metadata": result.get("cag_metadata", {})
+            })
+        
+        return {
+            "query": query,
+            "results": formatted,
+            "count": len(formatted),
+            "method": "rag_cag",
+            "rag_metadata": {"chunks_searched": len(chunks), "retrieval_method": "semantic_search"},
+            "cag_metadata": {"user_tier": user_tier, "region": region, "rules_applied": apply_rules, "personalization": "enabled"}
+        }
+    
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"RAG+CAG query failed: {str(e)}")
