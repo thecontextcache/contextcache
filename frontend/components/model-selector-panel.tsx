@@ -9,6 +9,7 @@ export interface ModelConfig {
   model: string;
   apiKey?: string;
   baseUrl?: string; // For Ollama or custom endpoints
+  retrievalMethod?: 'standard' | 'rag-cag'; // RAG+CAG hybrid model
 }
 
 interface ModelSelectorPanelProps {
@@ -65,6 +66,7 @@ export function ModelSelectorPanel({ value, onChange, className = '' }: ModelSel
             </div>
             <div className="text-xs text-body dark:text-dark-text-muted">
               {selectedProvider?.label} · {value.model || 'No model selected'}
+              {value.retrievalMethod === 'rag-cag' && ' · RAG+CAG Hybrid'}
             </div>
           </div>
         </div>
@@ -79,10 +81,34 @@ export function ModelSelectorPanel({ value, onChange, className = '' }: ModelSel
           exit={{ height: 0, opacity: 0 }}
           className="border-t border-gray-200 dark:border-dark-surface-800 p-4 space-y-4"
         >
+          {/* Retrieval Method */}
+          <div>
+            <label className="block text-sm font-medium text-body dark:text-dark-text-muted mb-2">
+              Retrieval Method
+            </label>
+            <select
+              value={value.retrievalMethod || 'standard'}
+              onChange={(e) => onChange({
+                ...value,
+                retrievalMethod: e.target.value as 'standard' | 'rag-cag',
+              })}
+              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-dark-surface-800 bg-background dark:bg-dark-bg-900 text-headline dark:text-dark-text-primary focus:ring-2 focus:ring-secondary-700 dark:focus:ring-secondary focus:border-transparent"
+            >
+              <option value="standard">Standard (Semantic Search)</option>
+              <option value="rag-cag">RAG+CAG Hybrid (BM25 + Dense + PageRank + Decay)</option>
+            </select>
+            <p className="text-xs text-body dark:text-dark-text-muted mt-2">
+              {value.retrievalMethod === 'rag-cag' 
+                ? '🎯 Advanced: Combines keyword matching (BM25), semantic search (Dense), graph importance (PageRank), and recency (Decay) with context-aware personalization'
+                : '🔍 Simple: Fast semantic search using embeddings only'
+              }
+            </p>
+          </div>
+
           {/* Provider Selection */}
           <div>
             <label className="block text-sm font-medium text-body dark:text-dark-text-muted mb-2">
-              Provider
+              Embedding Provider
             </label>
             <select
               value={value.provider}

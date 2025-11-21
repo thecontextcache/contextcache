@@ -108,13 +108,14 @@ export default function Home() {
                 <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
               </motion.button>
               <motion.button
-                onClick={() => window.open('https://github.com/thecontextcache/contextcache', '_blank')}
+                onClick={() => router.push('/security')}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 className="px-8 py-4 bg-card border border-border font-semibold rounded-xl
-                           hover:border-primary/50 transition-all"
+                           hover:border-primary/50 transition-all flex items-center gap-2"
               >
-                View Documentation
+                <Shield className="h-4 w-4" />
+                Security & Privacy
               </motion.button>
             </div>
           </motion.div>
@@ -255,15 +256,15 @@ export default function Home() {
             <div>
               <h3 className="font-semibold text-foreground mb-3">Resources</h3>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li><a href="/docs" className="hover:text-primary transition-colors">Documentation</a></li>
-                <li><a href="https://github.com/thecontextcache/contextcache" className="hover:text-primary transition-colors">GitHub</a></li>
+                <li><a href="/security" className="hover:text-primary transition-colors">Security</a></li>
+                <li><a href="mailto:support@thecontextcache.com" className="hover:text-primary transition-colors">Support</a></li>
               </ul>
             </div>
             <div>
               <h3 className="font-semibold text-foreground mb-3">Legal</h3>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li><a href="https://github.com/thecontextcache/contextcache/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">License</a></li>
-                <li><a href="https://github.com/thecontextcache/contextcache/blob/main/SECURITY.md" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">Security</a></li>
+                <li><a href="/license" className="hover:text-primary transition-colors">License</a></li>
+                <li><a href="/security" className="hover:text-primary transition-colors">Security</a></li>
               </ul>
             </div>
           </div>
