@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 from pydantic import BaseModel, Field
-from sqlalchemy import Column, String, LargeBinary, DateTime, func
+from sqlalchemy import Column, String, LargeBinary, DateTime, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from cc_core.storage.database import Base
 import uuid
@@ -16,6 +16,7 @@ class ProjectDB(Base):
     __tablename__ = "projects"
 
     id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     name = Column(String, nullable=False)
     salt = Column(LargeBinary, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
