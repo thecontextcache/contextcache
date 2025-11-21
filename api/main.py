@@ -297,7 +297,7 @@ async def unlock_session(
         kek_salt = encryptor.generate_salt()
         user = UserDB(
             clerk_user_id=current_user["clerk_user_id"],
-            email=current_user.get("email", ""),
+            email=current_user.get("email") or "user@example.com",  # Fallback if email not in JWT
             kek_salt=kek_salt,
         )
         db.add(user)
