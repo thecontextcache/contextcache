@@ -19,15 +19,19 @@ export default function LicensePage() {
             </div>
             <h1 className="text-4xl font-bold mb-4">Proprietary Software License</h1>
             <p className="text-muted-foreground text-lg">
-              ContextCache™ Licensing Terms
+              thecontextcache™ Licensing Terms
             </p>
           </div>
 
           {/* Copyright Notice */}
           <div className="bg-card border border-border rounded-lg p-8">
             <h2 className="text-2xl font-semibold mb-4">Copyright Notice</h2>
-            <p className="text-muted-foreground">
-              Copyright © 2024-2025 ContextCache™. All Rights Reserved.
+            <p className="text-muted-foreground mb-2">
+              Copyright © 2024-2025 thecontextcache™. All Rights Reserved.
+            </p>
+            <p className="text-muted-foreground text-sm">
+              <strong>Note:</strong> The ™ symbol indicates a trademark claim. thecontextcache is not currently 
+              registered with any trademark office. No LLC has been formed yet.
             </p>
           </div>
 
@@ -136,7 +140,7 @@ export default function LicensePage() {
           {/* Footer */}
           <div className="text-center pt-8 border-t border-border">
             <p className="text-muted-foreground text-sm">
-              © 2025 ContextCache™. All rights reserved.
+              © 2025 thecontextcache™. All rights reserved.
             </p>
           </div>
         </motion.div>

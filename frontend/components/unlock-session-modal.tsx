@@ -88,7 +88,7 @@ export function UnlockSessionModal({ onUnlock }: UnlockSessionModalProps) {
             </svg>
           </div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-            Unlock ContextCache
+            Unlock thecontextcache
           </h2>
           <p className="text-sm text-gray-600 dark:text-gray-400">
             Enter your master passphrase to access your projects.
