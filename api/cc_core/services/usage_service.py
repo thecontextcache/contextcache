@@ -113,7 +113,7 @@ class UsageService:
         resource_type: Optional[str] = None,
         resource_id: Optional[uuid.UUID] = None,
         project_id: Optional[uuid.UUID] = None,
-        metadata: Optional[str] = None,
+        meta_data: Optional[str] = None,
     ) -> UsageLogDB:
         """
         Log usage with tamper-proof hash chaining
@@ -142,7 +142,7 @@ class UsageService:
             resource_id=resource_id,
             quantity=quantity,
             project_id=project_id,
-            metadata=metadata,
+            meta_data=meta_data,
             previous_hash=previous_hash,
             record_hash="",  # Will be computed
         )
