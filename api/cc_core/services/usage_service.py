@@ -86,8 +86,19 @@ class UsageService:
         Check if user has quota and enforce limits
         Raises HTTPException if limit exceeded
         
-        In DEV mode: logs but doesn't enforce
+        In DEV mode OR for admin users: logs but doesn't enforce
         """
+        # Check if user is admin
+        result = await db.execute(
+            select(UserDB).where(UserDB.id == user_id)
+        )
+        user = result.scalar_one_or_none()
+        
+        if user and user.is_admin:
+            # Admin users bypass all limits
+            print(f"✅ ADMIN: Bypassing limit check for {action_type} (user {user_id})")
+            return
+        
         quota = await self.get_or_create_quota(db, user_id)
         
         allowed, reason = quota.check_limit(action_type, quantity)
