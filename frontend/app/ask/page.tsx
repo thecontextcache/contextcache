@@ -8,6 +8,7 @@ import { Send, Sparkles, FileText, ArrowLeft } from 'lucide-react';
 import api from '@/lib/api';
 import { AuthGuard } from '@/components/auth-guard';
 import { toast } from 'sonner';
+import { PageNav } from '@/components/page-nav';
 
 interface Message {
   id: string;
@@ -145,7 +146,7 @@ export default function AskPage() {
         {/* Header */}
         <div className="border-b border-border bg-card/50 backdrop-blur-sm">
           <div className="container mx-auto px-4 py-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-4">
                 <button
                   onClick={() => router.push('/dashboard')}
@@ -172,6 +173,9 @@ export default function AskPage() {
                 ← Dashboard
               </button>
             </div>
+            
+            {/* Project Navigation */}
+            <PageNav currentPage="ask" />
           </div>
         </div>
 
