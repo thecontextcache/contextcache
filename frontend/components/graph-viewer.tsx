@@ -120,15 +120,16 @@ export function GraphViewer({ nodes, edges, overlay, onNodeClick }: GraphViewerP
       layout: {
         name: 'cose-bilkent',
         animate: true,
-        animationDuration: 1000,
+        animationDuration: 2000,
+        animationEasing: 'ease-in-out-cubic',
         nodeRepulsion: 8000,
-        idealEdgeLength: 100,
-        edgeElasticity: 0.1,
+        idealEdgeLength: 120,
+        edgeElasticity: 0.2,
         nestingFactor: 0.1,
-        gravity: 0.25,
-        numIter: 2500,
+        gravity: 0.15,
+        numIter: 3000,
         tile: true,
-        randomize: false,
+        randomize: true, // Start with random positions for more organic feel
       },
       minZoom: 0.3,
       maxZoom: 3,
@@ -136,6 +137,37 @@ export function GraphViewer({ nodes, edges, overlay, onNodeClick }: GraphViewerP
     });
 
     cyRef.current = cy;
+
+    // Add continuous subtle animation (neural network effect)
+    let animationFrame: number;
+    const animateNodes = () => {
+      if (!cyRef.current) return;
+      
+      const time = Date.now() / 1000;
+      cyRef.current.nodes().forEach((node, index) => {
+        const baseSize = 50;
+        const pulse = Math.sin(time * 2 + index * 0.5) * 5 + baseSize;
+        const opacity = 0.8 + Math.sin(time * 3 + index * 0.3) * 0.2;
+        
+        node.style({
+          width: pulse,
+          height: pulse,
+          'border-opacity': opacity,
+        });
+      });
+      
+      // Animate edges with flowing effect
+      cyRef.current.edges().forEach((edge, index) => {
+        const opacity = 0.4 + Math.sin(time * 2 + index * 0.2) * 0.3;
+        edge.style({
+          opacity: opacity,
+        });
+      });
+      
+      animationFrame = requestAnimationFrame(animateNodes);
+    };
+    
+    animateNodes();
 
     // Node click handler
     cy.on('tap', 'node', (evt) => {
@@ -193,6 +225,9 @@ export function GraphViewer({ nodes, edges, overlay, onNodeClick }: GraphViewerP
     });
 
     return () => {
+      if (animationFrame) {
+        cancelAnimationFrame(animationFrame);
+      }
       cy.destroy();
     };
   }, [nodes, edges, onNodeClick]);

@@ -4,10 +4,10 @@ import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useProjectStore } from '@/lib/store/project';
 import { useRouter } from 'next/navigation';
-import { Send, Sparkles, FileText, ArrowLeft, Settings } from 'lucide-react';
+import { Send, Sparkles, FileText, ArrowLeft } from 'lucide-react';
 import api from '@/lib/api';
 import { AuthGuard } from '@/components/auth-guard';
-import { AIProviderSelector, type AIProvider } from '@/components/ai-provider-selector';
+import { toast } from 'sonner';
 
 interface Message {
   id: string;
@@ -28,9 +28,6 @@ export default function AskPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedProvider, setSelectedProvider] = useState('huggingface');
-  const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
-  const [showSettings, setShowSettings] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -40,24 +37,6 @@ export default function AskPage() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
-
-  // Load API keys from localStorage
-  useEffect(() => {
-    const stored = localStorage.getItem('ai_api_keys');
-    if (stored) {
-      try {
-        setApiKeys(JSON.parse(stored));
-      } catch (e) {
-        console.error('Failed to load API keys:', e);
-      }
-    }
-  }, []);
-
-  const handleSaveApiKey = (providerId: string, apiKey: string) => {
-    const updated = { ...apiKeys, [providerId]: apiKey };
-    setApiKeys(updated);
-    localStorage.setItem('ai_api_keys', JSON.stringify(updated));
-  };
 
   const handleSend = async () => {
     if (!input.trim() || !currentProject || isLoading) return;
@@ -74,42 +53,37 @@ export default function AskPage() {
     setIsLoading(true);
 
     try {
-      // Query the API
-      const response = await api.query(currentProject.id, userMessage.content, 5);
+      // Use thecontextcache Smart (RAG+CAG) by default
+      const modelConfig = {
+        provider: 'thecontextcache',
+        model: 'smart',
+      };
 
-      if (response.results && response.results.length > 0) {
-        // Filter by relevance
-        const relevantChunks = response.results.filter((r: any) => r.similarity > 0.2);
+      // Query with answer generation using our RAG+CAG system
+      const response = await api.queryWithAnswer(
+        currentProject.id,
+        userMessage.content,
+        5,
+        modelConfig,
+        'free', // User tier (will be dynamic later)
+        'global',
+        true // Apply CAG rules
+      );
 
-        if (relevantChunks.length === 0) {
-          const assistantMessage: Message = {
-            id: (Date.now() + 1).toString(),
-            role: 'assistant',
-            content: 'I couldn\'t find relevant information in your documents. Try rephrasing your question or adding more documents to your project.',
-            timestamp: new Date(),
-          };
-          setMessages((prev) => [...prev, assistantMessage]);
-        } else {
-          // Take top 3 results
-          const topChunks = relevantChunks.slice(0, 3);
-          const answerText = topChunks
-            .map((r: any, idx: number) => `[${idx + 1}] ${r.text}`)
-            .join('\n\n');
-
-          const assistantMessage: Message = {
-            id: (Date.now() + 1).toString(),
-            role: 'assistant',
-            content: answerText,
-            sources: topChunks.map((r: any) => ({
-              id: r.document_id,
-              title: r.source_url || 'Document',
-              url: r.source_url,
-              relevance: r.similarity,
-            })),
-            timestamp: new Date(),
-          };
-          setMessages((prev) => [...prev, assistantMessage]);
-        }
+      if (response.answer) {
+        const assistantMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: response.answer,
+          sources: response.sources?.map((s: any, idx: number) => ({
+            id: s.id || `source-${idx}`,
+            title: s.title || s.text?.substring(0, 50) || 'Document',
+            url: s.url || '#',
+            relevance: s.relevance || s.similarity || 0,
+          })) || [],
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, assistantMessage]);
       } else {
         const assistantMessage: Message = {
           id: (Date.now() + 1).toString(),
@@ -119,12 +93,15 @@ export default function AskPage() {
         };
         setMessages((prev) => [...prev, assistantMessage]);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Query failed:', error);
+      const errorMsg = error.response?.data?.detail || error.message || 'Unknown error';
+      toast.error('Query failed', { description: errorMsg });
+      
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
+        content: `Sorry, I encountered an error: ${errorMsg}`,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, errorMessage]);
@@ -180,31 +157,20 @@ export default function AskPage() {
                 <div>
                   <h1 className="text-xl font-semibold text-foreground flex items-center gap-2">
                     <Sparkles className="h-5 w-5 text-primary" />
-                    Ask
+                    Ask thecontextcache™
                   </h1>
                   <p className="text-sm text-muted-foreground">
-                    {currentProject.name}
+                    {currentProject.name} • Powered by RAG+CAG
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-3">
-                {/* AI Provider Selector */}
-                <AIProviderSelector
-                  selected={selectedProvider}
-                  onChange={setSelectedProvider}
-                  apiKeys={apiKeys}
-                  onSaveApiKey={handleSaveApiKey}
-                />
-
-                <button
-                  onClick={() => setShowSettings(!showSettings)}
-                  className="p-2 hover:bg-accent rounded-lg transition-colors"
-                  title="Settings"
-                >
-                  <Settings className="h-5 w-5" />
-                </button>
-              </div>
+              <button
+                onClick={() => router.push('/dashboard')}
+                className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                ← Dashboard
+              </button>
             </div>
           </div>
         </div>
