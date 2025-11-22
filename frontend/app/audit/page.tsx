@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useProjectStore } from '@/lib/store/project';
 import { useRouter } from 'next/navigation';
+import { PageNav } from '@/components/page-nav';
 import api from '@/lib/api';
 
 interface AuditEvent {
@@ -136,7 +137,7 @@ export default function AuditPage() {
       {/* Header */}
       <div className="border-b border-gray-200 dark:border-dark-surface-800 bg-surface/50 dark:bg-dark-surface-800/50 backdrop-blur-sm">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between mb-4">
             <div>
               <h1 className="text-3xl sm:text-4xl font-bold text-headline dark:text-dark-text-primary tracking-tight">
                 Audit Log
@@ -152,6 +153,9 @@ export default function AuditPage() {
               ← Back
             </button>
           </div>
+          
+          {/* Project Navigation */}
+          <PageNav currentPage="audit" />
         </div>
       </div>
 

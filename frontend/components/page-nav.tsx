@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import { Inbox, MessageSquare, Network, FileText, Package, Settings } from 'lucide-react';
 
 interface PageNavProps {
-  currentPage: 'inbox' | 'ask' | 'graph' | 'audit' | 'export' | 'settings';
+  currentPage: 'inbox' | 'ask' | 'graph' | 'audit' | 'export';
 }
 
 export function PageNav({ currentPage }: PageNavProps) {
@@ -18,7 +18,6 @@ export function PageNav({ currentPage }: PageNavProps) {
     { id: 'graph', label: 'Graph', path: '/graph', icon: Network },
     { id: 'audit', label: 'Audit', path: '/audit', icon: FileText },
     { id: 'export', label: 'Export', path: '/export', icon: Package },
-    { id: 'settings', label: 'Settings', path: '/settings', icon: Settings },
   ];
 
   return (
