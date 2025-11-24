@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useProjectStore } from '@/lib/store/project';
 import { useRouter } from 'next/navigation';
-import { GraphViewer } from '@/components/graph-viewer';
 import { PageNav } from '@/components/page-nav';
+import { Network, Search, FileText, AlertCircle, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
 
 interface GraphNode {
@@ -34,28 +34,23 @@ export default function GraphPage() {
   const { currentProject } = useProjectStore();
   const [graphData, setGraphData] = useState<GraphData>({ nodes: [], edges: [], count: 0 });
   const [loading, setLoading] = useState(true);
-  const [overlay, setOverlay] = useState<'rank' | 'recency' | 'none'>('rank');
-  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Load real graph data from API
+  // Load graph data
   useEffect(() => {
     const loadGraph = async () => {
       if (!currentProject) return;
 
       setLoading(true);
       try {
-
         const response = await api.getProjectGraph(currentProject.id);        
-
         setGraphData({
           nodes: response.nodes || [],
           edges: response.edges || [],
           count: response.count || 0
         });
       } catch (error) {
-        console.error(' Failed to load graph:', error);
-        // Fallback to empty graph
+        console.error('Failed to load graph:', error);
         setGraphData({ nodes: [], edges: [], count: 0 });
       } finally {
         setLoading(false);
@@ -65,44 +60,29 @@ export default function GraphPage() {
     loadGraph();
   }, [currentProject]);
 
-  const handleNodeClick = (node: GraphNode) => {
-    setSelectedNode(node);
-  };
-
+  // Filter nodes by search
   const filteredNodes = searchQuery
     ? graphData.nodes.filter((n) =>
         n.label.toLowerCase().includes(searchQuery.toLowerCase())
       )
     : graphData.nodes;
 
-  const filteredEdges = searchQuery
-    ? graphData.edges.filter(
-        (e) =>
-          filteredNodes.find((n) => n.id === e.source) &&
-          filteredNodes.find((n) => n.id === e.target)
-      )
-    : graphData.edges;
-
   if (!currentProject) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br background dark:dark:bg-dark-bg-900 px-4">
+      <div className="min-h-screen flex items-center justify-center bg-background dark:bg-dark-bg-900 px-4">
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           className="text-center space-y-6"
         >
-          <div className="text-6xl"></div>
+          <AlertCircle className="w-16 h-16 mx-auto text-muted-foreground" />
           <div className="space-y-2">
-            <h2 className="text-2xl font-semibold text-headline dark:text-dark-text-primary">
-              No Project Selected
-            </h2>
-            <p className="text-body dark:text-dark-text-muted">
-              Please select or create a project first
-            </p>
+            <h2 className="text-2xl font-semibold text-foreground">No Project Selected</h2>
+            <p className="text-muted-foreground">Select a project from the dashboard</p>
           </div>
           <button
             onClick={() => router.push('/dashboard')}
-            className="px-6 py-3 bg-gradient-to-r gradient-primary text-white rounded-lg hover:opacity-90 transition-opacity font-medium"
+            className="px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity font-medium"
           >
             Go to Dashboard
           </button>
@@ -111,288 +91,158 @@ export default function GraphPage() {
     );
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br background dark:dark:bg-dark-bg-900">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-500 mx-auto"></div>
-          <p className="mt-4 text-body dark:text-dark-text-muted">Loading knowledge graph...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-gradient-to-br background dark:dark:bg-dark-bg-900">
+    <div className="min-h-screen bg-background dark:bg-dark-bg-900">
       {/* Header */}
-      <div className="border-b border-gray-200 dark:border-dark-surface-800 bg-surface/50 dark:bg-dark-surface-800/50 backdrop-blur-sm">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="border-b border-border bg-card">
+        <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h1 className="text-3xl sm:text-4xl font-bold text-headline dark:text-dark-text-primary tracking-tight">
-                Knowledge Graph
+              <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+                <Network className="h-6 w-6 text-primary" />
+                Knowledge Map
               </h1>
-              <p className="text-body dark:text-dark-text-muted mt-2">
-                {graphData.nodes.length === 0 ? (
-                  'No data yet - upload documents to see the graph'
-                ) : (
-                  `${graphData.nodes.length} nodes, ${graphData.edges.length} relationships`
-                )}
+              <p className="text-sm text-muted-foreground mt-1">
+                {currentProject.name} • {graphData.nodes.length} entities, {graphData.edges.length} connections
               </p>
             </div>
             <button
               onClick={() => router.push('/dashboard')}
-              className="px-4 py-2 text-body dark:text-dark-text-muted hover:text-slate-900 dark:hover:text-white transition-colors"
+              className="text-sm text-muted-foreground hover:text-foreground"
             >
-              ← Back
+              ← Dashboard
             </button>
           </div>
-          
-          {/* Project Navigation */}
           <PageNav currentPage="graph" />
         </div>
       </div>
 
+      {/* Loading State */}
+      {loading && (
+        <div className="flex items-center justify-center py-20">
+          <div className="text-center">
+            <Loader2 className="w-12 h-12 mx-auto text-primary animate-spin mb-4" />
+            <p className="text-muted-foreground">Loading knowledge map...</p>
+          </div>
+        </div>
+      )}
+
       {/* Empty State */}
-      {graphData.nodes.length === 0 ? (
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-24">
+      {!loading && graphData.nodes.length === 0 && (
+        <div className="container mx-auto px-4 py-20">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="text-center"
+            className="text-center max-w-md mx-auto"
           >
-            <div className="text-6xl mb-6"></div>
-            <h2 className="text-2xl font-semibold text-headline dark:text-dark-text-primary mb-4">
-              No Graph Data Yet
+            <Network className="w-16 h-16 mx-auto text-muted-foreground mb-6" />
+            <h2 className="text-2xl font-semibold text-foreground mb-2">
+              No Knowledge Graph Yet
             </h2>
-            <p className="text-body dark:text-dark-text-muted mb-8">
-              Upload documents in the Inbox to build your knowledge graph
+            <p className="text-muted-foreground mb-8">
+              Upload documents to automatically extract entities, facts, and relationships
             </p>
             <button
               onClick={() => router.push('/inbox')}
-              className="px-6 py-3 bg-gradient-to-r gradient-primary text-white rounded-lg hover:opacity-90 transition-opacity font-medium"
+              className="px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity font-medium"
             >
-              Go to Inbox
+              Upload Documents
             </button>
           </motion.div>
         </div>
-      ) : (
-        <>
-          {/* Controls */}
-          <div className="border-b border-gray-200 dark:border-dark-surface-800 bg-surface/50 dark:bg-dark-surface-800/50 backdrop-blur-sm">
-            <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-4">
-              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                {/* Search */}
-                <div className="flex-1 max-w-md">
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search nodes..."
-                    className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-dark-surface-800 bg-surface dark:bg-dark-bg-900 text-headline dark:text-dark-text-primary placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all"
-                  />
-                </div>
+      )}
 
-                {/* Overlay Controls */}
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                    Overlay:
-                  </span>
-                  <div className="flex gap-2">
-                    {[
-                      { value: 'none', label: 'None', icon: '' },
-                      { value: 'rank', label: 'Rank', icon: '' },
-                      { value: 'recency', label: 'Type', icon: '' },
-                    ].map((option) => (
-                      <button
-                        key={option.value}
-                        onClick={() => setOverlay(option.value as any)}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                          overlay === option.value
-                            ? 'bg-gradient-to-r gradient-primary text-white shadow-lg'
-                            : 'bg-white/50 dark:bg-slate-800/50 text-body dark:text-dark-text-muted hover:bg-white dark:hover:bg-slate-800'
-                        }`}
-                      >
-                        <span>{option.icon}</span>
-                        <span>{option.label}</span>
-                      </button>
-                    ))}
+      {/* Graph Content - Simple List View */}
+      {!loading && graphData.nodes.length > 0 && (
+        <div className="container mx-auto px-4 py-8">
+          {/* Search */}
+          <div className="mb-6">
+            <div className="relative max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search entities..."
+                className="w-full pl-10 pr-4 py-3 rounded-lg border border-border bg-background focus:ring-2 focus:ring-primary focus:border-transparent"
+              />
+            </div>
+          </div>
+
+          {/* Info Card */}
+          <div className="mb-6 p-4 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+            <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-300 mb-1">
+              📊 What is this?
+            </h3>
+            <p className="text-sm text-blue-800 dark:text-blue-400">
+              This shows entities (people, organizations, concepts) automatically extracted from your documents. 
+              Click any entity to see its connections and where it appears in your documents.
+            </p>
+          </div>
+
+          {/* Entity List */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredNodes.map((node, index) => (
+              <motion.div
+                key={node.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.05 }}
+                className="p-4 rounded-lg border border-border bg-card hover:border-primary hover:shadow-md transition-all cursor-pointer"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-foreground truncate mb-1">
+                      {node.label}
+                    </h3>
+                    <p className="text-xs text-muted-foreground capitalize mb-2">
+                      {node.type}
+                    </p>
+                    {/* Show connections */}
+                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                      <span>
+                        {graphData.edges.filter(e => e.source === node.id || e.target === node.id).length} connections
+                      </span>
+                      {node.score > 0 && (
+                        <span className="text-primary font-medium">
+                          {(node.score * 100).toFixed(0)}% relevance
+                        </span>
+                      )}
+                    </div>
                   </div>
+                  <FileText className="w-5 h-5 text-muted-foreground flex-shrink-0" />
                 </div>
-              </div>
-            </div>
+              </motion.div>
+            ))}
           </div>
 
-          {/* Graph + Details */}
-          <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-              {/* Graph Canvas */}
-              <div className="lg:col-span-3">
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="relative rounded-2xl overflow-hidden bg-surface dark:bg-dark-surface-800 backdrop-blur-sm border border-slate-200 dark:border-slate-700 shadow-xl"
-                  style={{ height: 'calc(100vh - 400px)', minHeight: '600px' }}
-                >
-                  <GraphViewer
-                    nodes={filteredNodes}
-                    edges={filteredEdges}
-                    overlay={overlay}
-                    onNodeClick={handleNodeClick}
-                  />
-                </motion.div>
-              </div>
-
-              {/* Node Details Drawer */}
-              <div className="lg:col-span-1">
-                <AnimatePresence mode="wait">
-                  {selectedNode ? (
-                    <motion.div
-                      key="details"
-                      initial={{ opacity: 0, x: 20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: 20 }}
-                      className="sticky top-24 p-6 rounded-2xl bg-surface dark:bg-dark-surface-800 backdrop-blur-sm border border-slate-200 dark:border-slate-700 space-y-6"
-                    >
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-lg font-semibold text-headline dark:text-dark-text-primary">
-                          Node Details
-                        </h3>
-                        <button
-                          onClick={() => setSelectedNode(null)}
-                          className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
-                        >
-                          
-                        </button>
-                      </div>
-
-                      {/* Node Info */}
-                      <div className="space-y-4">
-                        <div>
-                          <label className="text-sm text-slate-500 dark:text-slate-400">
-                            Name
-                          </label>
-                          <p className="text-lg font-semibold text-headline dark:text-dark-text-primary mt-1">
-                            {selectedNode.label}
-                          </p>
-                        </div>
-
-                        <div>
-                          <label className="text-sm text-slate-500 dark:text-slate-400">
-                            Type
-                          </label>
-                          <p className="text-slate-700 dark:text-slate-300 mt-1 capitalize">
-                            {selectedNode.type}
-                          </p>
-                        </div>
-
-                        {/* Full Text if Available */}
-                        {selectedNode.data?.full_text && (
-                          <div>
-                            <label className="text-sm text-slate-500 dark:text-slate-400">
-                              Content
-                            </label>
-                            <p className="text-sm text-slate-700 dark:text-slate-300 mt-1 max-h-40 overflow-y-auto">
-                              {selectedNode.data.full_text}
-                            </p>
-                          </div>
-                        )}
-
-                        {/* Source */}
-                        {selectedNode.data?.source && (
-                          <div>
-                            <label className="text-sm text-slate-500 dark:text-slate-400">
-                              Source
-                            </label>
-                            <p className="text-sm text-cyan-600 dark:text-cyan-400 mt-1 truncate">
-                              {selectedNode.data.source}
-                            </p>
-                          </div>
-                        )}
-
-                        {/* Connected Nodes */}
-                        <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
-                          <label className="text-sm text-slate-500 dark:text-slate-400">
-                            Connections
-                          </label>
-                          <div className="mt-2 space-y-2">
-                            {graphData.edges
-                              .filter(
-                                (e) =>
-                                  e.source === selectedNode.id || e.target === selectedNode.id
-                              )
-                              .slice(0, 5)
-                              .map((edge, i) => {
-                                const connectedId =
-                                  edge.source === selectedNode.id ? edge.target : edge.source;
-                                const connectedNode = graphData.nodes.find(
-                                  (n) => n.id === connectedId
-                                );
-                                return (
-                                  <div
-                                    key={i}
-                                    className="text-sm p-2 rounded-lg bg-slate-50 dark:bg-slate-900/50"
-                                  >
-                                    <span className="text-body dark:text-dark-text-muted">
-                                      {edge.label}
-                                    </span>{' '}
-                                    <span className="font-medium text-headline dark:text-dark-text-primary">
-                                      {connectedNode?.label.substring(0, 30)}
-                                      {connectedNode && connectedNode.label.length > 30 ? '...' : ''}
-                                    </span>
-                                  </div>
-                                );
-                              })}
-                          </div>
-                        </div>
-                      </div>
-                    </motion.div>
-                  ) : (
-                    <motion.div
-                      key="empty"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      className="sticky top-24 p-12 rounded-2xl bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-dashed border-slate-300 dark:border-slate-700 text-center"
-                    >
-                      <div className="text-4xl mb-3"></div>
-                      <p className="text-sm text-slate-500 dark:text-slate-400">
-                        Click any node to view details and connections
-                      </p>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
+          {/* No Results */}
+          {filteredNodes.length === 0 && searchQuery && (
+            <div className="text-center py-12">
+              <p className="text-muted-foreground">No entities found matching "{searchQuery}"</p>
             </div>
+          )}
 
-            {/* Legend */}
-            <div className="mt-6 p-6 rounded-2xl bg-surface dark:bg-dark-surface-800 backdrop-blur-sm border border-slate-200 dark:border-slate-700">
-              <h4 className="text-sm font-semibold text-headline dark:text-dark-text-primary mb-4">
-                Graph Controls
-              </h4>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                <div className="flex items-center gap-2">
-                  <span className="text-body dark:text-dark-text-muted"> Drag</span>
-                  <span className="text-slate-500 dark:text-slate-500">Pan canvas</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-body dark:text-dark-text-muted"> Click</span>
-                  <span className="text-slate-500 dark:text-slate-500">Select node</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-body dark:text-dark-text-muted"> Scroll</span>
-                  <span className="text-slate-500 dark:text-slate-500">Zoom in/out</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-body dark:text-dark-text-muted"> Hover</span>
-                  <span className="text-slate-500 dark:text-slate-500">
-                    Highlight connections
-                  </span>
-                </div>
-              </div>
+          {/* Stats Summary */}
+          <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="p-4 rounded-lg border border-border bg-card">
+              <p className="text-sm text-muted-foreground mb-1">Total Entities</p>
+              <p className="text-2xl font-bold text-foreground">{graphData.nodes.length}</p>
+            </div>
+            <div className="p-4 rounded-lg border border-border bg-card">
+              <p className="text-sm text-muted-foreground mb-1">Relationships</p>
+              <p className="text-2xl font-bold text-foreground">{graphData.edges.length}</p>
+            </div>
+            <div className="p-4 rounded-lg border border-border bg-card">
+              <p className="text-sm text-muted-foreground mb-1">Avg Connections</p>
+              <p className="text-2xl font-bold text-foreground">
+                {graphData.nodes.length > 0 
+                  ? (graphData.edges.length / graphData.nodes.length).toFixed(1) 
+                  : '0'}
+              </p>
             </div>
           </div>
-        </>
+        </div>
       )}
     </div>
   );
