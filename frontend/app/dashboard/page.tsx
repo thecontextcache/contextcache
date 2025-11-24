@@ -39,9 +39,19 @@ export default function DashboardPage() {
     const loadProjects = async () => {
       setLoading(true);
       setError(null);
+      
+      // Set a timer to show "warming up" message after 3 seconds
+      const warmingTimer = setTimeout(() => {
+        toast.info('Waking up database...', {
+          description: 'First load takes ~30 seconds. Your data is secure in Neon serverless PostgreSQL.',
+          duration: 25000,
+        });
+      }, 3000);
+      
       try {
         // Check if session is unlocked first
         const sessionStatus = await api.checkSessionStatus();
+        clearTimeout(warmingTimer);
         
         if (!sessionStatus.unlocked) {
           // Session locked - redirect to unlock page
@@ -52,7 +62,11 @@ export default function DashboardPage() {
         // Load projects directly from backend (single fast call)
         const fetchedProjects = await api.listProjects();
         setProjects(fetchedProjects);
+        
+        // Clear any warming messages
+        toast.dismiss();
       } catch (err: any) {
+        clearTimeout(warmingTimer);
         console.error('Failed to load projects:', err);
         
         // If 401, session locked - redirect to unlock

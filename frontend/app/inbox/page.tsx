@@ -7,7 +7,6 @@ import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 import { toast } from 'sonner';
 import { PageNav } from '@/components/page-nav';
-import { SimpleModelSelector, type SimpleModelConfig } from '@/components/simple-model-selector';
 
 export default function InboxPage() {
   const router = useRouter();
@@ -20,31 +19,9 @@ export default function InboxPage() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Model configuration (loaded from localStorage, remembered)
-  const [modelConfig, setModelConfig] = useState<SimpleModelConfig>({
-    mode: 'smart',
-  });
-
   // Document loading state
   const [documents, setDocuments] = useState<any[]>([]);
   const [loadingDocs, setLoadingDocs] = useState(false);
-
-  // Load saved model config on mount
-  useEffect(() => {
-    const savedConfig = localStorage.getItem('model_config');
-    if (savedConfig) {
-      try {
-        setModelConfig(JSON.parse(savedConfig));
-      } catch (e) {
-        console.error('Failed to load model config:', e);
-      }
-    }
-  }, []);
-
-  // Save model config whenever it changes
-  useEffect(() => {
-    localStorage.setItem('model_config', JSON.stringify(modelConfig));
-  }, [modelConfig]);
 
   // Load documents from backend
   const loadDocuments = async () => {
@@ -244,15 +221,18 @@ export default function InboxPage() {
       {/* Main Content */}
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="max-w-4xl mx-auto space-y-8">
-          {/* Model Selector */}
+          {/* Info Card */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
+            className="p-6 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800"
           >
-            <SimpleModelSelector
-              value={modelConfig}
-              onChange={setModelConfig}
-            />
+            <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-300 mb-2">
+              ✨ AI-Powered Processing
+            </h3>
+            <p className="text-sm text-blue-800 dark:text-blue-400">
+              Your documents will be automatically processed with thecontextcache™ Smart mode, which extracts facts and enables intelligent search.
+            </p>
           </motion.div>
 
           {/* URL Input */}
