@@ -25,6 +25,20 @@ class ProjectDB(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class Project(BaseModel):
+    """
+    Project model for internal use.
+    
+    Simpler version of ProjectDB for use in storage adapters.
+    """
+    id: UUID = Field(default_factory=uuid.uuid4)
+    name: str
+    salt: bytes
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    metadata: Optional[dict] = None
+
+
 class ProjectCreate(BaseModel):
     """Schema for creating a project"""
     name: str = Field(..., min_length=1, max_length=100)

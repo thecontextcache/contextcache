@@ -56,6 +56,13 @@ class Relation(BaseModel):
         description="Relation confidence score"
     )
     
+    # KRL (Knowledge Representation Learning) fields
+    krl_embedding: Optional[list[float]] = Field(
+        None,
+        description="Learned relation/predicate embedding vector (TransE-style). "
+                    "Populated by offline KRL training. Optional for backward compatibility."
+    )
+    
     created_at: datetime = Field(
         default_factory=datetime.utcnow,
         description="Creation timestamp (UTC)"
@@ -119,6 +126,12 @@ class RelationResponse(BaseModel):
     object_id: UUID
     confidence: float
     created_at: datetime
+    
+    # KRL fields (optional for backward compatibility)
+    krl_embedding: Optional[list[float]] = Field(
+        None,
+        description="Learned relation embedding vector from KRL training"
+    )
     
     # Optional expanded fields (populated on request)
     subject_name: Optional[str] = Field(None, description="Subject entity name")

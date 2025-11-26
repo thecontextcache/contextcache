@@ -1,11 +1,13 @@
 """
 PostgreSQL storage adapter with pgvector support
 """
-from typing import List, Optional
+from typing import List, Optional, Dict
 from uuid import UUID
+import struct
 
 import asyncpg
 from asyncpg.pool import Pool
+import numpy as np
 
 from cc_core.crypto import encrypt_content, decrypt_content
 from cc_core.models import (
@@ -17,6 +19,44 @@ from cc_core.models import (
     AuditEvent,
 )
 from cc_core.storage.adapters.base import StorageAdapter
+
+
+def serialize_embedding(embedding: List[float]) -> bytes:
+    """
+    Serialize embedding list to bytes for storage.
+    
+    Uses numpy float32 format for space efficiency.
+    Format: [4-byte length][float32 values...]
+    
+    Args:
+        embedding: List of float values
+        
+    Returns:
+        Serialized bytes
+    """
+    arr = np.array(embedding, dtype=np.float32)
+    # Store length prefix for validation
+    length_bytes = struct.pack('I', len(arr))
+    return length_bytes + arr.tobytes()
+
+
+def deserialize_embedding(data: bytes) -> List[float]:
+    """
+    Deserialize embedding bytes to list.
+    
+    Args:
+        data: Serialized embedding bytes
+        
+    Returns:
+        List of float values
+    """
+    # Read length prefix
+    length = struct.unpack('I', data[:4])[0]
+    # Read float32 values
+    arr = np.frombuffer(data[4:], dtype=np.float32)
+    if len(arr) != length:
+        raise ValueError(f"Embedding length mismatch: expected {length}, got {len(arr)}")
+    return arr.tolist()
 
 
 class PostgresAdapter(StorageAdapter):
@@ -129,10 +169,10 @@ class PostgresAdapter(StorageAdapter):
                 """
                 INSERT INTO facts (
                     id, project_id, encrypted_content, nonce, tag,
-                    confidence, embedding, rank_score, decay_factor,
+                    confidence, embedding, rank_score, decay_factor, krl_score,
                     created_at, last_accessed
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                 """,
                 fact.id,
                 fact.project_id,
@@ -143,6 +183,7 @@ class PostgresAdapter(StorageAdapter):
                 fact.embedding,
                 fact.rank_score,
                 fact.decay_factor,
+                fact.krl_score,
                 fact.created_at,
                 fact.last_accessed
             )
@@ -175,6 +216,7 @@ class PostgresAdapter(StorageAdapter):
                     embedding=list(row['embedding']) if row['embedding'] else None,
                     rank_score=row['rank_score'],
                     decay_factor=row['decay_factor'],
+                    krl_score=row['krl_score'],
                     created_at=row['created_at'],
                     last_accessed=row['last_accessed']
                 )
@@ -222,6 +264,7 @@ class PostgresAdapter(StorageAdapter):
                     embedding=list(row['embedding']) if row['embedding'] else None,
                     rank_score=row['rank_score'],
                     decay_factor=row['decay_factor'],
+                    krl_score=row['krl_score'],
                     created_at=row['created_at'],
                     last_accessed=row['last_accessed']
                 ))
@@ -231,7 +274,8 @@ class PostgresAdapter(StorageAdapter):
         self,
         fact_id: UUID,
         rank_score: Optional[float] = None,
-        decay_factor: Optional[float] = None
+        decay_factor: Optional[float] = None,
+        krl_score: Optional[float] = None
     ) -> bool:
         """Update fact ranking scores."""
         updates = []
@@ -246,6 +290,11 @@ class PostgresAdapter(StorageAdapter):
         if decay_factor is not None:
             updates.append(f"decay_factor = ${param_idx}")
             params.append(decay_factor)
+            param_idx += 1
+        
+        if krl_score is not None:
+            updates.append(f"krl_score = ${param_idx}")
+            params.append(krl_score)
             param_idx += 1
         
         if not updates:
@@ -272,14 +321,19 @@ class PostgresAdapter(StorageAdapter):
         """Create entity (with encryption)."""
         ciphertext, nonce = encrypt_content(entity.name.encode(), self.encryption_key)
         
+        # Serialize KRL embedding if present
+        krl_embedding_bytes = None
+        if entity.krl_embedding:
+            krl_embedding_bytes = serialize_embedding(entity.krl_embedding)
+        
         async with self.pool.acquire() as conn:
             await conn.execute(
                 """
                 INSERT INTO entities (
                     id, project_id, encrypted_name, nonce, tag,
-                    entity_type, created_at, updated_at
+                    entity_type, krl_embedding, created_at, updated_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                 """,
                 entity.id,
                 entity.project_id,
@@ -287,6 +341,7 @@ class PostgresAdapter(StorageAdapter):
                 nonce,
                 b'',
                 entity.entity_type,
+                krl_embedding_bytes,
                 entity.created_at,
                 entity.updated_at
             )
@@ -306,11 +361,17 @@ class PostgresAdapter(StorageAdapter):
                     self.encryption_key
                 ).decode()
                 
+                # Deserialize KRL embedding if present
+                krl_embedding = None
+                if row['krl_embedding']:
+                    krl_embedding = deserialize_embedding(bytes(row['krl_embedding']))
+                
                 return Entity(
                     id=row['id'],
                     project_id=row['project_id'],
                     name=name,
                     entity_type=row['entity_type'],
+                    krl_embedding=krl_embedding,
                     created_at=row['created_at'],
                     updated_at=row['updated_at']
                 )
@@ -344,11 +405,17 @@ class PostgresAdapter(StorageAdapter):
                     self.encryption_key
                 ).decode()
                 
+                # Deserialize KRL embedding if present
+                krl_embedding = None
+                if row['krl_embedding']:
+                    krl_embedding = deserialize_embedding(bytes(row['krl_embedding']))
+                
                 entities.append(Entity(
                     id=row['id'],
                     project_id=row['project_id'],
                     name=name,
                     entity_type=row['entity_type'],
+                    krl_embedding=krl_embedding,
                     created_at=row['created_at'],
                     updated_at=row['updated_at']
                 ))
@@ -357,14 +424,19 @@ class PostgresAdapter(StorageAdapter):
     # Relation operations
     async def create_relation(self, relation: Relation) -> Relation:
         """Create a new relation."""
+        # Serialize KRL embedding if present
+        krl_embedding_bytes = None
+        if relation.krl_embedding:
+            krl_embedding_bytes = serialize_embedding(relation.krl_embedding)
+        
         async with self.pool.acquire() as conn:
             await conn.execute(
                 """
                 INSERT INTO relations (
                     id, project_id, subject_id, predicate, object_id,
-                    confidence, created_at
+                    confidence, krl_embedding, created_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 """,
                 relation.id,
                 relation.project_id,
@@ -372,6 +444,7 @@ class PostgresAdapter(StorageAdapter):
                 relation.predicate,
                 relation.object_id,
                 relation.confidence,
+                krl_embedding_bytes,
                 relation.created_at
             )
         return relation
@@ -393,18 +466,24 @@ class PostgresAdapter(StorageAdapter):
                 entity_id,
                 limit
             )
-            return [
-                Relation(
+            relations = []
+            for row in rows:
+                # Deserialize KRL embedding if present
+                krl_embedding = None
+                if row['krl_embedding']:
+                    krl_embedding = deserialize_embedding(bytes(row['krl_embedding']))
+                
+                relations.append(Relation(
                     id=row['id'],
                     project_id=row['project_id'],
                     subject_id=row['subject_id'],
                     predicate=row['predicate'],
                     object_id=row['object_id'],
                     confidence=row['confidence'],
+                    krl_embedding=krl_embedding,
                     created_at=row['created_at']
-                )
-                for row in rows
-            ]
+                ))
+            return relations
     
     # Provenance operations
     async def create_provenance(self, provenance: Provenance) -> Provenance:
@@ -550,3 +629,158 @@ class PostgresAdapter(StorageAdapter):
                     return False
         
         return True
+    
+    # ========================================================================
+    # KRL (Knowledge Representation Learning) operations
+    # ========================================================================
+    
+    async def batch_update_entity_embeddings(
+        self,
+        embeddings: Dict[UUID, List[float]]
+    ) -> int:
+        """
+        Batch update KRL embeddings for multiple entities.
+        
+        Args:
+            embeddings: Dict mapping entity_id -> embedding vector
+            
+        Returns:
+            Number of entities updated
+        """
+        if not embeddings:
+            return 0
+        
+        updated = 0
+        async with self.pool.acquire() as conn:
+            for entity_id, embedding in embeddings.items():
+                embedding_bytes = serialize_embedding(embedding)
+                result = await conn.execute(
+                    """
+                    UPDATE entities
+                    SET krl_embedding = $1, updated_at = NOW()
+                    WHERE id = $2
+                    """,
+                    embedding_bytes,
+                    entity_id
+                )
+                if result == "UPDATE 1":
+                    updated += 1
+        
+        return updated
+    
+    async def batch_update_relation_embeddings(
+        self,
+        embeddings: Dict[UUID, List[float]]
+    ) -> int:
+        """
+        Batch update KRL embeddings for multiple relations.
+        
+        Args:
+            embeddings: Dict mapping relation_id -> embedding vector
+            
+        Returns:
+            Number of relations updated
+        """
+        if not embeddings:
+            return 0
+        
+        updated = 0
+        async with self.pool.acquire() as conn:
+            for relation_id, embedding in embeddings.items():
+                embedding_bytes = serialize_embedding(embedding)
+                result = await conn.execute(
+                    """
+                    UPDATE relations
+                    SET krl_embedding = $1
+                    WHERE id = $2
+                    """,
+                    embedding_bytes,
+                    relation_id
+                )
+                if result == "UPDATE 1":
+                    updated += 1
+        
+        return updated
+    
+    async def batch_update_fact_krl_scores(
+        self,
+        scores: Dict[UUID, float]
+    ) -> int:
+        """
+        Batch update KRL scores for multiple facts.
+        
+        Args:
+            scores: Dict mapping fact_id -> krl_score
+            
+        Returns:
+            Number of facts updated
+        """
+        if not scores:
+            return 0
+        
+        updated = 0
+        async with self.pool.acquire() as conn:
+            for fact_id, score in scores.items():
+                result = await conn.execute(
+                    """
+                    UPDATE facts
+                    SET krl_score = $1
+                    WHERE id = $2
+                    """,
+                    score,
+                    fact_id
+                )
+                if result == "UPDATE 1":
+                    updated += 1
+        
+        return updated
+    
+    async def get_entities_with_krl_embeddings(
+        self,
+        project_id: UUID,
+        limit: int = 1000
+    ) -> List[Entity]:
+        """
+        Get entities that have KRL embeddings.
+        
+        Useful for entity similarity search.
+        
+        Args:
+            project_id: Project ID
+            limit: Max number of entities to return
+            
+        Returns:
+            List of entities with KRL embeddings
+        """
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT * FROM entities
+                WHERE project_id = $1 AND krl_embedding IS NOT NULL
+                ORDER BY created_at DESC
+                LIMIT $2
+                """,
+                project_id,
+                limit
+            )
+            
+            entities = []
+            for row in rows:
+                name = decrypt_content(
+                    bytes(row['encrypted_name']),
+                    bytes(row['nonce']),
+                    self.encryption_key
+                ).decode()
+                
+                krl_embedding = deserialize_embedding(bytes(row['krl_embedding']))
+                
+                entities.append(Entity(
+                    id=row['id'],
+                    project_id=row['project_id'],
+                    name=name,
+                    entity_type=row['entity_type'],
+                    krl_embedding=krl_embedding,
+                    created_at=row['created_at'],
+                    updated_at=row['updated_at']
+                ))
+            return entities

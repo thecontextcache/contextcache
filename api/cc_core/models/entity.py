@@ -51,6 +51,13 @@ class Entity(BaseModel):
         examples=[["Maria Skłodowska", "Madame Curie"]]
     )
     
+    # KRL (Knowledge Representation Learning) fields
+    krl_embedding: Optional[list[float]] = Field(
+        None,
+        description="Learned entity embedding vector (TransE-style, typically 50-200 dims). "
+                    "Populated by offline KRL training. Optional for backward compatibility."
+    )
+    
     created_at: datetime = Field(
         default_factory=datetime.utcnow,
         description="Creation timestamp (UTC)"
@@ -185,6 +192,12 @@ class EntityResponse(BaseModel):
     aliases: list[str]
     created_at: datetime
     updated_at: datetime
+    
+    # KRL fields (optional for backward compatibility)
+    krl_embedding: Optional[list[float]] = Field(
+        None,
+        description="Learned entity embedding vector from KRL training"
+    )
     
     # Statistics (computed at runtime)
     fact_count: int = Field(0, description="Facts mentioning this entity")

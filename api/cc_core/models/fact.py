@@ -87,6 +87,16 @@ class Fact(BaseModel):
         description="Time-based decay multiplier"
     )
     
+    # KRL (Knowledge Representation Learning) fields
+    krl_score: Optional[float] = Field(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="KRL-derived confidence score indicating how well this fact "
+                    "fits the learned knowledge graph model (e.g., TransE plausibility). "
+                    "Optional for backward compatibility."
+    )
+    
     # Timestamps
     created_at: datetime = Field(
         default_factory=datetime.utcnow,
@@ -174,6 +184,7 @@ class FactUpdate(BaseModel):
     confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
     rank_score: Optional[float] = Field(None, ge=0.0, le=1.0)
     decay_factor: Optional[float] = Field(None, ge=0.0, le=1.0)
+    krl_score: Optional[float] = Field(None, ge=0.0, le=1.0)
 
 
 class FactResponse(BaseModel):
@@ -194,6 +205,12 @@ class FactResponse(BaseModel):
     decay_factor: float
     created_at: datetime
     last_accessed: datetime
+    
+    # KRL fields (optional for backward compatibility)
+    krl_score: Optional[float] = Field(
+        None,
+        description="KRL-derived confidence score from knowledge graph model"
+    )
     
     # Optional expanded fields
     similarity: Optional[float] = Field(
