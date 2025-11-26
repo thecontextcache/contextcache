@@ -46,7 +46,11 @@ class DocumentService:
                     return text, "PDF from URL"
                 
                 # Handle HTML
-                soup = BeautifulSoup(response.content, "lxml")
+                # Try lxml first, fall back to html.parser if lxml fails
+                try:
+                    soup = BeautifulSoup(response.content, "lxml")
+                except Exception:
+                    soup = BeautifulSoup(response.content, "html.parser")
                 
                 # Remove script and style elements
                 for script in soup(["script", "style", "nav", "footer", "header"]):
