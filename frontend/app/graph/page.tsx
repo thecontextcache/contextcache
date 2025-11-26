@@ -1,40 +1,68 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+/**
+ * 3D Knowledge Graph Visualization
+ * 
+ * Features:
+ * - 3D Force-directed layout with physics simulation
+ * - Interactive controls (pan, zoom, rotate)
+ * - Node search and filtering
+ * - Focus mode for exploring node neighborhoods
+ * - Node detail side panel with connections
+ * - Real-time stats and performance monitoring
+ * - Beautiful gradient background with space-like aesthetic
+ * 
+ * Unique Features Beyond Obsidian:
+ * 1. FOCUS MODE: Click focus button to isolate selected node + immediate neighbors
+ *    - Dims all other nodes to 10% opacity
+ *    - Makes it easy to explore dense graph regions
+ *    - Toggle on/off for contextual exploration
+ * 
+ * 2. HEAT MODE: Node color intensity shows ranking/activity
+ *    - Brighter = higher relevance score
+ *    - Visual prioritization of important entities
+ *    
+ * 3. PARTICLE FLOW: Animated particles flow along edges
+ *    - Shows relationship directionality
+ *    - Subtle but informative
+ * 
+ * 4. SMART FILTERING: Combined score + type + connection filtering
+ *    - Performance-conscious (max nodes limit)
+ *    - Real-time stats update as you filter
+ */
+
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useProjectStore } from '@/lib/store/project';
 import { useRouter } from 'next/navigation';
 import { PageNav } from '@/components/page-nav';
-import { Network, Search, FileText, AlertCircle, Loader2 } from 'lucide-react';
+import { Network, AlertCircle, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
-
-interface GraphNode {
-  id: string;
-  label: string;
-  type: string;
-  score: number;
-  data?: any;
-}
-
-interface GraphEdge {
-  source: string;
-  target: string;
-  label: string;
-  weight: number;
-}
-
-interface GraphData {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-  count: number;
-}
+import { Graph3DView } from '@/components/graph/Graph3DView';
+import { GraphControls } from '@/components/graph/GraphControls';
+import { NodeDetailPanel } from '@/components/graph/NodeDetailPanel';
+import { GraphData, GraphNode, GraphFilters } from '@/components/graph/types';
 
 export default function GraphPage() {
   const router = useRouter();
   const { currentProject } = useProjectStore();
-  const [graphData, setGraphData] = useState<GraphData>({ nodes: [], edges: [], count: 0 });
+  const [graphData, setGraphData] = useState<GraphData>({
+    nodes: [],
+    edges: [],
+    count: 0,
+  });
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
+  const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
+  const [focusMode, setFocusMode] = useState(false);
+
+  // Filters
+  const [filters, setFilters] = useState<GraphFilters>({
+    minScore: 0,
+    maxNodes: 200,
+    nodeTypes: new Set<string>(),
+  });
 
   // Load graph data
   useEffect(() => {
@@ -43,12 +71,16 @@ export default function GraphPage() {
 
       setLoading(true);
       try {
-        const response = await api.getProjectGraph(currentProject.id);        
+        const response = await api.getProjectGraph(currentProject.id);
         setGraphData({
           nodes: response.nodes || [],
           edges: response.edges || [],
-          count: response.count || 0
+          count: response.count || 0,
         });
+
+        // Initialize node types filter (all selected by default)
+        const types = new Set(response.nodes?.map((n: GraphNode) => n.type) || []);
+        setFilters((prev) => ({ ...prev, nodeTypes: types }));
       } catch (error) {
         console.error('Failed to load graph:', error);
         setGraphData({ nodes: [], edges: [], count: 0 });
@@ -60,13 +92,97 @@ export default function GraphPage() {
     loadGraph();
   }, [currentProject]);
 
-  // Filter nodes by search
-  const filteredNodes = searchQuery
-    ? graphData.nodes.filter((n) =>
-        n.label.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : graphData.nodes;
+  // Filter and process nodes
+  const processedData = useMemo(() => {
+    let filteredNodes = graphData.nodes;
 
+    // Apply search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filteredNodes = filteredNodes.filter((n) => n.label.toLowerCase().includes(query));
+    }
+
+    // Apply type filter
+    filteredNodes = filteredNodes.filter((n) => filters.nodeTypes.has(n.type));
+
+    // Apply score filter
+    filteredNodes = filteredNodes.filter((n) => n.score >= filters.minScore);
+
+    // Apply max nodes limit (take top scored)
+    if (filteredNodes.length > filters.maxNodes) {
+      filteredNodes = filteredNodes
+        .sort((a, b) => b.score - a.score)
+        .slice(0, filters.maxNodes);
+    }
+
+    // Filter edges to only include visible nodes
+    const nodeIds = new Set(filteredNodes.map((n) => n.id));
+    const filteredEdges = graphData.edges.filter(
+      (e) => nodeIds.has(e.source) && nodeIds.has(e.target)
+    );
+
+    return {
+      nodes: filteredNodes,
+      edges: filteredEdges,
+      count: filteredNodes.length,
+    };
+  }, [graphData, searchQuery, filters]);
+
+  // Get highlighted nodes (hover or focus mode)
+  const highlightedNodeIds = useMemo(() => {
+    const ids = new Set<string>();
+
+    const targetNode = selectedNode || hoveredNode;
+    if (targetNode) {
+      ids.add(targetNode.id);
+
+      // Add immediate neighbors
+      processedData.edges.forEach((edge) => {
+        if (edge.source === targetNode.id) {
+          ids.add(edge.target);
+        }
+        if (edge.target === targetNode.id) {
+          ids.add(edge.source);
+        }
+      });
+    }
+
+    return ids;
+  }, [selectedNode, hoveredNode, processedData.edges]);
+
+  // Handlers
+  const handleNodeClick = useCallback((node: GraphNode) => {
+    setSelectedNode((prev) => (prev?.id === node.id ? null : node));
+  }, []);
+
+  const handleNodeHover = useCallback((node: GraphNode | null) => {
+    setHoveredNode(node);
+  }, []);
+
+  const handleBackgroundClick = useCallback(() => {
+    setSelectedNode(null);
+  }, []);
+
+  const handleReset = useCallback(() => {
+    setSearchQuery('');
+    setSelectedNode(null);
+    setHoveredNode(null);
+    setFocusMode(false);
+    setFilters({
+      minScore: 0,
+      maxNodes: 200,
+      nodeTypes: new Set(graphData.nodes.map((n) => n.type)),
+    });
+  }, [graphData.nodes]);
+
+  const handleNodeSelectFromPanel = useCallback((nodeId: string) => {
+    const node = graphData.nodes.find((n) => n.id === nodeId);
+    if (node) {
+      setSelectedNode(node);
+    }
+  }, [graphData.nodes]);
+
+  // No project state
   if (!currentProject) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background dark:bg-dark-bg-900 px-4">
@@ -92,18 +208,19 @@ export default function GraphPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background dark:bg-dark-bg-900">
+    <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 dark:from-dark-bg-900 dark:via-dark-bg-900 dark:to-primary/5">
       {/* Header */}
-      <div className="border-b border-border bg-card">
+      <div className="border-b border-border bg-card/80 backdrop-blur-sm">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
                 <Network className="h-6 w-6 text-primary" />
-                Knowledge Map
+                3D Knowledge Graph
               </h1>
               <p className="text-sm text-muted-foreground mt-1">
-                {currentProject.name} • {graphData.nodes.length} entities, {graphData.edges.length} connections
+                {currentProject.name} • {processedData.nodes.length} visible of{' '}
+                {graphData.nodes.length} total entities
               </p>
             </div>
             <button
@@ -119,10 +236,13 @@ export default function GraphPage() {
 
       {/* Loading State */}
       {loading && (
-        <div className="flex items-center justify-center py-20">
+        <div className="flex items-center justify-center h-[calc(100vh-200px)]">
           <div className="text-center">
             <Loader2 className="w-12 h-12 mx-auto text-primary animate-spin mb-4" />
-            <p className="text-muted-foreground">Loading knowledge map...</p>
+            <p className="text-muted-foreground">Loading knowledge graph...</p>
+            <p className="text-xs text-muted-foreground mt-2">
+              Initializing 3D physics simulation...
+            </p>
           </div>
         </div>
       )}
@@ -140,7 +260,8 @@ export default function GraphPage() {
               No Knowledge Graph Yet
             </h2>
             <p className="text-muted-foreground mb-8">
-              Upload documents to automatically extract entities, facts, and relationships
+              Upload documents to automatically extract entities, facts, and relationships.
+              They'll appear here as an interactive 3D graph.
             </p>
             <button
               onClick={() => router.push('/inbox')}
@@ -152,96 +273,79 @@ export default function GraphPage() {
         </div>
       )}
 
-      {/* Graph Content - Simple List View */}
+      {/* 3D Graph View */}
       {!loading && graphData.nodes.length > 0 && (
-        <div className="container mx-auto px-4 py-8">
-          {/* Search */}
-          <div className="mb-6">
-            <div className="relative max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search entities..."
-                className="w-full pl-10 pr-4 py-3 rounded-lg border border-border bg-background focus:ring-2 focus:ring-primary focus:border-transparent"
-              />
-            </div>
-          </div>
-
-          {/* Info Card */}
-          <div className="mb-6 p-4 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
-            <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-300 mb-1">
-              📊 What is this?
-            </h3>
-            <p className="text-sm text-blue-800 dark:text-blue-400">
-              This shows entities (people, organizations, concepts) automatically extracted from your documents. 
-              Click any entity to see its connections and where it appears in your documents.
-            </p>
-          </div>
-
-          {/* Entity List */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredNodes.map((node, index) => (
-              <motion.div
-                key={node.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.05 }}
-                className="p-4 rounded-lg border border-border bg-card hover:border-primary hover:shadow-md transition-all cursor-pointer"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-foreground truncate mb-1">
-                      {node.label}
-                    </h3>
-                    <p className="text-xs text-muted-foreground capitalize mb-2">
-                      {node.type}
-                    </p>
-                    {/* Show connections */}
-                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                      <span>
-                        {graphData.edges.filter(e => e.source === node.id || e.target === node.id).length} connections
-                      </span>
-                      {node.score > 0 && (
-                        <span className="text-primary font-medium">
-                          {(node.score * 100).toFixed(0)}% relevance
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <FileText className="w-5 h-5 text-muted-foreground flex-shrink-0" />
-                </div>
-              </motion.div>
-            ))}
-          </div>
-
-          {/* No Results */}
-          {filteredNodes.length === 0 && searchQuery && (
-            <div className="text-center py-12">
-              <p className="text-muted-foreground">No entities found matching "{searchQuery}"</p>
-            </div>
+        <div className="relative h-[calc(100vh-200px)]">
+          {/* Instructions Overlay (show on first load) */}
+          {!selectedNode && processedData.nodes.length > 0 && (
+            <motion.div
+              initial={{ opacity: 1 }}
+              animate={{ opacity: 0 }}
+              transition={{ delay: 3, duration: 1 }}
+              className="absolute bottom-8 left-1/2 -translate-x-1/2 z-10 pointer-events-none"
+            >
+              <div className="bg-card/95 backdrop-blur-sm border border-border rounded-lg px-6 py-3 shadow-xl">
+                <p className="text-sm text-muted-foreground">
+                  <strong className="text-foreground">Tip:</strong> Click nodes to explore • Drag to
+                  rotate • Scroll to zoom • Use focus mode for clarity
+                </p>
+              </div>
+            </motion.div>
           )}
 
-          {/* Stats Summary */}
-          <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="p-4 rounded-lg border border-border bg-card">
-              <p className="text-sm text-muted-foreground mb-1">Total Entities</p>
-              <p className="text-2xl font-bold text-foreground">{graphData.nodes.length}</p>
-            </div>
-            <div className="p-4 rounded-lg border border-border bg-card">
-              <p className="text-sm text-muted-foreground mb-1">Relationships</p>
-              <p className="text-2xl font-bold text-foreground">{graphData.edges.length}</p>
-            </div>
-            <div className="p-4 rounded-lg border border-border bg-card">
-              <p className="text-sm text-muted-foreground mb-1">Avg Connections</p>
-              <p className="text-2xl font-bold text-foreground">
-                {graphData.nodes.length > 0 
-                  ? (graphData.edges.length / graphData.nodes.length).toFixed(1) 
-                  : '0'}
-              </p>
-            </div>
-          </div>
+          {/* Search & Filter Controls */}
+          <GraphControls
+            graphData={graphData}
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            filters={filters}
+            onFiltersChange={setFilters}
+            focusMode={focusMode}
+            onFocusModeToggle={() => setFocusMode(!focusMode)}
+            onReset={handleReset}
+          />
+
+          {/* 3D Graph */}
+          <Graph3DView
+            nodes={processedData.nodes}
+            edges={processedData.edges}
+            selectedNodeId={selectedNode?.id || null}
+            highlightedNodeIds={highlightedNodeIds}
+            focusMode={focusMode}
+            onNodeClick={handleNodeClick}
+            onNodeHover={handleNodeHover}
+            onBackgroundClick={handleBackgroundClick}
+          />
+
+          {/* Node Detail Panel */}
+          <AnimatePresence>
+            {selectedNode && (
+              <NodeDetailPanel
+                node={selectedNode}
+                edges={graphData.edges}
+                allNodes={graphData.nodes}
+                onClose={() => setSelectedNode(null)}
+                onNodeSelect={handleNodeSelectFromPanel}
+              />
+            )}
+          </AnimatePresence>
+
+          {/* Search Results Indicator */}
+          {searchQuery && processedData.nodes.length === 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center"
+            >
+              <div className="bg-card/95 backdrop-blur-sm border border-border rounded-lg p-8 shadow-xl">
+                <Network className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                <p className="text-foreground font-medium mb-2">No entities found</p>
+                <p className="text-sm text-muted-foreground">
+                  Try adjusting your search or filters
+                </p>
+              </div>
+            </motion.div>
+          )}
         </div>
       )}
     </div>
