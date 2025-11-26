@@ -82,13 +82,22 @@ echo ""
 
 print_step "Deploying API Service..."
 
+# Step 1: Build the Docker image using Cloud Build
+print_step "Building Docker image..."
+gcloud builds submit \
+  --config cloudbuild-api.yaml \
+  --project ${PROJECT_ID} \
+  --timeout=1200s
+
+# Step 2: Deploy the built image to Cloud Run
+print_step "Deploying to Cloud Run..."
 gcloud run deploy contextcache-api \
-  --source ./api \
+  --image gcr.io/${PROJECT_ID}/contextcache-api:latest \
   --region ${REGION} \
   --platform managed \
   --allow-unauthenticated \
   --set-secrets "DATABASE_URL=DATABASE_URL:latest,REDIS_URL=REDIS_URL:latest,API_INTERNAL_KEY=API_INTERNAL_KEY:latest" \
-  --set-env-vars "PYTHON_ENV=production,CORS_ORIGINS=*" \
+  --set-env-vars "PYTHON_ENV=production,CORS_ORIGINS=https://thecontextcache.com,https://contextcache.pages.dev" \
   --min-instances 0 \
   --max-instances 10 \
   --memory 2Gi \
@@ -105,23 +114,12 @@ echo ""
 
 print_step "Deploying Worker Service..."
 
-gcloud run deploy contextcache-worker \
-  --source ./api \
-  --region ${REGION} \
-  --platform managed \
-  --no-allow-unauthenticated \
-  --set-secrets "DATABASE_URL=DATABASE_URL:latest,REDIS_URL=REDIS_URL:latest" \
-  --set-env-vars "PYTHON_ENV=production,WORKER_CONCURRENCY=4" \
-  --min-instances 1 \
-  --max-instances 5 \
-  --memory 2Gi \
-  --cpu 2 \
-  --timeout 600 \
-  --command "python" \
-  --args "run_worker.py"
-
-print_success "Worker deployed!"
+print_warning "Skipping worker deployment (using same image as API)"
+print_warning "To deploy worker separately, run: ./infra/cloudrun/deploy-worker.sh"
 echo ""
+
+# Note: Workers typically need a separate Dockerfile or use the same image with different command
+# For now, we skip this as it requires additional configuration
 
 # ============================================================================
 # Get Service URLs
