@@ -4,6 +4,11 @@ Combines Retrieval-Augmented Generation (RAG) with Context-Augmented Generation 
 
 RAG: Find relevant facts/documents from knowledge base
 CAG: Apply rules, context, and personalization based on user/session state
+
+Enhanced with Knowledge Graph:
+- Graph-aware retrieval using KRL embeddings
+- Entity-centric context expansion
+- Relationship-based augmentation
 """
 from typing import List, Dict, Any, Optional
 from uuid import UUID
@@ -11,9 +16,11 @@ from datetime import datetime
 from structlog import get_logger
 
 from cc_core.services.embedding_service import EmbeddingService
+from cc_core.services.ranking import RankingService
 from cc_core.analyzers.hybrid_bm25_dense import HybridBM25DenseAnalyzer
 from cc_core.models.fact import Fact
 from cc_core.mcp.extractor_server import ExtractorServer
+from cc_core.storage.adapters.postgres import PostgresAdapter
 
 logger = get_logger(__name__)
 
@@ -32,7 +39,9 @@ class RAGCAGService:
         self,
         embedding_service: Optional[EmbeddingService] = None,
         hybrid_ranker: Optional[HybridBM25DenseAnalyzer] = None,
-        extractor: Optional[ExtractorServer] = None
+        extractor: Optional[ExtractorServer] = None,
+        storage: Optional[PostgresAdapter] = None,
+        ranking_service: Optional[RankingService] = None
     ):
         """
         Initialize RAG+CAG service
@@ -41,11 +50,15 @@ class RAGCAGService:
             embedding_service: Service for creating embeddings
             hybrid_ranker: Hybrid BM25+Dense ranker for facts
             extractor: Fact extraction service
+            storage: PostgreSQL storage adapter (for graph retrieval)
+            ranking_service: Ranking service (for graph-aware retrieval)
         """
         self.embedding_service = embedding_service or EmbeddingService()
         self.hybrid_ranker = hybrid_ranker or HybridBM25DenseAnalyzer()
         self.extractor = extractor or ExtractorServer()
-        logger.info("Initialized RAG+CAG service")
+        self.storage = storage
+        self.ranking_service = ranking_service
+        logger.info("Initialized RAG+CAG service", graph_aware=storage is not None)
     
     # ========================================================================
     # RAG: Retrieval-Augmented Generation
@@ -352,14 +365,18 @@ class RAGCAGService:
         chunks: Optional[List[Dict[str, Any]]] = None,
         user_context: Optional[Dict[str, Any]] = None,
         rules: Optional[Dict[str, Any]] = None,
-        top_k: int = 10
+        top_k: int = 10,
+        use_graph_context: bool = True
     ) -> Dict[str, Any]:
         """
-        Combined RAG + CAG query
+        Combined RAG + CAG query with optional graph augmentation.
         
-        1. RAG: Retrieve relevant facts and chunks
-        2. CAG: Apply context and rules
-        3. Return unified results
+        Pipeline:
+        1. RAG: Retrieve relevant facts and chunks (text-based)
+        2. GRAPH: Retrieve graph context using KRL embeddings (if enabled)
+        3. FUSION: Merge text and graph results
+        4. CAG: Apply context and rules
+        5. Return unified results
         
         Args:
             query: User query
@@ -369,9 +386,10 @@ class RAGCAGService:
             user_context: User context (tier, region, etc.)
             rules: Optional rule set
             top_k: Number of results
+            use_graph_context: Whether to include graph-aware retrieval
             
         Returns:
-            Dict with RAG results + CAG augmentation
+            Dict with RAG results + graph context + CAG augmentation
         """
         user_context = user_context or {}
         
@@ -392,6 +410,30 @@ class RAGCAGService:
                 top_k=top_k // 2
             )
         
+        # GRAPH: Retrieve graph context (if enabled and available)
+        graph_context = None
+        if use_graph_context and self.ranking_service and self.storage:
+            try:
+                logger.info("Retrieving graph context for query")
+                query_embedding = await self.embedding_service.embed_text(query)
+                
+                graph_context = await self.ranking_service.retrieve_graph_context_for_query(
+                    project_id=project_id,
+                    query_embedding=query_embedding,
+                    top_k_entities=5,
+                    expand_depth=1,
+                    min_similarity=0.3
+                )
+                
+                logger.info(
+                    "Retrieved graph context",
+                    num_entities=graph_context["metadata"]["num_matched_entities"],
+                    num_relations=graph_context["metadata"]["num_relations"]
+                )
+            except Exception as e:
+                logger.warning("Failed to retrieve graph context", error=str(e))
+                graph_context = None
+        
         # Combine RAG results
         all_results = fact_results + chunk_results
         
@@ -402,7 +444,8 @@ class RAGCAGService:
             rules=rules
         )
         
-        return {
+        # Build response
+        response = {
             "query": query,
             "results": augmented_results,
             "count": len(augmented_results),
@@ -415,6 +458,124 @@ class RAGCAGService:
                 "user_tier": user_context.get("tier", "free"),
                 "rules_applied": list(rules.keys()) if rules else [],
                 "personalization": "enabled" if user_context else "disabled"
+            }
+        }
+        
+        # Add graph context if available
+        if graph_context:
+            response["graph_context"] = {
+                "enabled": True,
+                "matched_entities": len(graph_context["matched_entities"]),
+                "expanded_entities": graph_context["metadata"]["num_expanded_entities"],
+                "relations": graph_context["metadata"]["num_relations"],
+                "context_snippets": graph_context["context_snippets"]
+            }
+        else:
+            response["graph_context"] = {
+                "enabled": False,
+                "reason": "not_available" if not self.ranking_service else "disabled"
+            }
+        
+        return response
+    
+    async def query_with_answer(
+        self,
+        query: str,
+        project_id: UUID,
+        facts: List[Fact],
+        chunks: Optional[List[Dict[str, Any]]] = None,
+        user_context: Optional[Dict[str, Any]] = None,
+        rules: Optional[Dict[str, Any]] = None,
+        top_k: int = 10,
+        use_graph_context: bool = True,
+        llm_service: Optional[Any] = None
+    ) -> Dict[str, Any]:
+        """
+        RAG + CAG query with LLM answer generation.
+        
+        Extended pipeline:
+        1-5. Same as query() method (RAG + GRAPH + CAG)
+        6. Build context from results + graph snippets
+        7. Generate LLM answer using combined context
+        8. Return answer with sources
+        
+        Args:
+            query: User query
+            project_id: Project ID
+            facts: Available facts
+            chunks: Optional document chunks
+            user_context: User context
+            rules: Optional rules
+            top_k: Number of results
+            use_graph_context: Whether to include graph-aware retrieval
+            llm_service: LLM service for answer generation
+            
+        Returns:
+            Dict with answer, sources, and metadata
+        """
+        # Step 1-5: Retrieve and augment
+        query_results = await self.query(
+            query=query,
+            project_id=project_id,
+            facts=facts,
+            chunks=chunks,
+            user_context=user_context,
+            rules=rules,
+            top_k=top_k,
+            use_graph_context=use_graph_context
+        )
+        
+        # Step 6: Build context for LLM
+        context_parts = []
+        
+        # Add fact-based context
+        for result in query_results["results"][:top_k]:
+            if "fact" in result:
+                fact = result["fact"]
+                context_parts.append(
+                    f"Fact: {fact.subject} {fact.predicate} {fact.object} "
+                    f"(confidence: {fact.confidence:.2f})"
+                )
+            elif "chunk" in result:
+                chunk = result["chunk"]
+                context_parts.append(
+                    f"Document: {chunk.get('text', '')[:200]}..."
+                )
+        
+        # Add graph-based context (if available)
+        if query_results["graph_context"]["enabled"]:
+            context_parts.append("\n--- Knowledge Graph Context ---")
+            context_parts.extend(
+                query_results["graph_context"]["context_snippets"]
+            )
+        
+        # Combine context
+        combined_context = "\n".join(context_parts)
+        
+        # Step 7: Generate answer (if LLM service provided)
+        answer = None
+        if llm_service:
+            try:
+                # This is a placeholder - actual implementation would call LLM service
+                logger.info("Generating answer using LLM", context_length=len(combined_context))
+                # answer = await llm_service.generate(query, combined_context)
+                answer = f"[LLM answer would be generated here based on {len(context_parts)} context pieces]"
+            except Exception as e:
+                logger.error("Failed to generate LLM answer", error=str(e))
+                answer = None
+        
+        # Step 8: Return response
+        return {
+            "query": query,
+            "answer": answer,
+            "context": combined_context,
+            "sources": query_results["results"],
+            "metadata": {
+                "rag": query_results["rag_metadata"],
+                "cag": query_results["cag_metadata"],
+                "graph": query_results["graph_context"],
+                "num_context_pieces": len(context_parts),
+                "llm_used": llm_service is not None
             }
         }
 
