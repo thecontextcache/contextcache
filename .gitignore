@@ -143,6 +143,15 @@ compass_artifact_wf-*.md
 contextcache-cloud-native-algorithms.md
 bandit_report.json
 
+# Internal Implementation & Status Documents (local only)
+KRL_*.md
+DEPLOYMENT_STATUS.md
+DEPLOY_NOW.md
+REDESIGN_*.md
+ARCHITECTURE_INTERNAL.md
+DEPLOYMENT_INSTRUCTIONS.md
+DEPLOYMENT_CHECKLIST.md
+
 # Keep these public (general documentation)
 !README.md
 !CONTRIBUTING.md
@@ -154,4 +163,3 @@ bandit_report.json
 !SETUP_INSTRUCTIONS.md
 !IMPLEMENTATION_CHECKLIST.md
 .open-next/
-ARCHITECTURE_INTERNAL.md
