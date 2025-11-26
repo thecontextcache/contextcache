@@ -69,9 +69,12 @@ USER appuser
 # Expose port
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+# Health check (note: Cloud Run doesn't use HEALTHCHECK directive, it has its own probes)
+# HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+#     CMD curl -f http://localhost:${PORT:-8000}/health || exit 1
 
-# Run application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+# Expose port (Cloud Run will set PORT env var dynamically)
+ENV PORT=8000
+
+# Run application - respects PORT env var from Cloud Run
+CMD uvicorn main:app --host 0.0.0.0 --port $PORT --workers 2
