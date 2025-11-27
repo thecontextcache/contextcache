@@ -440,6 +440,19 @@ async def create_project(
             detail="User not found. Please unlock session first."
         )
     
+    # Check for duplicate project name for this user
+    existing_project = await db.execute(
+        select(ProjectDB).where(
+            ProjectDB.user_id == user.id,
+            ProjectDB.name == name
+        )
+    )
+    if existing_project.scalar_one_or_none():
+        raise HTTPException(
+            status_code=409,
+            detail=f"A project named '{name}' already exists. Please choose a different name."
+        )
+    
     # Simplified: Use KEK directly for all projects (no per-project DEK)
     # KEK is already cached in Redis from /auth/unlock
     
@@ -609,13 +622,13 @@ async def get_project_stats(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found or access denied")
     
-    # Get document count
+    # Get document count (entities)
     doc_count_result = await db.execute(
         select(func.count()).select_from(DocumentDB).where(DocumentDB.project_id == project_id)
     )
     doc_count = doc_count_result.scalar() or 0
     
-    # Get chunk count
+    # Get chunk count (facts)
     chunk_count_result = await db.execute(
         select(func.count())
         .select_from(DocumentChunkDB)
@@ -629,8 +642,8 @@ async def get_project_stats(
         "project_name": project.name,
         "document_count": doc_count,
         "chunk_count": chunk_count,
-        "fact_count": 0,  # TODO: Add when facts table is queried
-        "entity_count": 0,  # TODO: Add when entities table is queried
+        "fact_count": chunk_count,  # Use chunks as facts
+        "entity_count": doc_count,  # Use documents as entities
         "created_at": project.created_at.isoformat(),
         "updated_at": project.updated_at.isoformat(),
     }
@@ -787,6 +800,7 @@ async def get_project_graph(
                 "id": f"doc-{doc_id_str}",
                 "label": source_url.split('/')[-1][:30] if source_url else "Document",
                 "type": "document",
+                "score": 0.8,  # Default score for documents
                 "data": {
                     "source": source_url,
                     "full_name": source_url
@@ -801,6 +815,7 @@ async def get_project_graph(
             "id": f"chunk-{chunk.id}",
             "label": chunk.text[:50] + "..." if len(chunk.text) > 50 else chunk.text,
             "type": "fact",
+            "score": 0.6,  # Default score for facts/chunks
             "data": {
                 "full_text": chunk.text,
                 "source": source_url,
@@ -812,7 +827,8 @@ async def get_project_graph(
         edges.append({
             "source": f"doc-{doc_id}",
             "target": f"chunk-{chunk.id}",
-            "label": "contains"
+            "label": "contains",
+            "weight": 1.0  # Default edge weight
         })
     
     return {
