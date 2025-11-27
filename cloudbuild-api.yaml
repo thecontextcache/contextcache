@@ -7,10 +7,20 @@ steps:
       - 'infra/api.Dockerfile'
       - '-t'
       - 'gcr.io/contextcache-prod/contextcache-api:latest'
+      - '--target'
+      - 'production'
+      - '--build-arg'
+      - 'BUILDKIT_INLINE_CACHE=1'
       - '.'
 
 images:
   - 'gcr.io/contextcache-prod/contextcache-api:latest'
 
-timeout: '1200s'
+# Increase timeout for ML package installation (30 minutes)
+timeout: '1800s'
+
+# Use more powerful machine for faster builds
+options:
+  machineType: 'E2_HIGHCPU_8'
+  logging: CLOUD_LOGGING_ONLY
 

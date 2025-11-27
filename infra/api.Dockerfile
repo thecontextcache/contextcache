@@ -37,17 +37,24 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements (use full requirements for production)
-COPY api/requirements.txt ./requirements.txt
+# Copy requirements (use cloudrun requirements - optimized with pre-built wheels)
+COPY api/requirements-cloudrun.txt ./requirements.txt
 
-# Install Python dependencies
+# Install Python dependencies with optimizations
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # Production stage
 FROM python:3.13-slim AS production
+
+# Install runtime dependencies only (no build tools)
+RUN apt-get update && apt-get install -y \
+    curl \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
 RUN useradd -m -u 1000 appuser && \
