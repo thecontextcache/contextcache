@@ -97,7 +97,7 @@ gcloud run deploy contextcache-api \
   --platform managed \
   --allow-unauthenticated \
   --set-secrets "DATABASE_URL=DATABASE_URL:latest,REDIS_URL=REDIS_URL:latest,API_INTERNAL_KEY=API_INTERNAL_KEY:latest" \
-  --set-env-vars "PYTHON_ENV=production,CORS_ORIGINS=^:^https://thecontextcache.com,https://contextcache.pages.dev" \
+  --env-vars-file infra/cloudrun/env.yaml \
   --min-instances 0 \
   --max-instances 10 \
   --memory 2Gi \
