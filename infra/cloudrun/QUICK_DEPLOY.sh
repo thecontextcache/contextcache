@@ -103,8 +103,7 @@ gcloud run deploy contextcache-api \
   --max-instances 10 \
   --memory 2Gi \
   --cpu 2 \
-  --timeout 300 \
-  --port 8000
+  --timeout 300
 
 print_success "API deployed!"
 echo ""
