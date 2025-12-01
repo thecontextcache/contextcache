@@ -83,11 +83,12 @@ echo ""
 print_step "Deploying API Service..."
 
 # Step 1: Build the Docker image using Cloud Build
+# Note: Timeout and machine type are configured in cloudbuild-api.yaml
+# (30min timeout, 8-CPU machine for faster builds)
 print_step "Building Docker image..."
 gcloud builds submit \
   --config cloudbuild-api.yaml \
-  --project ${PROJECT_ID} \
-  --timeout=1200s
+  --project ${PROJECT_ID}
 
 # Step 2: Deploy the built image to Cloud Run
 print_step "Deploying to Cloud Run..."
