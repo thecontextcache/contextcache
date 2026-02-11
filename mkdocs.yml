@@ -1,8 +1,23 @@
+# MkDocs configuration for ContextCache documentation
+# 
+# This is the single source of truth for documentation navigation.
+# All docs follow a numbered naming convention for clear ordering.
+#
+# To serve locally: mkdocs serve
+# To build: mkdocs build
+
 site_name: ContextCache
 theme:
   name: material
+
+# Navigation structure - numbered docs for clear ordering
 nav:
-  - Home: index.md
-  - Roadmap: roadmap.md
-  - Architecture: architecture.md
-  - Deployment: deployment.md
+  - Overview: 00-overview.md
+  - MVP Scope: 01-mvp-scope.md
+  - Architecture: 02-architecture.md
+  - Data Model: 03-data-model.md
+  - API Contract: 04-api-contract.md
+  - Dev Workflow: 05-dev-workflow.md
+  - Deployment: 06-deployment.md
+  - Security: 07-security.md
+  - Roadmap: 08-roadmap.md
