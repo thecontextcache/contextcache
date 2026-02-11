@@ -6,10 +6,10 @@ WORKDIR /app
 RUN pip install --no-cache-dir uv
 
 # Copy dependency metadata first (better layer caching)
-COPY pyproject.toml uv.lock /app/
+COPY pyproject.toml requirements.lock /app/
 
-# Install deps from lock file (reproducible)
-RUN uv sync --system --frozen
+# Install exact locked deps into system python
+RUN uv pip sync --system /app/requirements.lock
 
 # Copy the application code
 COPY app /app/app
