@@ -1,28 +1,37 @@
+from __future__ import annotations
+
+from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from .db import get_db
-from .models import Project, Memory
+from .models import Base, Project, Memory
 from .schemas import ProjectCreate, ProjectOut, MemoryCreate, MemoryOut, RecallOut
+from .recall import score_memory, build_memory_pack
 
 router = APIRouter()
 
-@router.post("/projects", response_model=ProjectOut)
-async def create_project(payload: ProjectCreate, db: AsyncSession = Depends(get_db)):
-    project = Project(name=payload.name)
-    db.add(project)
-    await db.commit()
-    await db.refresh(project)
-    return ProjectOut(id=project.id, name=project.name)
 
-@router.get("/projects", response_model=list[ProjectOut])
-async def list_projects(db: AsyncSession = Depends(get_db)):
+@router.post("/projects", response_model=ProjectOut)
+async def create_project(payload: ProjectCreate, db: AsyncSession = Depends(get_db)) -> ProjectOut:
+    p = Project(name=payload.name)
+    db.add(p)
+    await db.commit()
+    await db.refresh(p)
+    return ProjectOut(id=p.id, name=p.name)
+
+
+@router.get("/projects", response_model=List[ProjectOut])
+async def list_projects(db: AsyncSession = Depends(get_db)) -> List[ProjectOut]:
     res = await db.execute(select(Project).order_by(Project.id.desc()))
     projects = res.scalars().all()
     return [ProjectOut(id=p.id, name=p.name) for p in projects]
 
+
 @router.post("/projects/{project_id}/memories", response_model=MemoryOut)
-async def create_memory(project_id: int, payload: MemoryCreate, db: AsyncSession = Depends(get_db)):
+async def create_memory(project_id: int, payload: MemoryCreate, db: AsyncSession = Depends(get_db)) -> MemoryOut:
     # ensure project exists
     res = await db.execute(select(Project).where(Project.id == project_id))
     if res.scalar_one_or_none() is None:
@@ -34,26 +43,33 @@ async def create_memory(project_id: int, payload: MemoryCreate, db: AsyncSession
     await db.refresh(m)
     return MemoryOut(id=m.id, project_id=m.project_id, type=m.type, content=m.content)
 
-@router.get("/projects/{project_id}/memories", response_model=list[MemoryOut])
-async def list_memories(project_id: int, db: AsyncSession = Depends(get_db)):
-    res = await db.execute(select(Memory).where(Memory.project_id == project_id).order_by(Memory.id.desc()))
+
+@router.get("/projects/{project_id}/memories", response_model=List[MemoryOut])
+async def list_memories(project_id: int, db: AsyncSession = Depends(get_db)) -> List[MemoryOut]:
+    res = await db.execute(
+        select(Memory).where(Memory.project_id == project_id).order_by(Memory.id.desc())
+    )
     items = res.scalars().all()
     return [MemoryOut(id=i.id, project_id=i.project_id, type=i.type, content=i.content) for i in items]
 
+
 @router.get("/projects/{project_id}/recall", response_model=RecallOut)
-async def recall(project_id: int, query: str, limit: int = 10, db: AsyncSession = Depends(get_db)):
-    # very simple MVP: filter memories in project and do substring match in python
-    res = await db.execute(select(Memory).where(Memory.project_id == project_id).order_by(Memory.id.desc()))
+async def recall(project_id: int, query: str, limit: int = 10, db: AsyncSession = Depends(get_db)) -> RecallOut:
+    res = await db.execute(
+        select(Memory).where(Memory.project_id == project_id).order_by(Memory.id.desc())
+    )
     all_items = res.scalars().all()
 
-    q = query.lower().strip()
-    matched = [m for m in all_items if q in m.content.lower()][:limit]
+    scored = []
+    for m in all_items:
+        s = score_memory(query=query, content=m.content, created_at=m.created_at)
+        if s > 0:
+            scored.append((s, m))
 
-    pack_lines = []
-    for m in matched:
-        pack_lines.append(f"- [{m.type}] {m.content}")
+    scored.sort(key=lambda x: x[0], reverse=True)
+    top = [m for _, m in scored[: max(1, min(limit, 50))]]
 
-    memory_pack = "PROJECT MEMORY PACK\n" + "\n".join(pack_lines) if pack_lines else "PROJECT MEMORY PACK\n(no matches)"
+    pack = build_memory_pack(query, [(m.type, m.content) for m in top])
+    out_items = [MemoryOut(id=m.id, project_id=m.project_id, type=m.type, content=m.content) for m in top]
 
-    out_items = [MemoryOut(id=m.id, project_id=m.project_id, type=m.type, content=m.content) for m in matched]
-    return RecallOut(project_id=project_id, query=query, memory_pack_text=memory_pack, items=out_items)
+    return RecallOut(project_id=project_id, query=query, memory_pack_text=pack, items=out_items)
