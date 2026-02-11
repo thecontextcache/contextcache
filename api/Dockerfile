@@ -2,16 +2,16 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install uv
+# Install uv inside the container
 RUN pip install --no-cache-dir uv
 
-# Copy dependency files first
-COPY pyproject.toml /app/pyproject.toml
+# Copy dependency metadata first (better layer caching)
+COPY pyproject.toml uv.lock /app/
 
-# Install deps
-RUN uv pip install --system -r <(uv pip compile pyproject.toml)
+# Install deps from lock file (reproducible)
+RUN uv sync --system --frozen
 
-# Copy app
+# Copy the application code
 COPY app /app/app
 
 EXPOSE 8000
