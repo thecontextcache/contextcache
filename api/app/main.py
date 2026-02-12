@@ -6,12 +6,15 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .db import engine
 from .models import Base
 from .routes import router
 
 app = FastAPI(title="ContextCache API", version="0.1.0")
+API_KEY = os.getenv("API_KEY", "").strip()
+PUBLIC_PATH_PREFIXES = ("/health", "/docs", "/openapi.json")
 
 raw_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000")
 cors_origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
@@ -23,6 +26,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def api_key_middleware(request: Request, call_next):
+    path = request.url.path
+
+    if path.startswith(PUBLIC_PATH_PREFIXES):
+        return await call_next(request)
+
+    if not API_KEY:
+        return await call_next(request)
+
+    provided = request.headers.get("x-api-key", "")
+    if provided != API_KEY:
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+
+    return await call_next(request)
+
+
 @app.on_event("startup")
 async def startup() -> None:
     # MVP approach: auto-create tables
@@ -32,8 +53,13 @@ async def startup() -> None:
 app.include_router(router)
 
 
+@app.exception_handler(StarletteHTTPException)
+async def starlette_http_exception_handler(_: Request, exc: StarletteHTTPException) -> JSONResponse:
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
 @app.exception_handler(HTTPException)
-async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
+async def fastapi_http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
 

@@ -26,12 +26,20 @@ export default function Home() {
   const [memoryPack, setMemoryPack] = useState("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [apiKey, setApiKey] = useState("");
 
   async function request(path, init) {
+    const storedApiKey =
+      typeof window !== "undefined"
+        ? window.localStorage.getItem("CONTEXTCACHE_API_KEY") || ""
+        : "";
+    const effectiveApiKey = apiKey || storedApiKey;
+
     const response = await fetch(`${apiBase}${path}`, {
       ...init,
       headers: {
         "Content-Type": "application/json",
+        ...(effectiveApiKey ? { "X-API-Key": effectiveApiKey } : {}),
         ...(init?.headers || {}),
       },
     });
@@ -63,6 +71,8 @@ export default function Home() {
   }
 
   useEffect(() => {
+    const saved = window.localStorage.getItem("CONTEXTCACHE_API_KEY") || "";
+    if (saved) setApiKey(saved);
     loadProjects();
   }, []);
 
@@ -192,6 +202,30 @@ export default function Home() {
     <main className="container">
       <h1>ContextCache</h1>
       <p className="subtitle">Select project, publish memory cards, recall and export a memory pack.</p>
+
+      <section className="card" style={{ marginBottom: 16 }}>
+        <h2>API Key</h2>
+        <label htmlFor="api-key">X-API-Key</label>
+        <div className="row">
+          <input
+            id="api-key"
+            placeholder="Paste API key"
+            value={apiKey}
+            onChange={(e) => {
+              setApiKey(e.target.value);
+              window.localStorage.setItem("CONTEXTCACHE_API_KEY", e.target.value);
+            }}
+          />
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => setStatus("API key saved in this browser.")}
+          >
+            Save
+          </button>
+        </div>
+        <div className="muted">Stored locally (browser only). Not sent anywhere except your API.</div>
+      </section>
 
       <div className="grid">
         <section className="card">

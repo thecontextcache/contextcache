@@ -179,7 +179,8 @@ fi
 
 ### What MVP Has
 
-- No authentication (single-user assumed)
+- API key middleware (`X-API-Key`) for non-public endpoints
+- Public endpoints: `/health`, `/docs`, `/openapi.json`
 - No rate limiting
 - No input size limits (beyond Postgres limits)
 
@@ -187,7 +188,7 @@ fi
 
 | Risk | MVP Status | Phase 2 Fix |
 |------|------------|-------------|
-| Anyone with Tailscale access can use API | Accepted | Add JWT auth |
+| API key can be shared manually | Accepted | Add users/roles and scoped keys |
 | No audit trail of who did what | Accepted | Add user + logging |
 | No rate limiting | Accepted | Add rate limiter middleware |
 

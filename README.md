@@ -11,6 +11,8 @@ Teams save high-signal memory cards and recall a paste-ready memory pack.
 docker compose up -d --build
 ```
 
+Optional: set `API_KEY` in `.env` to enforce auth for all non-public endpoints.
+
 ### 2) Verify API
 
 ```bash
@@ -46,6 +48,8 @@ Use a different API base URL if needed:
 - Web UI: `http://localhost:3000`
 - Swagger: `http://localhost:8000/docs`
 - MkDocs site: `http://localhost:8001`
+
+In the web UI, set your API key once in the `API Key` section.
 
 ## Current scope (Phase 1)
 

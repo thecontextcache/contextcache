@@ -12,6 +12,7 @@ theme:
 
 # Navigation structure - numbered docs for clear ordering
 nav:
+  - Home: index.md
   - Overview: 00-overview.md
   - MVP Scope: 01-mvp-scope.md
   - Architecture: 02-architecture.md

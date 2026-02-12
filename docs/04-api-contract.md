@@ -14,7 +14,18 @@
 http://<tailscale-ip>:8000
 ```
 
-All endpoints are relative to this base. No authentication in MVP.
+All endpoints are relative to this base.
+
+## Authentication (Phase 2.1)
+
+- Public endpoints (no key required): `/health`, `/docs`, `/openapi.json`
+- All other endpoints require header:
+
+```http
+X-API-Key: <API_KEY>
+```
+
+- If `API_KEY` is not configured on the server, auth middleware allows requests (dev convenience).
 
 ---
 
@@ -71,6 +82,7 @@ Content-Type: application/json
 
 **Errors:**
 - `422 Unprocessable Entity` — Missing or invalid `name`
+- `401 Unauthorized` — Missing or invalid API key
 
 ---
 
@@ -141,6 +153,7 @@ Content-Type: application/json
 **Errors:**
 - `404 Not Found` — Project does not exist
 - `422 Unprocessable Entity` — Invalid `type` or missing required fields
+- `401 Unauthorized` — Missing or invalid API key
 
 ---
 
@@ -179,6 +192,7 @@ GET /projects/1/memories
 
 **Errors:**
 - `404 Not Found` — Project does not exist
+- `401 Unauthorized` — Missing or invalid API key
 
 ---
 
@@ -250,6 +264,7 @@ FINDING:
 
 **Errors:**
 - `404 Not Found` — Project does not exist
+- `401 Unauthorized` — Missing or invalid API key
 
 ---
 
@@ -285,6 +300,7 @@ Validation errors (`422`) return:
 | `200` | Success |
 | `201` | Created |
 | `404` | Resource not found |
+| `401` | Unauthorized |
 | `422` | Validation error |
 | `500` | Server error |
 

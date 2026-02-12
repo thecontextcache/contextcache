@@ -18,6 +18,7 @@ services:
     environment:
       - APP_ENV=${APP_ENV:-dev}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
+      - API_KEY=${API_KEY:-}
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD:-change-me}@db:5432/${POSTGRES_DB:-contextcache}
     depends_on:
       - db
