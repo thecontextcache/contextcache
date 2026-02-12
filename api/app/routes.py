@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import get_db
 from .models import Project, Memory
-from .schemas import ProjectCreate, ProjectOut, MemoryCreate, MemoryOut, RecallOut
+from .schemas import ProjectCreate, ProjectOut, MemoryCreate, MemoryOut, RecallItemOut, RecallOut
 from .recall import build_memory_pack
 
 router = APIRouter()
@@ -84,25 +84,26 @@ async def recall(
         raise HTTPException(status_code=404, detail="Project not found")
 
     query_clean = query.strip()
+    top_with_rank: list[tuple[Memory, float | None]] = []
     if query_clean:
         tsquery = func.plainto_tsquery("english", query_clean)
-        rank = func.ts_rank_cd(Memory.search_tsv, tsquery)
+        rank = func.ts_rank_cd(Memory.search_tsv, tsquery).label("rank_score")
         fts_result = await db.execute(
-            select(Memory)
+            select(Memory, rank)
             .where(Memory.project_id == project_id)
             .where(Memory.search_tsv.op("@@")(tsquery))
             .order_by(desc(rank), Memory.created_at.desc(), Memory.id.desc())
             .limit(limit)
         )
-        top = fts_result.scalars().all()
-        if not top:
+        top_with_rank = [(row[0], float(row[1])) for row in fts_result.all()]
+        if not top_with_rank:
             fallback_result = await db.execute(
                 select(Memory)
                 .where(Memory.project_id == project_id)
                 .order_by(Memory.created_at.desc(), Memory.id.desc())
                 .limit(limit)
             )
-            top = fallback_result.scalars().all()
+            top_with_rank = [(m, None) for m in fallback_result.scalars().all()]
     else:
         recent_result = await db.execute(
             select(Memory)
@@ -110,18 +111,19 @@ async def recall(
             .order_by(Memory.created_at.desc(), Memory.id.desc())
             .limit(limit)
         )
-        top = recent_result.scalars().all()
+        top_with_rank = [(m, None) for m in recent_result.scalars().all()]
 
-    pack = build_memory_pack(query_clean, [(m.type, m.content) for m in top])
+    pack = build_memory_pack(query_clean, [(m.type, m.content) for m, _ in top_with_rank])
     out_items = [
-        MemoryOut(
+        RecallItemOut(
             id=m.id,
             project_id=m.project_id,
             type=m.type,
             content=m.content,
             created_at=m.created_at,
+            rank_score=rank_score,
         )
-        for m in top
+        for m, rank_score in top_with_rank
     ]
 
     return RecallOut(project_id=project_id, query=query_clean, memory_pack_text=pack, items=out_items)

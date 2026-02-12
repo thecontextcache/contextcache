@@ -30,8 +30,12 @@ class MemoryOut(BaseModel):
     created_at: datetime
 
 
+class RecallItemOut(MemoryOut):
+    rank_score: float | None = None
+
+
 class RecallOut(BaseModel):
     project_id: int
     query: str
     memory_pack_text: str
-    items: List[MemoryOut]
+    items: List[RecallItemOut]

@@ -46,7 +46,7 @@ if not items:
     print("No matches. Fallback likely returned recency items.")
     sys.exit(0)
 print(f"Top item: {items[0]['content']}")
-print("Ordered contents:")
+print("Ordered (id, rank_score, content):")
 for i, item in enumerate(items, start=1):
-    print(f"{i}. [{item['type']}] {item['content']}")
+    print(f"{i}. ({item['id']}, {item.get('rank_score')}, {item['content']})")
 PY

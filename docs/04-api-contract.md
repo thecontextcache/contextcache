@@ -224,14 +224,16 @@ GET /projects/1/recall?query=postgres&limit=10
       "project_id": 1,
       "type": "decision",
       "content": "We will use Postgres for storage.",
-      "created_at": "2024-01-15T11:00:00Z"
+      "created_at": "2024-01-15T11:00:00Z",
+      "rank_score": 0.42
     },
     {
       "id": 3,
       "project_id": 1,
       "type": "finding",
       "content": "Postgres handles 10k concurrent connections.",
-      "created_at": "2024-01-15T14:00:00Z"
+      "created_at": "2024-01-15T14:00:00Z",
+      "rank_score": 0.21
     }
   ]
 }
@@ -263,6 +265,10 @@ FINDING:
 - Tie-breaker: `created_at` descending
 - Fallback: if no FTS matches, return most recent cards
 - Empty query returns most recent cards
+
+`items[].rank_score`:
+- FTS match path: float from `ts_rank_cd`
+- Recency fallback path: `null`
 
 **Errors:**
 - `404 Not Found` — Project does not exist
