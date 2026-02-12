@@ -12,6 +12,7 @@ docker compose up -d --build
 ```
 
 Auth is DB-backed via `/orgs/{org_id}/api-keys`; use seeded key for local development.
+API startup now runs `alembic upgrade head` before serving requests.
 
 ### 2) Verify API
 
@@ -74,6 +75,18 @@ Use a different API base URL if needed:
 - MkDocs site: `http://localhost:8001`
 
 In the web UI, paste API key and click `Connect` to auto-detect org id from `/me`.
+
+### 6) Run tests
+
+```bash
+docker compose exec api uv run --with pytest --with httpx pytest -q
+```
+
+Run migrations manually if needed:
+
+```bash
+docker compose exec api uv run alembic upgrade head
+```
 
 ## Locked Out?
 

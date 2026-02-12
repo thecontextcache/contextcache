@@ -74,6 +74,13 @@ open http://localhost:8001
 docker compose down
 ```
 
+API container startup runs migrations automatically:
+
+```bash
+# runs on container boot
+alembic upgrade head
+```
+
 Seed demo data:
 
 ```bash
@@ -116,6 +123,12 @@ Run FTS ranking smoke demo:
 
 ```bash
 ./scripts/demo_fts.sh
+```
+
+Run API integration tests:
+
+```bash
+docker compose exec api uv run --with pytest --with httpx pytest -q
 ```
 
 ### 3. Commit and Push to GitHub
@@ -195,6 +208,8 @@ contextcache/
 │   │   └── database.py     # DB connection
 │   ├── Dockerfile          # API container
 │   ├── pyproject.toml      # Dependencies
+│   ├── alembic.ini         # Alembic config
+│   ├── alembic/            # Migration scripts
 │   └── uv.lock             # Locked dependencies
 ├── docs/                   # MkDocs documentation
 │   ├── 00-overview.md
@@ -258,6 +273,18 @@ docker compose restart api
 # On server (nuclear option)
 docker compose down
 docker compose up -d --build
+```
+
+### Run Migrations Manually
+
+```bash
+docker compose exec api uv run alembic upgrade head
+```
+
+Legacy schema bootstrap fallback (temporary):
+
+```bash
+SCHEMA_ENSURE_FALLBACK=1 docker compose up -d --build
 ```
 
 ---

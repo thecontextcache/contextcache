@@ -8,11 +8,13 @@ RUN pip install --no-cache-dir uv
 # Copy dependency metadata and lockfile (better layer caching)
 COPY pyproject.toml uv.lock /app/
 
-# Install exact locked deps from uv.lock
-RUN uv sync --frozen --no-dev
+# Install runtime deps from pyproject (non-dev)
+RUN uv sync --no-dev
 
 # Copy the application code
 COPY app /app/app
+COPY alembic /app/alembic
+COPY alembic.ini /app/alembic.ini
 
 EXPOSE 8000
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "uv run alembic upgrade head && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000"]
