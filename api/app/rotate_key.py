@@ -6,8 +6,9 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select
 
-from .db import AsyncSessionLocal, engine, ensure_fts_schema, ensure_multitenant_schema, generate_api_key, hash_api_key
-from .models import ApiKey, Base, Organization
+from .db import AsyncSessionLocal, generate_api_key, hash_api_key
+from .migrate import run_migrations
+from .models import ApiKey, Organization
 
 
 def parse_args() -> argparse.Namespace:
@@ -18,10 +19,7 @@ def parse_args() -> argparse.Namespace:
 
 
 async def rotate_key(org_id: int, name: str) -> None:
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    await ensure_multitenant_schema()
-    await ensure_fts_schema()
+    await run_migrations()
 
     async with AsyncSessionLocal() as session:
         org = (

@@ -12,7 +12,8 @@ docker compose up -d --build
 ```
 
 Auth is DB-backed via `/orgs/{org_id}/api-keys`; use seeded key for local development.
-API startup now runs `alembic upgrade head` before serving requests.
+API startup now runs `python -m app.migrate` before serving requests.
+The migration runner handles both fresh DBs and legacy pre-Alembic DBs safely.
 
 ### 2) Verify API
 
@@ -85,7 +86,20 @@ docker compose exec api uv run --with pytest --with httpx pytest -q
 Run migrations manually if needed:
 
 ```bash
-docker compose exec api uv run alembic upgrade head
+docker compose exec api uv run python -m app.migrate
+```
+
+Legacy recovery behavior:
+- Fresh DB: runs `alembic upgrade head`
+- Existing tables without Alembic state: stamps baseline, then upgrades
+- Existing Alembic state: runs `alembic upgrade head`
+
+If API is in a restart loop after migration changes:
+
+```bash
+docker compose logs -n 200 api
+docker compose exec api uv run python -m app.migrate
+docker compose up -d --build api
 ```
 
 ## Locked Out?

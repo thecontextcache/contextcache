@@ -8,9 +8,10 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import delete
 
-from app.db import AsyncSessionLocal, ensure_fts_schema, ensure_multitenant_schema, engine, hash_api_key
+from app.db import AsyncSessionLocal, hash_api_key
 from app.main import app
-from app.models import ApiKey, Base, Membership, Organization, Project, User
+from app.migrate import run_migrations
+from app.models import ApiKey, Membership, Organization, Project, User
 
 
 @dataclass
@@ -92,13 +93,7 @@ def client() -> TestClient:
 
 @pytest.fixture(scope="session", autouse=True)
 def ensure_test_schema() -> None:
-    async def _inner() -> None:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        await ensure_multitenant_schema()
-        await ensure_fts_schema()
-
-    asyncio.run(_inner())
+    asyncio.run(run_migrations())
 
 
 @pytest.fixture()

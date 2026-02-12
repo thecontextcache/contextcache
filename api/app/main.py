@@ -9,14 +9,13 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .db import AsyncSessionLocal, engine, ensure_fts_schema, ensure_multitenant_schema, hash_api_key
-from .models import ApiKey, Base, Membership, Organization, User
+from .db import AsyncSessionLocal, hash_api_key
+from .models import ApiKey, Membership, Organization, User
 from .routes import router
 
 app = FastAPI(title="ContextCache API", version="0.1.0")
 PUBLIC_PATH_PREFIXES = ("/health", "/docs", "/openapi.json")
 WARNED_NO_KEYS = False
-SCHEMA_ENSURE_FALLBACK = os.getenv("SCHEMA_ENSURE_FALLBACK", "").strip() == "1"
 
 raw_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000")
 cors_origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
@@ -128,16 +127,6 @@ async def api_key_middleware(request: Request, call_next):
         request.state.bootstrap_mode = bootstrap_mode
 
     return await call_next(request)
-
-
-@app.on_event("startup")
-async def startup() -> None:
-    # TODO: Remove this fallback after all environments are migrated via Alembic.
-    if SCHEMA_ENSURE_FALLBACK:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        await ensure_multitenant_schema()
-        await ensure_fts_schema()
 
 app.include_router(router)
 

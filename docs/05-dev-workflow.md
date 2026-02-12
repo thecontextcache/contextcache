@@ -78,7 +78,7 @@ API container startup runs migrations automatically:
 
 ```bash
 # runs on container boot
-alembic upgrade head
+python -m app.migrate
 ```
 
 Seed demo data:
@@ -278,13 +278,23 @@ docker compose up -d --build
 ### Run Migrations Manually
 
 ```bash
-docker compose exec api uv run alembic upgrade head
+docker compose exec api uv run python -m app.migrate
 ```
 
-Legacy schema bootstrap fallback (temporary):
+Migration runner behavior:
 
 ```bash
-SCHEMA_ENSURE_FALLBACK=1 docker compose up -d --build
+fresh DB -> upgrade head
+legacy DB (tables exist, no alembic_version row) -> stamp baseline + upgrade head
+normal DB (alembic_version row exists) -> upgrade head
+```
+
+Recovery (legacy DB or restart loop):
+
+```bash
+docker compose logs -n 200 api
+docker compose exec api uv run python -m app.migrate
+docker compose up -d --build api
 ```
 
 ---
