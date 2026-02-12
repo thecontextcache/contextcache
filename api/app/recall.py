@@ -32,6 +32,8 @@ def score_memory(query: str, content: str, created_at: datetime) -> float:
         return 0.0
 
     overlap = len(q_tokens.intersection(c_tokens))
+    if overlap == 0:
+        return 0.0
     density = overlap / (len(q_tokens) + 1)
 
     # recency boost: newer => slightly higher
