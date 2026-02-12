@@ -103,6 +103,12 @@ Phase 2 is complete when:
 - Decision: Auth provider (self-hosted vs OAuth)
 - Decision: UI framework (React, Vue, etc.)
 
+### Recommended Build Order
+
+1. API key auth (fastest way to unlock shared usage)
+2. Postgres FTS ranking (BM25-ish recall improvement)
+3. Users and roles (org/team ownership + permissions)
+
 ---
 
 ## Phase 3: Integrations + Graph

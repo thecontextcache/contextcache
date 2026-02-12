@@ -43,6 +43,7 @@ Use a different API base URL if needed:
 
 ### 5) Open docs
 
+- Web UI: `http://localhost:3000`
 - Swagger: `http://localhost:8000/docs`
 - MkDocs site: `http://localhost:8001`
 
@@ -52,6 +53,7 @@ Use a different API base URL if needed:
 - Memory cards: create/list
 - Recall: token overlap + recency scoring
 - Memory pack output grouped by memory type
+- Tiny Next.js UI: select project, add memory, recall, copy/download export
 
 ## Planned Phase 2 upgrades
 

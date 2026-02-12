@@ -64,6 +64,9 @@ docker compose up -d
 # Check API
 curl http://localhost:8000/health
 
+# Check web UI
+open http://localhost:3000
+
 # Check docs
 open http://localhost:8001
 

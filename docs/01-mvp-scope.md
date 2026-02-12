@@ -37,6 +37,7 @@ These features WILL be built in MVP:
 - Postgres database
 - Docker Compose for local/server deployment
 - MkDocs for documentation (this site)
+- Tiny Next.js UI for quick sharing/demo workflows
 - Single environment: dev/staging on Ubuntu server via Tailscale
 
 ### Audit Metadata
@@ -54,7 +55,7 @@ These features will NOT be built in MVP:
 | Multi-user auth / roles / teams | Phase 2 | Adds complexity; single-user fine for MVP |
 | Embeddings / semantic search | Phase 2 | Token overlap + recency is good enough for MVP |
 | Update/delete memory cards | Phase 2 | Create + list covers core workflow |
-| Web UI | Phase 2 | API + curl is sufficient for MVP validation |
+| Full production web app | Phase 2 | MVP UI stays intentionally small |
 | Graph database / knowledge graph | Phase 3 | Premature optimization |
 | Tool plugins (ChatGPT/Claude integrations) | Phase 3 | Paste workflow proves value first |
 | MCP server integration | Phase 3 | Focus on core API first |

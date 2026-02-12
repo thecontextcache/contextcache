@@ -2,7 +2,7 @@
 
 <!--
   This document describes how ContextCache components fit together.
-  Keep it simple—MVP has only 3 components.
+  Keep it simple—MVP has only 4 components.
   
   Principle: Boring technology. Postgres, FastAPI, Docker. No exotic tools.
 -->
@@ -14,19 +14,17 @@
 │                         Ubuntu Server (Tailscale)                   │
 │                                                                     │
 │  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐  │
-│  │                 │    │                 │    │                 │  │
-│  │   FastAPI       │◄───│   Postgres      │    │   MkDocs        │  │
-│  │   (API)         │    │   (Storage)     │    │   (Docs)        │  │
-│  │                 │    │                 │    │                 │  │
-│  │   Port 8000     │    │   Port 5432     │    │   Port 8001     │  │
-│  │                 │    │   (internal)    │    │                 │  │
-│  └─────────────────┘    └─────────────────┘    └─────────────────┘  │
-│           │                                            │            │
-└───────────┼────────────────────────────────────────────┼────────────┘
-            │                                            │
-            ▼                                            ▼
-      API requests                                 Docs site
-      (via Tailscale)                             (via Tailscale)
+│  │                 │    │                 │    │   MkDocs        │  │
+│  │   Next.js UI    │───▶│   FastAPI       │◄───│   (Docs)        │  │
+│  │   Port 3000     │    │   (API)         │    │   Port 8001     │  │
+│  │                 │    │   Port 8000     │    │                 │  │
+│  └─────────────────┘    └────────┬────────┘    └─────────────────┘  │
+│                                   │                                   │
+│                            ┌──────▼──────┐                            │
+│                            │   Postgres  │                            │
+│                            │   Port 5432 │                            │
+│                            └─────────────┘                            │
+└───────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -67,6 +65,16 @@
 - Exposes port 8001
 - Auto-rebuilds on file changes (dev mode)
 
+### 4. Next.js (Tiny Web UI)
+
+**Purpose:** Fast shareable interface for creating memories and exporting recall output.
+
+**Key details:**
+- Next.js app-router frontend
+- Runs in Docker container
+- Exposes port 3000
+- Calls FastAPI directly (CORS-enabled)
+
 ---
 
 ## Data Flow
@@ -94,8 +102,7 @@ User                    API                     Postgres
   │                      │                         │
   │  GET /recall?query=  │                         │
   │─────────────────────▶│                         │
-  │                      │  SELECT ... WHERE       │
-  │                      │  content ILIKE '%q%'    │
+  │                      │  SELECT project cards    │
   │                      │────────────────────────▶│
   │                      │                         │
   │                      │  Return matching rows   │
@@ -146,6 +153,6 @@ Phase 2+ may add:
 - **Redis** for caching recall results
 - **pgvector** for embedding-based search
 - **Auth service** for user management
-- **Web frontend** (separate container)
+- **FTS ranking** for stronger lexical retrieval
 
 But MVP is intentionally minimal. Don't add complexity until needed.
