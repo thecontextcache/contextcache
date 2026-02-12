@@ -13,3 +13,9 @@ dependencies = [
 
 
 [tool.uv]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.2",
+  "httpx>=0.27",
+]

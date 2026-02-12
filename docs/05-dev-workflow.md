@@ -128,7 +128,7 @@ Run FTS ranking smoke demo:
 Run API integration tests:
 
 ```bash
-docker compose exec api uv run --with pytest --with httpx pytest -q
+docker compose run --rm api-test
 ```
 
 ### 3. Commit and Push to GitHub

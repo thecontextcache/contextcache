@@ -80,7 +80,7 @@ In the web UI, paste API key and click `Connect` to auto-detect org id from `/me
 ### 6) Run tests
 
 ```bash
-docker compose exec api uv run --with pytest --with httpx pytest -q
+docker compose run --rm api-test
 ```
 
 Run migrations manually if needed:

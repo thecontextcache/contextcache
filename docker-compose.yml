@@ -23,6 +23,19 @@ services:
       - db
     restart: unless-stopped
 
+  api-test:
+    build:
+      context: ./api
+      target: dev
+    command: uv run pytest -q
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD:-change-me}@db:5432/${POSTGRES_DB:-contextcache}
+    depends_on:
+      - db
+
   web:
     build: ./web
     ports:
