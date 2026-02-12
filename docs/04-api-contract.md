@@ -259,12 +259,13 @@ FINDING:
 4. Ask your question below the pasted context
 
 **Matching (Phase 2.2):**
-- Primary: Postgres FTS using `plainto_tsquery('english', query)`
+- Primary: Postgres FTS using `websearch_to_tsquery('english', query)`
 - Filter: `search_tsv @@ tsquery`
 - Ranking: `ts_rank_cd(search_tsv, tsquery)` descending
 - Tie-breaker: `created_at` descending
 - Fallback: if no FTS matches, return most recent cards
 - Empty query returns most recent cards
+- Query syntax follows web-style semantics (quoted phrases, `OR`, and `-term` exclusion)
 
 `items[].rank_score`:
 - FTS match path: float from `ts_rank_cd`

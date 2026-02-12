@@ -86,7 +86,7 @@ async def recall(
     query_clean = query.strip()
     top_with_rank: list[tuple[Memory, float | None]] = []
     if query_clean:
-        tsquery = func.plainto_tsquery("english", query_clean)
+        tsquery = func.websearch_to_tsquery("english", query_clean)
         rank = func.ts_rank_cd(Memory.search_tsv, tsquery).label("rank_score")
         fts_result = await db.execute(
             select(Memory, rank)
