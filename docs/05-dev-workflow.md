@@ -87,6 +87,13 @@ export API_KEY="cck_..."
 export ORG_ID="1"
 ```
 
+Recommended UI flow:
+
+1. Open `http://localhost:3000`
+2. Paste API key in `API Key`
+3. Click `Connect` (UI calls `/me`, auto-detects org id)
+4. UI stores org id and uses it for project/memory/recall requests
+
 Run the end-to-end demo flow:
 
 ```bash

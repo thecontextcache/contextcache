@@ -94,6 +94,7 @@ async def ensure_multitenant_schema() -> None:
                     id SERIAL PRIMARY KEY,
                     org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
                     actor_user_id INTEGER REFERENCES users(id),
+                    api_key_prefix VARCHAR(16),
                     action VARCHAR(100) NOT NULL,
                     entity_type VARCHAR(100) NOT NULL,
                     entity_id INTEGER NOT NULL,
@@ -163,6 +164,8 @@ async def ensure_multitenant_schema() -> None:
         await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_api_keys_org_id ON api_keys(org_id)"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash)"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_audit_logs_org_id ON audit_logs(org_id)"))
+        await conn.execute(text("ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS api_key_prefix VARCHAR(16)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_audit_logs_api_key_prefix ON audit_logs(api_key_prefix)"))
 
         await conn.execute(
             text(

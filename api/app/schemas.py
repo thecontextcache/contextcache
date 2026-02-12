@@ -92,3 +92,15 @@ class MembershipOut(BaseModel):
     display_name: str | None = None
     role: RoleType
     created_at: datetime
+
+
+class AuditLogOut(BaseModel):
+    id: int
+    org_id: int
+    actor_user_id: int | None = None
+    api_key_prefix: str | None = None
+    action: str
+    entity_type: str
+    entity_id: int
+    metadata: dict
+    created_at: datetime

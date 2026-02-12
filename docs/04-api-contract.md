@@ -15,7 +15,7 @@ Public routes:
 Protected routes use:
 
 - `X-API-Key: <plaintext key>`
-- `X-Org-Id: <org_id>` (preferred; auto-defaults when only one org exists)
+- `X-Org-Id: <org_id>` (preferred)
 
 Optional dev header for role simulation:
 
@@ -26,6 +26,8 @@ Notes:
 
 - API keys are DB-backed (`api_keys` table), hashed at rest.
 - If no active API keys exist yet, protected requests are allowed in bootstrap mode.
+- `GET /me` works with only `X-API-Key`; org is inferred from the key record.
+- If `X-Org-Id` is omitted on other routes, the server uses key-org context (or single-org default in dev).
 
 ## Roles
 
@@ -47,6 +49,16 @@ Notes:
 - `POST /orgs/{org_id}/memberships` (`owner`)
 - `GET /orgs/{org_id}/memberships` (`owner`)
 - `GET /me` (resolved context)
+- `GET /orgs/{org_id}/audit-logs?limit=50` (`owner`)
+
+`/me` includes:
+
+- `org_id`
+- `role`
+- `actor_user_id`
+- `api_key_prefix`
+
+`actor_user_id` and `api_key_prefix` can be `null` in bootstrap mode (no API keys yet).
 
 ### Org-scoped Projects
 

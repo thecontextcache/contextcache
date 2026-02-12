@@ -43,6 +43,12 @@ export API_KEY="cck_..."
 export ORG_ID="1"
 ```
 
+If you need to seed into an existing org:
+
+```bash
+SEED_ORG_ID=1 docker compose exec api uv run python -m app.seed
+```
+
 ### 4) Run end-to-end demo script
 
 ```bash
@@ -61,7 +67,7 @@ Use a different API base URL if needed:
 - Swagger: `http://localhost:8000/docs`
 - MkDocs site: `http://localhost:8001`
 
-In the web UI, set your API key and org id in the `API Key` and `Org Context` sections.
+In the web UI, paste API key and click `Connect` to auto-detect org id from `/me`.
 
 ## Current scope (Phase 1)
 

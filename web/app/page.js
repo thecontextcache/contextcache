@@ -29,7 +29,7 @@ export default function Home() {
   const [apiKey, setApiKey] = useState("");
   const [orgId, setOrgId] = useState("");
 
-  async function request(path, init) {
+  async function request(path, init, options = {}) {
     const storedApiKey =
       typeof window !== "undefined"
         ? window.localStorage.getItem("CONTEXTCACHE_API_KEY") || ""
@@ -38,15 +38,16 @@ export default function Home() {
       typeof window !== "undefined"
         ? window.localStorage.getItem("CONTEXTCACHE_ORG_ID") || ""
         : "";
-    const effectiveApiKey = apiKey || storedApiKey;
+    const effectiveApiKey = options.apiKeyOverride ?? apiKey || storedApiKey;
     const effectiveOrgId = orgId || storedOrgId;
+    const includeOrgHeader = options.includeOrgHeader ?? true;
 
     const response = await fetch(`${apiBase}${path}`, {
       ...init,
       headers: {
         "Content-Type": "application/json",
         ...(effectiveApiKey ? { "X-API-Key": effectiveApiKey } : {}),
-        ...(effectiveOrgId ? { "X-Org-Id": effectiveOrgId } : {}),
+        ...(includeOrgHeader && effectiveOrgId ? { "X-Org-Id": effectiveOrgId } : {}),
         ...(init?.headers || {}),
       },
     });
@@ -65,7 +66,31 @@ export default function Home() {
     return response.json();
   }
 
-  async function loadProjects() {
+  function ensureOrgContext() {
+    const storedOrgId =
+      typeof window !== "undefined"
+        ? window.localStorage.getItem("CONTEXTCACHE_ORG_ID") || ""
+        : "";
+    const effectiveOrgId = orgId || storedOrgId;
+    if (!effectiveOrgId) {
+      setError("Set org id or click Connect.");
+      return false;
+    }
+    return true;
+  }
+
+  async function loadProjects(orgOverride = "") {
+    const storedOrgId =
+      typeof window !== "undefined"
+        ? window.localStorage.getItem("CONTEXTCACHE_ORG_ID") || ""
+        : "";
+    const effectiveOrgId = orgOverride || orgId || storedOrgId;
+    if (!effectiveOrgId) {
+      setProjects([]);
+      setProjectId("");
+      return;
+    }
+
     try {
       const data = await request("/projects");
       setProjects(data);
@@ -82,13 +107,47 @@ export default function Home() {
     const savedOrgId = window.localStorage.getItem("CONTEXTCACHE_ORG_ID") || "";
     if (saved) setApiKey(saved);
     if (savedOrgId) setOrgId(savedOrgId);
-    loadProjects();
+    if (savedOrgId) {
+      loadProjects(savedOrgId);
+    }
   }, []);
+
+  async function onConnect() {
+    setError("");
+    setStatus("");
+
+    const key = apiKey.trim();
+    if (!key) {
+      setError("Enter API key first.");
+      return;
+    }
+
+    try {
+      const me = await request("/me", undefined, {
+        includeOrgHeader: false,
+        apiKeyOverride: key,
+      });
+      if (!me.org_id) {
+        setError("Could not resolve org from API key.");
+        return;
+      }
+      const resolvedOrgId = String(me.org_id);
+      setOrgId(resolvedOrgId);
+      window.localStorage.setItem("CONTEXTCACHE_ORG_ID", resolvedOrgId);
+      setStatus(`Connected as ${me.role || "unknown"} in org ${me.org_id}.`);
+      await loadProjects(resolvedOrgId);
+    } catch (e) {
+      setError(e.message);
+    }
+  }
 
   async function onCreateProject(event) {
     event.preventDefault();
     setError("");
     setStatus("");
+    if (!ensureOrgContext()) {
+      return;
+    }
     if (!newProjectName.trim()) {
       setError("Project name is required.");
       return;
@@ -112,6 +171,9 @@ export default function Home() {
     event.preventDefault();
     setError("");
     setStatus("");
+    if (!ensureOrgContext()) {
+      return;
+    }
 
     if (!projectId) {
       setError("Select a project first.");
@@ -137,6 +199,9 @@ export default function Home() {
   async function onRecall() {
     setError("");
     setStatus("");
+    if (!ensureOrgContext()) {
+      return;
+    }
 
     if (!projectId) {
       setError("Select a project first.");
@@ -232,6 +297,13 @@ export default function Home() {
           >
             Save
           </button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={onConnect}
+          >
+            Connect
+          </button>
         </div>
         <div className="muted">Stored locally (browser only). Not sent anywhere except your API.</div>
       </section>
@@ -252,7 +324,10 @@ export default function Home() {
           <button
             type="button"
             className="secondary"
-            onClick={() => setStatus("Org id saved in this browser.")}
+            onClick={async () => {
+              setStatus("Org id saved in this browser.");
+              await loadProjects();
+            }}
           >
             Save
           </button>

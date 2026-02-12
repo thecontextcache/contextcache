@@ -86,6 +86,7 @@ class AuditLog(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
     actor_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    api_key_prefix: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
     action: Mapped[str] = mapped_column(String(100), nullable=False)
     entity_type: Mapped[str] = mapped_column(String(100), nullable=False)
     entity_id: Mapped[int] = mapped_column(nullable=False)

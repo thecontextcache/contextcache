@@ -32,6 +32,7 @@
   - entity type/id
   - org id
   - actor user id (if resolved)
+  - api key prefix (if key-authenticated)
   - metadata JSON
 
 ## Operational Notes

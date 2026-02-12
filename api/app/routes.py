@@ -15,6 +15,7 @@ from .schemas import (
     ApiKeyCreate,
     ApiKeyCreatedOut,
     ApiKeyOut,
+    AuditLogOut,
     MemoryCreate,
     MemoryOut,
     MeOut,
@@ -36,6 +37,7 @@ ROLE_RANK: dict[str, int] = {"viewer": 1, "member": 2, "admin": 3, "owner": 4}
 
 @dataclass(frozen=True)
 class RequestContext:
+    api_key_id: int | None
     org_id: int | None
     role: RoleType | None
     actor_user_id: int | None
@@ -48,6 +50,7 @@ def get_request_context(request: Request) -> RequestContext:
     if not hasattr(request.state, "bootstrap_mode"):
         raise HTTPException(status_code=401, detail="Unauthorized")
     return RequestContext(
+        api_key_id=getattr(request.state, "api_key_id", None),
         org_id=request.state.org_id,
         role=request.state.role,
         actor_user_id=request.state.actor_user_id,
@@ -55,6 +58,10 @@ def get_request_context(request: Request) -> RequestContext:
         api_key_prefix=request.state.api_key_prefix,
         bootstrap_mode=request.state.bootstrap_mode,
     )
+
+
+def get_actor_context(request: Request) -> RequestContext:
+    return get_request_context(request)
 
 
 def require_role(ctx: RequestContext, minimum: RoleType) -> None:
@@ -78,8 +85,8 @@ def ensure_org_access(ctx: RequestContext, org_id: int) -> None:
 async def write_audit(
     db: AsyncSession,
     *,
+    ctx: RequestContext,
     org_id: int,
-    actor_user_id: int | None,
     action: str,
     entity_type: str,
     entity_id: int,
@@ -88,7 +95,8 @@ async def write_audit(
     db.add(
         AuditLog(
             org_id=org_id,
-            actor_user_id=actor_user_id,
+            actor_user_id=ctx.actor_user_id,
+            api_key_prefix=ctx.api_key_prefix,
             action=action,
             entity_type=entity_type,
             entity_id=entity_id,
@@ -121,7 +129,7 @@ async def get_project_or_404(db: AsyncSession, project_id: int, ctx: RequestCont
 
 
 @router.get("/me", response_model=MeOut)
-async def get_me(ctx: RequestContext = Depends(get_request_context)) -> MeOut:
+async def get_me(ctx: RequestContext = Depends(get_actor_context)) -> MeOut:
     return MeOut(
         org_id=ctx.org_id,
         role=ctx.role,
@@ -134,7 +142,7 @@ async def get_me(ctx: RequestContext = Depends(get_request_context)) -> MeOut:
 async def create_org(
     payload: OrgCreate,
     db: AsyncSession = Depends(get_db),
-    ctx: RequestContext = Depends(get_request_context),
+    ctx: RequestContext = Depends(get_actor_context),
 ) -> OrgOut:
     org_count = (await db.execute(select(func.count(Organization.id)))).scalar_one()
     if org_count > 0:
@@ -169,8 +177,8 @@ async def create_org(
 
     await write_audit(
         db,
+        ctx=ctx,
         org_id=org.id,
-        actor_user_id=bootstrap_actor_user_id,
         action="org.create",
         entity_type="org",
         entity_id=org.id,
@@ -184,7 +192,7 @@ async def create_org(
 @router.get("/orgs", response_model=List[OrgOut])
 async def list_orgs(
     db: AsyncSession = Depends(get_db),
-    ctx: RequestContext = Depends(get_request_context),
+    ctx: RequestContext = Depends(get_actor_context),
 ) -> List[OrgOut]:
     if ctx.bootstrap_mode:
         rows = (await db.execute(select(Organization).order_by(Organization.id.desc()))).scalars().all()
@@ -204,7 +212,7 @@ async def create_membership(
     org_id: int,
     payload: MembershipCreate,
     db: AsyncSession = Depends(get_db),
-    ctx: RequestContext = Depends(get_request_context),
+    ctx: RequestContext = Depends(get_actor_context),
 ) -> MembershipOut:
     ensure_org_access(ctx, org_id)
     require_role(ctx, "owner")
@@ -234,8 +242,8 @@ async def create_membership(
 
     await write_audit(
         db,
+        ctx=ctx,
         org_id=org_id,
-        actor_user_id=ctx.actor_user_id,
         action="membership.upsert",
         entity_type="membership",
         entity_id=membership.id,
@@ -258,7 +266,7 @@ async def create_membership(
 async def list_memberships(
     org_id: int,
     db: AsyncSession = Depends(get_db),
-    ctx: RequestContext = Depends(get_request_context),
+    ctx: RequestContext = Depends(get_actor_context),
 ) -> List[MembershipOut]:
     ensure_org_access(ctx, org_id)
     require_role(ctx, "owner")
@@ -286,12 +294,47 @@ async def list_memberships(
     ]
 
 
+@router.get("/orgs/{org_id}/audit-logs", response_model=List[AuditLogOut])
+async def list_audit_logs(
+    org_id: int,
+    limit: int = Query(default=50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    ctx: RequestContext = Depends(get_actor_context),
+) -> List[AuditLogOut]:
+    ensure_org_access(ctx, org_id)
+    require_role(ctx, "owner")
+    await get_org_or_404(db, org_id)
+
+    logs = (
+        await db.execute(
+            select(AuditLog)
+            .where(AuditLog.org_id == org_id)
+            .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return [
+        AuditLogOut(
+            id=log.id,
+            org_id=log.org_id,
+            actor_user_id=log.actor_user_id,
+            api_key_prefix=log.api_key_prefix,
+            action=log.action,
+            entity_type=log.entity_type,
+            entity_id=log.entity_id,
+            metadata=log.metadata_json,
+            created_at=log.created_at,
+        )
+        for log in logs
+    ]
+
+
 @router.post("/orgs/{org_id}/projects", response_model=ProjectOut, status_code=201)
 async def create_org_project(
     org_id: int,
     payload: ProjectCreate,
     db: AsyncSession = Depends(get_db),
-    ctx: RequestContext = Depends(get_request_context),
+    ctx: RequestContext = Depends(get_actor_context),
 ) -> ProjectOut:
     ensure_org_access(ctx, org_id)
     require_role(ctx, "admin")
@@ -302,8 +345,8 @@ async def create_org_project(
     await db.flush()
     await write_audit(
         db,
+        ctx=ctx,
         org_id=org_id,
-        actor_user_id=ctx.actor_user_id,
         action="project.create",
         entity_type="project",
         entity_id=project.id,
@@ -324,7 +367,7 @@ async def create_org_project(
 async def list_org_projects(
     org_id: int,
     db: AsyncSession = Depends(get_db),
-    ctx: RequestContext = Depends(get_request_context),
+    ctx: RequestContext = Depends(get_actor_context),
 ) -> List[ProjectOut]:
     ensure_org_access(ctx, org_id)
     require_role(ctx, "viewer")
@@ -350,7 +393,7 @@ async def create_org_api_key(
     org_id: int,
     payload: ApiKeyCreate,
     db: AsyncSession = Depends(get_db),
-    ctx: RequestContext = Depends(get_request_context),
+    ctx: RequestContext = Depends(get_actor_context),
 ) -> ApiKeyCreatedOut:
     ensure_org_access(ctx, org_id)
     require_role(ctx, "admin")
@@ -368,8 +411,8 @@ async def create_org_api_key(
     await db.flush()
     await write_audit(
         db,
+        ctx=ctx,
         org_id=org_id,
-        actor_user_id=ctx.actor_user_id,
         action="api_key.create",
         entity_type="api_key",
         entity_id=key.id,
@@ -392,7 +435,7 @@ async def create_org_api_key(
 async def list_org_api_keys(
     org_id: int,
     db: AsyncSession = Depends(get_db),
-    ctx: RequestContext = Depends(get_request_context),
+    ctx: RequestContext = Depends(get_actor_context),
 ) -> List[ApiKeyOut]:
     ensure_org_access(ctx, org_id)
     require_role(ctx, "admin")
@@ -421,7 +464,7 @@ async def revoke_org_api_key(
     org_id: int,
     key_id: int,
     db: AsyncSession = Depends(get_db),
-    ctx: RequestContext = Depends(get_request_context),
+    ctx: RequestContext = Depends(get_actor_context),
 ) -> ApiKeyOut:
     ensure_org_access(ctx, org_id)
     require_role(ctx, "admin")
@@ -438,8 +481,8 @@ async def revoke_org_api_key(
         key.revoked_at = datetime.now(timezone.utc)
         await write_audit(
             db,
+            ctx=ctx,
             org_id=org_id,
-            actor_user_id=ctx.actor_user_id,
             action="api_key.revoke",
             entity_type="api_key",
             entity_id=key.id,
@@ -463,7 +506,7 @@ async def revoke_org_api_key(
 async def create_project(
     payload: ProjectCreate,
     db: AsyncSession = Depends(get_db),
-    ctx: RequestContext = Depends(get_request_context),
+    ctx: RequestContext = Depends(get_actor_context),
 ) -> ProjectOut:
     if ctx.org_id is None:
         raise HTTPException(status_code=400, detail="X-Org-Id required")
@@ -473,7 +516,7 @@ async def create_project(
 @router.get("/projects", response_model=List[ProjectOut])
 async def list_projects(
     db: AsyncSession = Depends(get_db),
-    ctx: RequestContext = Depends(get_request_context),
+    ctx: RequestContext = Depends(get_actor_context),
 ) -> List[ProjectOut]:
     if ctx.org_id is None:
         raise HTTPException(status_code=400, detail="X-Org-Id required")
@@ -485,7 +528,7 @@ async def create_memory(
     project_id: int,
     payload: MemoryCreate,
     db: AsyncSession = Depends(get_db),
-    ctx: RequestContext = Depends(get_request_context),
+    ctx: RequestContext = Depends(get_actor_context),
 ) -> MemoryOut:
     require_role(ctx, "member")
     project = await get_project_or_404(db, project_id, ctx)
@@ -495,8 +538,8 @@ async def create_memory(
     await db.flush()
     await write_audit(
         db,
+        ctx=ctx,
         org_id=project.org_id,
-        actor_user_id=ctx.actor_user_id,
         action="memory.create",
         entity_type="memory",
         entity_id=memory.id,
@@ -517,7 +560,7 @@ async def create_memory(
 async def list_memories(
     project_id: int,
     db: AsyncSession = Depends(get_db),
-    ctx: RequestContext = Depends(get_request_context),
+    ctx: RequestContext = Depends(get_actor_context),
 ) -> List[MemoryOut]:
     require_role(ctx, "viewer")
     project = await get_project_or_404(db, project_id, ctx)
@@ -546,7 +589,7 @@ async def recall(
     query: str = "",
     limit: int = Query(default=10, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
-    ctx: RequestContext = Depends(get_request_context),
+    ctx: RequestContext = Depends(get_actor_context),
 ) -> RecallOut:
     require_role(ctx, "viewer")
     project = await get_project_or_404(db, project_id, ctx)

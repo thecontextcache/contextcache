@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 
 from sqlalchemy import select
 
@@ -12,6 +13,7 @@ DEMO_USER_EMAIL = "demo@local"
 DEMO_USER_DISPLAY_NAME = "Demo Owner"
 DEMO_API_KEY_NAME = "demo-key"
 DEMO_PROJECT_NAME = "Demo Project"
+SEED_ORG_ID = os.getenv("SEED_ORG_ID", "").strip()
 
 DEMO_MEMORIES = [
     ("decision", "Use Postgres + SQLAlchemy async for persistence."),
@@ -30,15 +32,28 @@ async def seed() -> None:
     await ensure_fts_schema()
 
     async with AsyncSessionLocal() as session:
-        org = (
-            await session.execute(
-                select(Organization).where(Organization.name == DEMO_ORG_NAME).order_by(Organization.id.asc()).limit(1)
-            )
-        ).scalar_one_or_none()
-        if org is None:
-            org = Organization(name=DEMO_ORG_NAME)
-            session.add(org)
-            await session.flush()
+        if SEED_ORG_ID:
+            try:
+                seed_org_id_int = int(SEED_ORG_ID)
+            except ValueError as exc:
+                raise RuntimeError("SEED_ORG_ID must be an integer") from exc
+            org = (
+                await session.execute(
+                    select(Organization).where(Organization.id == seed_org_id_int).limit(1)
+                )
+            ).scalar_one_or_none()
+            if org is None:
+                raise RuntimeError(f"SEED_ORG_ID={SEED_ORG_ID} not found")
+        else:
+            org = (
+                await session.execute(
+                    select(Organization).where(Organization.name == DEMO_ORG_NAME).order_by(Organization.id.asc()).limit(1)
+                )
+            ).scalar_one_or_none()
+            if org is None:
+                org = Organization(name=DEMO_ORG_NAME)
+                session.add(org)
+                await session.flush()
 
         user = (
             await session.execute(
@@ -61,14 +76,15 @@ async def seed() -> None:
             session.add(Membership(org_id=org.id, user_id=user.id, role="owner"))
 
         created_plaintext_key: str | None = None
-        key = (
+        existing_active_key = (
             await session.execute(
                 select(ApiKey)
-                .where(ApiKey.org_id == org.id, ApiKey.name == DEMO_API_KEY_NAME, ApiKey.revoked_at.is_(None))
+                .where(ApiKey.org_id == org.id, ApiKey.revoked_at.is_(None))
                 .order_by(ApiKey.id.asc())
                 .limit(1)
             )
         ).scalar_one_or_none()
+        key = existing_active_key
         if key is None:
             created_plaintext_key = generate_api_key()
             key = ApiKey(
@@ -79,31 +95,45 @@ async def seed() -> None:
             )
             session.add(key)
 
-        project = (
-            await session.execute(
-                select(Project)
-                .where(Project.org_id == org.id, Project.name == DEMO_PROJECT_NAME)
-                .order_by(Project.id.asc())
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-        if project is None:
-            project = Project(name=DEMO_PROJECT_NAME, org_id=org.id, created_by_user_id=user.id)
-            session.add(project)
-            await session.flush()
+        if existing_active_key is not None:
+            project = (
+                await session.execute(
+                    select(Project)
+                    .where(Project.org_id == org.id)
+                    .order_by(Project.id.asc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+        else:
+            project = (
+                await session.execute(
+                    select(Project)
+                    .where(Project.org_id == org.id, Project.name == DEMO_PROJECT_NAME)
+                    .order_by(Project.id.asc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if project is None:
+                project = Project(name=DEMO_PROJECT_NAME, org_id=org.id, created_by_user_id=user.id)
+                session.add(project)
+                await session.flush()
 
-        existing_memories = (
-            await session.execute(select(Memory.id).where(Memory.project_id == project.id).limit(1))
-        ).first()
-        if existing_memories is None:
-            for memory_type, content in DEMO_MEMORIES:
-                session.add(Memory(project_id=project.id, type=memory_type, content=content))
+        if project is not None:
+            existing_memories = (
+                await session.execute(select(Memory.id).where(Memory.project_id == project.id).limit(1))
+            ).first()
+            if existing_memories is None:
+                for memory_type, content in DEMO_MEMORIES:
+                    session.add(Memory(project_id=project.id, type=memory_type, content=content))
 
         await session.commit()
 
         print(f"Seed complete: org_id={org.id}, org_name={org.name}")
         print(f"Seed user: email={user.email}, role=owner")
-        print(f"Seed project: project_id={project.id}, name={project.name}")
+        if project is not None:
+            print(f"Seed project: project_id={project.id}, name={project.name}")
+        else:
+            print("Seed project: none found; skipped project/memory creation due to existing API key.")
         if created_plaintext_key is not None:
             print(f"Seed API key (store now, shown once): {created_plaintext_key}")
             print(f"Seed API key prefix: {created_plaintext_key[:8]}")

@@ -60,6 +60,7 @@ async def api_key_middleware(request: Request, call_next):
         resolved_org_id = None
         resolved_role = None
         resolved_user_id = None
+        resolved_api_key_id = None
         resolved_key_prefix = None
 
         if bootstrap_mode:
@@ -79,6 +80,7 @@ async def api_key_middleware(request: Request, call_next):
             ).scalar_one_or_none()
             if api_key_row is None:
                 return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+            resolved_api_key_id = api_key_row.id
             resolved_org_id = api_key_row.org_id
             resolved_key_prefix = api_key_row.prefix
             if header_org_id is not None and header_org_id != resolved_org_id:
@@ -112,6 +114,7 @@ async def api_key_middleware(request: Request, call_next):
             elif bootstrap_mode:
                 resolved_role = "owner"
 
+        request.state.api_key_id = resolved_api_key_id
         request.state.org_id = resolved_org_id
         request.state.role = resolved_role
         request.state.actor_user_id = resolved_user_id
