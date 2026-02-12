@@ -3,14 +3,18 @@ set -euo pipefail
 
 BASE_URL="${1:-http://localhost:8000}"
 API_KEY_VALUE="${API_KEY:-}"
+ORG_ID_VALUE="${ORG_ID:-}"
 PROJECT_NAME="FTS Demo $(date +%s)"
 
 api() {
+  local -a headers
   if [[ -n "${API_KEY_VALUE}" ]]; then
-    curl -fsS -H "X-API-Key: ${API_KEY_VALUE}" "$@"
-  else
-    curl -fsS "$@"
+    headers+=(-H "X-API-Key: ${API_KEY_VALUE}")
   fi
+  if [[ -n "${ORG_ID_VALUE}" ]]; then
+    headers+=(-H "X-Org-Id: ${ORG_ID_VALUE}")
+  fi
+  curl -fsS "${headers[@]}" "$@"
 }
 
 echo "Seeding baseline data (optional idempotent)..."

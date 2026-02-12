@@ -1,178 +1,106 @@
-# Data Model (MVP)
-
-<!--
-  This document defines the database schema for MVP.
-  Two tables only: projects and memories.
-  
-  Rule: Don't add fields until they're needed. YAGNI.
--->
+# Data Model (Phase B)
 
 ## Overview
 
-MVP has two tables:
+ContextCache now uses org-scoped multi-tenancy:
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                                                             │
-│   ┌─────────────┐           ┌─────────────────────────────┐ │
-│   │  projects   │ 1───────* │         memories            │ │
-│   │             │           │                             │ │
-│   │  id         │           │  id                         │ │
-│   │  name       │◀──────────│  project_id (FK)            │ │
-│   │  created_at │           │  type                       │ │
-│   └─────────────┘           │  content                    │ │
-│                             │  created_at                 │ │
-│                             └─────────────────────────────┘ │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
+- `organizations` own `projects`
+- `users` join orgs through `memberships`
+- `api_keys` are stored per org (hashed, revocable)
+- `audit_logs` record write actions
+- `memories` keep FTS document `search_tsv`
 
----
+## Core Tables
 
-## Tables
+### `organizations`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `INTEGER` | PK |
+| `name` | `VARCHAR(200)` | required |
+| `created_at` | `TIMESTAMPTZ` | default now |
+
+### `users`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `INTEGER` | PK |
+| `email` | `VARCHAR(255)` | unique, required |
+| `display_name` | `VARCHAR(255)` | nullable |
+| `created_at` | `TIMESTAMPTZ` | default now |
+
+### `memberships`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `INTEGER` | PK |
+| `org_id` | `INTEGER` | FK -> `organizations.id` |
+| `user_id` | `INTEGER` | FK -> `users.id` |
+| `role` | `VARCHAR(20)` | `owner|admin|member|viewer` |
+| `created_at` | `TIMESTAMPTZ` | default now |
+
+Unique: `(org_id, user_id)`.
 
 ### `projects`
 
-Top-level container for memory cards.
-
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| `id` | `INTEGER` | `PRIMARY KEY`, `AUTO INCREMENT` | Unique project identifier |
-| `name` | `VARCHAR(200)` | `NOT NULL` | Human-readable project name |
-| `created_at` | `TIMESTAMPTZ` | `NOT NULL`, `DEFAULT NOW()` | When the project was created |
-
-**Example row:**
-```json
-{
-  "id": 1,
-  "name": "Backend Refactor",
-  "created_at": "2024-01-15T10:30:00Z"
-}
-```
-
-**Notes:**
-- Project names don't need to be unique (for now)
-- No soft delete in MVP; delete is permanent (Phase 2)
-- No `updated_at` in MVP (not needed yet)
-
----
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `INTEGER` | PK |
+| `org_id` | `INTEGER` | FK -> `organizations.id`, required |
+| `created_by_user_id` | `INTEGER` | FK -> `users.id`, nullable |
+| `name` | `VARCHAR(200)` | required |
+| `created_at` | `TIMESTAMPTZ` | default now |
 
 ### `memories`
 
-Individual memory cards within a project.
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `INTEGER` | PK |
+| `project_id` | `INTEGER` | FK -> `projects.id` |
+| `type` | `VARCHAR(50)` | required |
+| `content` | `TEXT` | required |
+| `search_tsv` | `TSVECTOR` | FTS doc (trigger-maintained) |
+| `created_at` | `TIMESTAMPTZ` | default now |
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| `id` | `INTEGER` | `PRIMARY KEY`, `AUTO INCREMENT` | Unique memory identifier |
-| `project_id` | `INTEGER` | `NOT NULL`, `FOREIGN KEY → projects.id` | Which project this belongs to |
-| `type` | `VARCHAR(50)` | `NOT NULL` | Card type (see below) |
-| `content` | `TEXT` | `NOT NULL` | The actual memory content |
-| `search_tsv` | `TSVECTOR` | `NULL`, maintained by trigger | Search document for FTS ranking |
-| `created_at` | `TIMESTAMPTZ` | `NOT NULL`, `DEFAULT NOW()` | When the card was created |
+### `api_keys`
 
-**Example row:**
-```json
-{
-  "id": 1,
-  "project_id": 1,
-  "type": "decision",
-  "content": "We will use Postgres for storage, not SQLite.",
-  "created_at": "2024-01-15T11:00:00Z"
-}
-```
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `INTEGER` | PK |
+| `org_id` | `INTEGER` | FK -> `organizations.id` |
+| `name` | `VARCHAR(200)` | required |
+| `key_hash` | `VARCHAR(64)` | SHA-256 hex, unique |
+| `prefix` | `VARCHAR(16)` | first chars for display |
+| `created_at` | `TIMESTAMPTZ` | default now |
+| `revoked_at` | `TIMESTAMPTZ` | nullable |
 
----
+Plaintext API key is returned once on create, never stored in plaintext.
 
-## Memory Card Types
+### `audit_logs`
 
-The `type` field is a constrained string (enum-like). MVP supports:
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `INTEGER` | PK |
+| `org_id` | `INTEGER` | FK -> `organizations.id` |
+| `actor_user_id` | `INTEGER` | FK -> `users.id`, nullable |
+| `action` | `VARCHAR(100)` | e.g. `project.create` |
+| `entity_type` | `VARCHAR(100)` | e.g. `project` |
+| `entity_id` | `INTEGER` | target id |
+| `metadata` | `JSONB` | extra context |
+| `created_at` | `TIMESTAMPTZ` | default now |
 
-| Type | Purpose | Example |
-|------|---------|---------|
-| `decision` | A choice that was made | "We will use Postgres, not SQLite" |
-| `finding` | Something discovered during work | "The API latency is 200ms p99" |
-| `definition` | A term or concept defined | "Memory pack = formatted recall output" |
-| `note` | General observation | "Need to revisit auth design" |
-| `link` | Reference to external resource | "Docs: https://fastapi.tiangolo.com" |
-| `todo` | Action item | "Add rate limiting before launch" |
+## FTS Indexing
 
-**Validation:** API rejects types not in this list.
+Recall uses Postgres FTS with English config:
 
----
+- Query parser: `websearch_to_tsquery('english', query)`
+- Filter: `search_tsv @@ tsquery`
+- Rank: `ts_rank_cd(search_tsv, tsquery)`
+- Fallback: most recent memories when no FTS matches
 
-## Indexes
-
-Recall performance uses project scoping + FTS index:
+Indexes:
 
 ```sql
--- Speed up recall queries scoped by project
 CREATE INDEX idx_memories_project_id ON memories(project_id);
-
--- Speed up full-text recall
 CREATE INDEX idx_memories_search_tsv ON memories USING GIN (search_tsv);
-```
-
-**Note:** Recall uses `plainto_tsquery('english', query)` + `ts_rank_cd(search_tsv, tsquery)`, with recency fallback when there are no FTS matches.
-
----
-
-## Relationships
-
-```
-projects (1) ───────── (*) memories
-   │                        │
-   │                        │
-   └─── One project has ────┘
-        many memory cards
-```
-
-- Deleting a project should cascade-delete its memories (FK constraint)
-- Recall is always scoped to a single project
-
----
-
-## Not in MVP (Phase 2+)
-
-These fields are explicitly deferred:
-
-| Field | Table | Phase | Notes |
-|-------|-------|-------|-------|
-| `author_id` | memories | 2 | Requires users table |
-| `updated_at` | both | 2 | Needed when update endpoints exist |
-| `tags` | memories | 2 | Array or join table |
-| `source_url` | memories | 2 | For link-type cards |
-| `visibility` | memories | 2 | project / private |
-| `embedding` | memories | 2 | pgvector for semantic search |
-
----
-
-## SQLAlchemy Model Reference
-
-The Python models in `api/app/models.py` should match this schema:
-
-```python
-# Project model
-class Project(Base):
-    __tablename__ = "projects"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(200), nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
-    # Relationship: one project has many memories
-    memories = relationship("Memory", back_populates="project", cascade="all, delete-orphan")
-
-# Memory model
-class Memory(Base):
-    __tablename__ = "memories"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
-    type = Column(String(50), nullable=False)  # decision|finding|definition|note|link|todo
-    content = Column(Text, nullable=False)
-    search_tsv = Column(TSVECTOR, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
-    # Relationship: each memory belongs to one project
-    project = relationship("Project", back_populates="memories")
 ```

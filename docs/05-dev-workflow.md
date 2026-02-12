@@ -80,6 +80,13 @@ Seed demo data:
 docker compose exec api uv run python -m app.seed
 ```
 
+Copy the printed demo API key and set local env:
+
+```bash
+export API_KEY="cck_..."
+export ORG_ID="1"
+```
+
 Run the end-to-end demo flow:
 
 ```bash
@@ -139,7 +146,7 @@ export SERVER=100.126.216.28
 
 # Test API
 curl http://$SERVER:8000/health
-curl http://$SERVER:8000/projects
+curl -H "X-API-Key: $API_KEY" -H "X-Org-Id: $ORG_ID" http://$SERVER:8000/projects
 
 # View docs in browser
 open http://$SERVER:8001
@@ -199,6 +206,16 @@ git push
 docker compose logs -f api        # API logs
 docker compose logs -f postgres   # Database logs
 docker compose logs -f docs       # MkDocs logs
+```
+
+### Create an API Key (Admin/Owner)
+
+```bash
+curl -X POST http://localhost:8000/orgs/$ORG_ID/api-keys \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -H "X-Org-Id: $ORG_ID" \
+  -d '{"name":"local-dev-key"}'
 ```
 
 ### Restart a Service

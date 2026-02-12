@@ -1,355 +1,130 @@
-# API Contract (MVP)
-
-<!--
-  This document is the single source of truth for API endpoints.
-  All endpoints, request/response shapes, and status codes are defined here.
-  
-  Base URL: http://<server-ip>:8000 (accessed via Tailscale)
-  Interactive docs: http://<server-ip>:8000/docs (Swagger UI)
--->
+# API Contract (Phase B)
 
 ## Base URL
 
-```
-http://<tailscale-ip>:8000
-```
+`http://<tailscale-ip>:8000`
 
-All endpoints are relative to this base.
+## Auth + Org Headers
 
-## Authentication (Phase 2.1)
+Public routes:
 
-- Public endpoints (no key required): `/health`, `/docs`, `/openapi.json`
-- All other endpoints require header:
+- `GET /health`
+- `GET /docs`
+- `GET /openapi.json`
 
-```http
-X-API-Key: <API_KEY>
-```
+Protected routes use:
 
-- If `API_KEY` is not configured on the server, auth middleware allows requests (dev convenience).
+- `X-API-Key: <plaintext key>`
+- `X-Org-Id: <org_id>` (preferred; auto-defaults when only one org exists)
 
----
+Optional dev header for role simulation:
 
-## Health Check
+- `X-User-Email: <user email>` (maps request to membership role in org)
+- If omitted, the server uses the first membership row for that org as actor context.
 
-### `GET /health`
+Notes:
 
-Verify the API is running.
+- API keys are DB-backed (`api_keys` table), hashed at rest.
+- If no active API keys exist yet, protected requests are allowed in bootstrap mode.
 
-**Request:**
-```http
-GET /health
-```
+## Roles
 
-**Response:** `200 OK`
-```json
-{
-  "status": "ok"
-}
-```
+- `viewer`: read/list/recall
+- `member`: viewer + create memories
+- `admin`: member + manage projects + create/revoke API keys
+- `owner`: admin + manage memberships/org
 
-**Use case:** Load balancer health checks, deployment verification.
+## Endpoints
 
----
+### Health
 
-## Projects
+- `GET /health` -> `{ "status": "ok" }`
 
-### `POST /projects`
+### Org + Membership
 
-Create a new project.
+- `POST /orgs` (bootstrap when no orgs; otherwise `admin+`)
+- `GET /orgs`
+- `POST /orgs/{org_id}/memberships` (`owner`)
+- `GET /orgs/{org_id}/memberships` (`owner`)
+- `GET /me` (resolved context)
 
-**Request:**
-```http
-POST /projects
-Content-Type: application/json
+### Org-scoped Projects
 
-{
-  "name": "Backend Refactor"
-}
-```
+- `POST /orgs/{org_id}/projects` (`admin+`)
+- `GET /orgs/{org_id}/projects` (`viewer+`)
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | string | Yes | Project name (max 200 chars) |
+### API Keys
 
-**Response:** `201 Created`
+- `POST /orgs/{org_id}/api-keys` (`admin+`)  
+  Returns plaintext once:
+
 ```json
 {
   "id": 1,
-  "name": "Backend Refactor",
-  "created_at": "2024-01-15T10:30:00Z"
+  "org_id": 1,
+  "name": "team-key",
+  "prefix": "cck_ab12",
+  "created_at": "2026-01-01T00:00:00Z",
+  "revoked_at": null,
+  "api_key": "cck_ab12..."
 }
 ```
 
-**Errors:**
-- `422 Unprocessable Entity` — Missing or invalid `name`
-- `401 Unauthorized` — Missing or invalid API key
+- `GET /orgs/{org_id}/api-keys` (`admin+`) (no plaintext)
+- `POST /orgs/{org_id}/api-keys/{key_id}/revoke` (`admin+`)
 
----
+### Legacy Project Routes (still supported; org-scoped internally)
 
-### `GET /projects`
+- `POST /projects` (`admin+`)
+- `GET /projects` (`viewer+`)
+- `POST /projects/{project_id}/memories` (`member+`)
+- `GET /projects/{project_id}/memories` (`viewer+`)
+- `GET /projects/{project_id}/recall` (`viewer+`)
 
-List all projects.
+Cross-org access is blocked (returns `403` or `404` depending on context).
+Project responses include `org_id` and `created_by_user_id`.
 
-**Request:**
-```http
-GET /projects
-```
+## Recall Behavior
 
-**Response:** `200 OK`
-```json
-[
-  {
-    "id": 1,
-    "name": "Backend Refactor",
-    "created_at": "2024-01-15T10:30:00Z"
-  },
-  {
-    "id": 2,
-    "name": "Frontend Redesign",
-    "created_at": "2024-01-16T09:00:00Z"
-  }
-]
-```
+`GET /projects/{project_id}/recall?query=...&limit=10`
 
-**Notes:**
-- Returns empty array `[]` if no projects exist
-- No pagination in MVP (fine for small datasets)
-
----
-
-## Memory Cards
-
-### `POST /projects/{project_id}/memories`
-
-Create a memory card in a project.
-
-**Request:**
-```http
-POST /projects/1/memories
-Content-Type: application/json
-
-{
-  "type": "decision",
-  "content": "We will use Postgres for storage."
-}
-```
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `type` | string | Yes | One of: `decision`, `finding`, `definition`, `note`, `link`, `todo` |
-| `content` | string | Yes | The memory card content |
-
-**Response:** `201 Created`
-```json
-{
-  "id": 1,
-  "project_id": 1,
-  "type": "decision",
-  "content": "We will use Postgres for storage.",
-  "created_at": "2024-01-15T11:00:00Z"
-}
-```
-
-**Errors:**
-- `404 Not Found` — Project does not exist
-- `422 Unprocessable Entity` — Invalid `type` or missing required fields
-- `401 Unauthorized` — Missing or invalid API key
-
----
-
-### `GET /projects/{project_id}/memories`
-
-List all memory cards for a project.
-
-**Request:**
-```http
-GET /projects/1/memories
-```
-
-**Response:** `200 OK`
-```json
-[
-  {
-    "id": 2,
-    "project_id": 1,
-    "type": "finding",
-    "content": "API latency is 200ms p99",
-    "created_at": "2024-01-15T12:00:00Z"
-  },
-  {
-    "id": 1,
-    "project_id": 1,
-    "type": "decision",
-    "content": "We will use Postgres for storage.",
-    "created_at": "2024-01-15T11:00:00Z"
-  }
-]
-```
-
-**Notes:**
-- Ordered by `created_at` descending (newest first)
-- Returns empty array `[]` if no memories exist
-
-**Errors:**
-- `404 Not Found` — Project does not exist
-- `401 Unauthorized` — Missing or invalid API key
-
----
-
-## Recall (Memory Pack)
-
-### `GET /projects/{project_id}/recall`
-
-Generate a paste-ready memory pack.
-
-**Request:**
-```http
-GET /projects/1/recall?query=postgres&limit=10
-```
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `query` | string | No | `""` | Search term for filtering |
-| `limit` | integer | No | 10 | Max cards to return |
-
-**Response:** `200 OK`
-```json
-{
-  "project_id": 1,
-  "query": "postgres",
-  "memory_pack_text": "PROJECT MEMORY PACK\nQuery: postgres\n\nDECISION:\n- We will use Postgres for storage.\n\nFINDING:\n- Postgres handles 10k concurrent connections.",
-  "items": [
-    {
-      "id": 1,
-      "project_id": 1,
-      "type": "decision",
-      "content": "We will use Postgres for storage.",
-      "created_at": "2024-01-15T11:00:00Z",
-      "rank_score": 0.42
-    },
-    {
-      "id": 3,
-      "project_id": 1,
-      "type": "finding",
-      "content": "Postgres handles 10k concurrent connections.",
-      "created_at": "2024-01-15T14:00:00Z",
-      "rank_score": 0.21
-    }
-  ]
-}
-```
-
-**Memory Pack Format:**
-```
-PROJECT MEMORY PACK
-Query: <query>
-
-DECISION:
-- <content>
-
-FINDING:
-- <content>
-...
-```
-
-**How to use:**
-1. Call this endpoint with your query
-2. Copy `memory_pack_text` from response
-3. Paste into ChatGPT, Claude, or any AI tool
-4. Ask your question below the pasted context
-
-**Matching (Phase 2.2):**
-- Primary: Postgres FTS using `websearch_to_tsquery('english', query)`
+- Primary: Postgres FTS with `websearch_to_tsquery('english', query)`
 - Filter: `search_tsv @@ tsquery`
-- Ranking: `ts_rank_cd(search_tsv, tsquery)` descending
-- Tie-breaker: `created_at` descending
-- Fallback: if no FTS matches, return most recent cards
-- Empty query returns most recent cards
-- Query syntax follows web-style semantics (quoted phrases, `OR`, and `-term` exclusion)
+- Rank: `ts_rank_cd(search_tsv, tsquery)` DESC
+- Tie-break: `created_at` DESC
+- Fallback: recent memories when no FTS matches
+- `memory_pack_text` remains paste-ready grouped text
 
-`items[].rank_score`:
-- FTS match path: float from `ts_rank_cd`
-- Recency fallback path: `null`
-
-**Errors:**
-- `404 Not Found` — Project does not exist
-- `401 Unauthorized` — Missing or invalid API key
-
----
-
-## Error Responses
-
-`404` and `500` errors follow this format:
+Recall response item shape:
 
 ```json
 {
-  "detail": "Error message here"
+  "id": 10,
+  "project_id": 5,
+  "type": "finding",
+  "content": "Postgres FTS ranking improved precision.",
+  "created_at": "2026-01-01T00:00:00Z",
+  "rank_score": 0.42
 }
 ```
 
-Validation errors (`422`) return:
+- `rank_score` is `null` for recency fallback rows.
+
+## Error Format
 
 ```json
 {
-  "detail": "Validation error",
-  "errors": [
-    {
-      "loc": ["body", "name"],
-      "msg": "String should have at least 1 character",
-      "type": "string_too_short"
-    }
-  ]
+  "detail": "Error message"
 }
 ```
 
-**Common status codes:**
+Common codes:
 
-| Code | Meaning |
-|------|---------|
-| `200` | Success |
-| `201` | Created |
-| `404` | Resource not found |
-| `401` | Unauthorized |
-| `422` | Validation error |
-| `500` | Server error |
-
----
-
-## Planned Endpoints (Phase 2+)
-
-These endpoints are NOT in MVP but are planned:
-
-| Method | Endpoint | Phase | Description |
-|--------|----------|-------|-------------|
-| `PATCH` | `/projects/{id}/memories/{id}` | 2 | Update a memory card |
-| `DELETE` | `/projects/{id}/memories/{id}` | 2 | Delete a memory card |
-| `DELETE` | `/projects/{id}` | 2 | Delete a project |
-| `GET` | `/projects/{id}/memories?type=decision` | 2 | Filter by type |
-| `POST` | `/auth/login` | 2 | User authentication |
-
----
-
-## Example: Full Workflow
-
-```bash
-# 1. Create a project
-curl -X POST http://localhost:8000/projects \
-  -H "Content-Type: application/json" \
-  -d '{"name": "My Project"}'
-# Response: {"id": 1, "name": "My Project", ...}
-
-# 2. Add memory cards
-curl -X POST http://localhost:8000/projects/1/memories \
-  -H "Content-Type: application/json" \
-  -d '{"type": "decision", "content": "We use Postgres for storage."}'
-
-curl -X POST http://localhost:8000/projects/1/memories \
-  -H "Content-Type: application/json" \
-  -d '{"type": "definition", "content": "Memory pack = formatted recall output for pasting."}'
-
-# 3. Recall a memory pack
-curl "http://localhost:8000/projects/1/recall?query=postgres&limit=10"
-# Response includes memory_pack_text ready to paste
-
-# 4. Paste into ChatGPT/Claude and ask your question
-```
+- `200` success
+- `201` created
+- `400` bad request (e.g. invalid `X-Org-Id`)
+- `401` unauthorized (missing/invalid key)
+- `403` forbidden (role/org mismatch)
+- `404` not found
+- `422` validation error
+- `500` server error

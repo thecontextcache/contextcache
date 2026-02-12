@@ -11,7 +11,7 @@ Teams save high-signal memory cards and recall a paste-ready memory pack.
 docker compose up -d --build
 ```
 
-Optional: set `API_KEY` in `.env` to enforce auth for all non-public endpoints.
+Auth is DB-backed via `/orgs/{org_id}/api-keys`; use seeded key for local development.
 
 ### 2) Verify API
 
@@ -29,6 +29,18 @@ Expected:
 
 ```bash
 docker compose exec api uv run python -m app.seed
+```
+
+Seed prints:
+
+- demo org id
+- demo API key (shown once if created)
+
+Set env vars for scripts/curl:
+
+```bash
+export API_KEY="cck_..."
+export ORG_ID="1"
 ```
 
 ### 4) Run end-to-end demo script
@@ -49,7 +61,7 @@ Use a different API base URL if needed:
 - Swagger: `http://localhost:8000/docs`
 - MkDocs site: `http://localhost:8001`
 
-In the web UI, set your API key once in the `API Key` section.
+In the web UI, set your API key and org id in the `API Key` and `Org Context` sections.
 
 ## Current scope (Phase 1)
 

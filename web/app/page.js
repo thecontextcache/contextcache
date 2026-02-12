@@ -27,19 +27,26 @@ export default function Home() {
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [orgId, setOrgId] = useState("");
 
   async function request(path, init) {
     const storedApiKey =
       typeof window !== "undefined"
         ? window.localStorage.getItem("CONTEXTCACHE_API_KEY") || ""
         : "";
+    const storedOrgId =
+      typeof window !== "undefined"
+        ? window.localStorage.getItem("CONTEXTCACHE_ORG_ID") || ""
+        : "";
     const effectiveApiKey = apiKey || storedApiKey;
+    const effectiveOrgId = orgId || storedOrgId;
 
     const response = await fetch(`${apiBase}${path}`, {
       ...init,
       headers: {
         "Content-Type": "application/json",
         ...(effectiveApiKey ? { "X-API-Key": effectiveApiKey } : {}),
+        ...(effectiveOrgId ? { "X-Org-Id": effectiveOrgId } : {}),
         ...(init?.headers || {}),
       },
     });
@@ -72,7 +79,9 @@ export default function Home() {
 
   useEffect(() => {
     const saved = window.localStorage.getItem("CONTEXTCACHE_API_KEY") || "";
+    const savedOrgId = window.localStorage.getItem("CONTEXTCACHE_ORG_ID") || "";
     if (saved) setApiKey(saved);
+    if (savedOrgId) setOrgId(savedOrgId);
     loadProjects();
   }, []);
 
@@ -225,6 +234,30 @@ export default function Home() {
           </button>
         </div>
         <div className="muted">Stored locally (browser only). Not sent anywhere except your API.</div>
+      </section>
+
+      <section className="card" style={{ marginBottom: 16 }}>
+        <h2>Org Context</h2>
+        <label htmlFor="org-id">X-Org-Id</label>
+        <div className="row">
+          <input
+            id="org-id"
+            placeholder="e.g. 1"
+            value={orgId}
+            onChange={(e) => {
+              setOrgId(e.target.value);
+              window.localStorage.setItem("CONTEXTCACHE_ORG_ID", e.target.value);
+            }}
+          />
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => setStatus("Org id saved in this browser.")}
+          >
+            Save
+          </button>
+        </div>
+        <div className="muted">Used for org-scoped requests. Stored locally in this browser.</div>
       </section>
 
       <div className="grid">
