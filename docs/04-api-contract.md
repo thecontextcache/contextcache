@@ -195,7 +195,7 @@ GET /projects/1/recall?query=postgres&limit=10
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `query` | string | No | (none) | Search term for filtering |
+| `query` | string | No | `""` | Search term for filtering |
 | `limit` | integer | No | 10 | Max cards to return |
 
 **Response:** `200 OK`
@@ -203,7 +203,7 @@ GET /projects/1/recall?query=postgres&limit=10
 {
   "project_id": 1,
   "query": "postgres",
-  "memory_pack_text": "PROJECT MEMORY PACK\nQuery: postgres\n\n- [decision] We will use Postgres for storage.\n- [finding] Postgres handles 10k concurrent connections.",
+  "memory_pack_text": "PROJECT MEMORY PACK\nQuery: postgres\n\nDECISION:\n- We will use Postgres for storage.\n\nFINDING:\n- Postgres handles 10k concurrent connections.",
   "items": [
     {
       "id": 1,
@@ -228,8 +228,11 @@ GET /projects/1/recall?query=postgres&limit=10
 PROJECT MEMORY PACK
 Query: <query>
 
-- [<type>] <content>
-- [<type>] <content>
+DECISION:
+- <content>
+
+FINDING:
+- <content>
 ...
 ```
 
@@ -240,9 +243,10 @@ Query: <query>
 4. Ask your question below the pasted context
 
 **Matching (MVP):**
-- Case-insensitive substring match (`ILIKE '%query%'`)
+- Tokenized overlap scoring between query and memory content
+- Recency boost as a secondary ranking signal
 - Empty query returns most recent cards
-- Phase 2 adds full-text search / embeddings
+- Phase 2 adds Postgres FTS and/or embeddings
 
 **Errors:**
 - `404 Not Found` — Project does not exist
@@ -251,11 +255,26 @@ Query: <query>
 
 ## Error Responses
 
-All errors follow this format:
+`404` and `500` errors follow this format:
 
 ```json
 {
   "detail": "Error message here"
+}
+```
+
+Validation errors (`422`) return:
+
+```json
+{
+  "detail": "Validation error",
+  "errors": [
+    {
+      "loc": ["body", "name"],
+      "msg": "String should have at least 1 character",
+      "type": "string_too_short"
+    }
+  ]
 }
 ```
 

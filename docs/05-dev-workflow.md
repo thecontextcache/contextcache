@@ -71,6 +71,18 @@ open http://localhost:8001
 docker compose down
 ```
 
+Seed demo data:
+
+```bash
+docker compose exec api uv run python -m app.seed
+```
+
+Run the end-to-end demo flow:
+
+```bash
+./scripts/demo.sh
+```
+
 ### 3. Commit and Push to GitHub
 
 ```bash

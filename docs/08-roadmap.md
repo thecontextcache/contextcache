@@ -75,11 +75,12 @@ Phase 1 is complete when:
 | Feature | Description |
 |---------|-------------|
 | User authentication | JWT-based auth |
+| Roles and permissions | Owner/editor/viewer role model |
 | User model | `users` table with email/password |
 | `author_id` on memories | Track who created each card |
 | Update/delete endpoints | Full CRUD for memories |
-| Full-text search | Postgres FTS or trigram |
-| Optional: Embeddings | pgvector for semantic search |
+| Better retrieval | Postgres FTS ranking (BM25-ish) and filtering |
+| Optional: Embeddings | pgvector for semantic recall |
 | Basic web UI | React/Vue frontend |
 | Teams / organizations | Multi-tenant support |
 | Audit logging | Who did what, when |
