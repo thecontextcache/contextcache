@@ -136,11 +136,43 @@ export default function Home() {
 
   async function copyMemoryPack() {
     if (!memoryPack) return;
+    setError("");
+    setStatus("");
+
+    // Prefer modern async clipboard in secure contexts.
     try {
-      await navigator.clipboard.writeText(memoryPack);
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(memoryPack);
+        setStatus("Memory pack copied.");
+        return;
+      }
+    } catch {
+      // Fall through to legacy copy method.
+    }
+
+    // Fallback for HTTP/insecure contexts.
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = memoryPack;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      ta.style.top = "-9999px";
+      document.body.appendChild(ta);
+
+      ta.focus();
+      ta.select();
+
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+
+      if (!ok) {
+        throw new Error("execCommand copy failed");
+      }
+
       setStatus("Memory pack copied.");
     } catch {
-      setError("Clipboard copy failed.");
+      setError("Copy failed in this browser on HTTP. Use Download .txt or run over HTTPS.");
     }
   }
 
