@@ -38,7 +38,7 @@ export default function Home() {
       typeof window !== "undefined"
         ? window.localStorage.getItem("CONTEXTCACHE_ORG_ID") || ""
         : "";
-    const effectiveApiKey = options.apiKeyOverride ?? apiKey || storedApiKey;
+    const effectiveApiKey = (options.apiKeyOverride ?? apiKey) || storedApiKey;
     const effectiveOrgId = orgId || storedOrgId;
     const includeOrgHeader = options.includeOrgHeader ?? true;
 
