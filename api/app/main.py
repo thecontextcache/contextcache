@@ -33,6 +33,10 @@ async def api_key_middleware(request: Request, call_next):
     global WARNED_NO_KEYS
     path = request.url.path
 
+    # Always allow CORS preflight requests.
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
     if path.startswith(PUBLIC_PATH_PREFIXES):
         return await call_next(request)
 

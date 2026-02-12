@@ -167,6 +167,14 @@ export SERVER=100.126.216.28
 curl http://$SERVER:8000/health
 curl -H "X-API-Key: $API_KEY" -H "X-Org-Id: $ORG_ID" http://$SERVER:8000/projects
 
+# Verify CORS preflight for custom auth headers
+curl -i -X OPTIONS "http://$SERVER:8000/projects" \
+  -H "Origin: http://$SERVER:3000" \
+  -H "Access-Control-Request-Method: GET" \
+  -H "Access-Control-Request-Headers: x-api-key,x-org-id,content-type"
+
+# Expected: 200/204 + Access-Control-Allow-Origin + Access-Control-Allow-Headers including x-api-key,x-org-id
+
 # View docs in browser
 open http://$SERVER:8001
 ```
