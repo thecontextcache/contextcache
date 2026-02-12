@@ -8,6 +8,8 @@
 - Keys are stored in `api_keys` as SHA-256 hashes (`key_hash`), never plaintext.
 - Key plaintext is returned once at creation.
 - Revocation uses `revoked_at`; revoked keys are rejected.
+- Break-glass rotation is CLI-only (`python -m app.rotate_key`) inside the API container.
+- No HTTP key-rotation endpoint is exposed.
 
 ### Org Isolation
 

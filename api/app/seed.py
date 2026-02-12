@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 
@@ -14,6 +15,7 @@ DEMO_USER_DISPLAY_NAME = "Demo Owner"
 DEMO_API_KEY_NAME = "demo-key"
 DEMO_PROJECT_NAME = "Demo Project"
 SEED_ORG_ID = os.getenv("SEED_ORG_ID", "").strip()
+FORCE_ROTATE_DEMO_KEY = os.getenv("FORCE_ROTATE_DEMO_KEY", "").strip() == "1"
 
 DEMO_MEMORIES = [
     ("decision", "Use Postgres + SQLAlchemy async for persistence."),
@@ -76,6 +78,7 @@ async def seed() -> None:
             session.add(Membership(org_id=org.id, user_id=user.id, role="owner"))
 
         created_plaintext_key: str | None = None
+        rotated_keys_count = 0
         existing_active_key = (
             await session.execute(
                 select(ApiKey)
@@ -84,8 +87,16 @@ async def seed() -> None:
                 .limit(1)
             )
         ).scalar_one_or_none()
-        key = existing_active_key
-        if key is None:
+
+        if FORCE_ROTATE_DEMO_KEY:
+            active_keys = (
+                await session.execute(
+                    select(ApiKey).where(ApiKey.org_id == org.id, ApiKey.revoked_at.is_(None))
+                )
+            ).scalars().all()
+            for active_key in active_keys:
+                active_key.revoked_at = datetime.now(timezone.utc)
+            rotated_keys_count = len(active_keys)
             created_plaintext_key = generate_api_key()
             key = ApiKey(
                 org_id=org.id,
@@ -94,6 +105,18 @@ async def seed() -> None:
                 prefix=created_plaintext_key[:8],
             )
             session.add(key)
+            existing_active_key = key
+        else:
+            key = existing_active_key
+            if key is None:
+                created_plaintext_key = generate_api_key()
+                key = ApiKey(
+                    org_id=org.id,
+                    name=DEMO_API_KEY_NAME,
+                    key_hash=hash_api_key(created_plaintext_key),
+                    prefix=created_plaintext_key[:8],
+                )
+                session.add(key)
 
         if existing_active_key is not None:
             project = (
@@ -134,6 +157,8 @@ async def seed() -> None:
             print(f"Seed project: project_id={project.id}, name={project.name}")
         else:
             print("Seed project: none found; skipped project/memory creation due to existing API key.")
+        if FORCE_ROTATE_DEMO_KEY:
+            print(f"Force-rotated active API keys for org: revoked_count={rotated_keys_count}")
         if created_plaintext_key is not None:
             print(f"Seed API key (store now, shown once): {created_plaintext_key}")
             print(f"Seed API key prefix: {created_plaintext_key[:8]}")

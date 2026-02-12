@@ -94,6 +94,18 @@ Recommended UI flow:
 3. Click `Connect` (UI calls `/me`, auto-detects org id)
 4. UI stores org id and uses it for project/memory/recall requests
 
+Locked out flow (break-glass rotation):
+
+```bash
+docker compose exec api uv run python -m app.rotate_key --org-id X --name demo-key
+```
+
+After rotation, update your local/server `.env` API key value and restart:
+
+```bash
+docker compose up -d --build
+```
+
 Run the end-to-end demo flow:
 
 ```bash

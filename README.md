@@ -49,6 +49,12 @@ If you need to seed into an existing org:
 SEED_ORG_ID=1 docker compose exec api uv run python -m app.seed
 ```
 
+If you need to force-rotate Demo Org keys during seed:
+
+```bash
+FORCE_ROTATE_DEMO_KEY=1 docker compose exec api uv run python -m app.seed
+```
+
 ### 4) Run end-to-end demo script
 
 ```bash
@@ -68,6 +74,21 @@ Use a different API base URL if needed:
 - MkDocs site: `http://localhost:8001`
 
 In the web UI, paste API key and click `Connect` to auto-detect org id from `/me`.
+
+## Locked Out?
+
+Rotate a key from inside the API container:
+
+```bash
+docker compose exec api uv run python -m app.rotate_key --org-id X --name demo-key
+```
+
+Then set the new key in your `.env` operator workflow and restart:
+
+```bash
+# update your .env with the new API_KEY value
+docker compose up -d --build
+```
 
 ## Current scope (Phase 1)
 
