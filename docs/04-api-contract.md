@@ -256,11 +256,13 @@ FINDING:
 3. Paste into ChatGPT, Claude, or any AI tool
 4. Ask your question below the pasted context
 
-**Matching (MVP):**
-- Tokenized overlap scoring between query and memory content
-- Recency boost as a secondary ranking signal
+**Matching (Phase 2.2):**
+- Primary: Postgres FTS using `plainto_tsquery('english', query)`
+- Filter: `search_tsv @@ tsquery`
+- Ranking: `ts_rank_cd(search_tsv, tsquery)` descending
+- Tie-breaker: `created_at` descending
+- Fallback: if no FTS matches, return most recent cards
 - Empty query returns most recent cards
-- Phase 2 adds Postgres FTS and/or embeddings
 
 **Errors:**
 - `404 Not Found` — Project does not exist

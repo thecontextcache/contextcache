@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .db import engine
+from .db import engine, ensure_fts_schema
 from .models import Base
 from .routes import router
 
@@ -49,6 +49,7 @@ async def startup() -> None:
     # MVP approach: auto-create tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    await ensure_fts_schema()
 
 app.include_router(router)
 

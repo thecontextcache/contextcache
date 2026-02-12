@@ -102,7 +102,9 @@ User                    API                     Postgres
   │                      │                         │
   │  GET /recall?query=  │                         │
   │─────────────────────▶│                         │
-  │                      │  SELECT project cards    │
+  │                      │  SELECT ... WHERE         │
+  │                      │  search_tsv @@ tsquery   │
+  │                      │  ORDER BY ts_rank_cd DESC│
   │                      │────────────────────────▶│
   │                      │                         │
   │                      │  Return matching rows   │

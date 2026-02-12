@@ -55,7 +55,7 @@ In the web UI, set your API key once in the `API Key` section.
 
 - Projects: create/list
 - Memory cards: create/list
-- Recall: token overlap + recency scoring
+- Recall: Postgres FTS ranking + recency fallback
 - Memory pack output grouped by memory type
 - Tiny Next.js UI: select project, add memory, recall, copy/download export
 

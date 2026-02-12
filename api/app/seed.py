@@ -12,7 +12,7 @@ DEMO_PROJECT_NAME = "Demo Project"
 DEMO_MEMORIES = [
     ("decision", "Use Postgres + SQLAlchemy async for persistence."),
     ("definition", "Memory pack = formatted recall context grouped by type."),
-    ("finding", "Recall ranks cards by token overlap and recency."),
+    ("finding", "Recall ranks cards with Postgres FTS and falls back to recency."),
     ("todo", "Add Auth/Teams/Roles in Phase 2."),
     ("link", "API docs: http://localhost:8000/docs"),
     ("note", "This seed script is idempotent."),

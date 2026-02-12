@@ -3,13 +3,13 @@ from __future__ import annotations
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import get_db
 from .models import Project, Memory
 from .schemas import ProjectCreate, ProjectOut, MemoryCreate, MemoryOut, RecallOut
-from .recall import score_memory, build_memory_pack
+from .recall import build_memory_pack
 
 router = APIRouter()
 
@@ -83,22 +83,34 @@ async def recall(
     if project_res.scalar_one_or_none() is None:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    res = await db.execute(
-        select(Memory).where(Memory.project_id == project_id).order_by(Memory.created_at.desc(), Memory.id.desc())
-    )
-    all_items = res.scalars().all()
-
     query_clean = query.strip()
     if query_clean:
-        scored = []
-        for m in all_items:
-            s = score_memory(query=query_clean, content=m.content, created_at=m.created_at)
-            if s > 0:
-                scored.append((s, m))
-        scored.sort(key=lambda x: x[0], reverse=True)
-        top = [m for _, m in scored[:limit]]
+        tsquery = func.plainto_tsquery("english", query_clean)
+        rank = func.ts_rank_cd(Memory.search_tsv, tsquery)
+        fts_result = await db.execute(
+            select(Memory)
+            .where(Memory.project_id == project_id)
+            .where(Memory.search_tsv.op("@@")(tsquery))
+            .order_by(desc(rank), Memory.created_at.desc(), Memory.id.desc())
+            .limit(limit)
+        )
+        top = fts_result.scalars().all()
+        if not top:
+            fallback_result = await db.execute(
+                select(Memory)
+                .where(Memory.project_id == project_id)
+                .order_by(Memory.created_at.desc(), Memory.id.desc())
+                .limit(limit)
+            )
+            top = fallback_result.scalars().all()
     else:
-        top = all_items[:limit]
+        recent_result = await db.execute(
+            select(Memory)
+            .where(Memory.project_id == project_id)
+            .order_by(Memory.created_at.desc(), Memory.id.desc())
+            .limit(limit)
+        )
+        top = recent_result.scalars().all()
 
     pack = build_memory_pack(query_clean, [(m.type, m.content) for m in top])
     out_items = [

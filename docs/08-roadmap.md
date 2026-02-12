@@ -37,7 +37,7 @@
 | Projects CRUD | 🔄 In Progress | Create + List |
 | Memory Cards CRUD | 🔄 In Progress | Create + List |
 | Recall endpoint | 🔄 In Progress | Returns memory pack text |
-| Simple matching | 🔄 In Progress | Substring match (ILIKE) |
+| FTS matching | ✅ Done | Postgres FTS + `ts_rank_cd` + recency fallback |
 | Docker Compose | ✅ Done | API + Postgres + Docs |
 | MkDocs documentation | 🔄 In Progress | This site |
 | Tailscale deployment | ✅ Done | Private access |

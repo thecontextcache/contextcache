@@ -86,6 +86,12 @@ Run the end-to-end demo flow:
 ./scripts/demo.sh
 ```
 
+Run FTS ranking smoke demo:
+
+```bash
+./scripts/demo_fts.sh
+```
+
 ### 3. Commit and Push to GitHub
 
 ```bash

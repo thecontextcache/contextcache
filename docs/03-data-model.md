@@ -67,6 +67,7 @@ Individual memory cards within a project.
 | `project_id` | `INTEGER` | `NOT NULL`, `FOREIGN KEY → projects.id` | Which project this belongs to |
 | `type` | `VARCHAR(50)` | `NOT NULL` | Card type (see below) |
 | `content` | `TEXT` | `NOT NULL` | The actual memory content |
+| `search_tsv` | `TSVECTOR` | `NULL`, maintained by trigger | Search document for FTS ranking |
 | `created_at` | `TIMESTAMPTZ` | `NOT NULL`, `DEFAULT NOW()` | When the card was created |
 
 **Example row:**
@@ -101,14 +102,17 @@ The `type` field is a constrained string (enum-like). MVP supports:
 
 ## Indexes
 
-For MVP, we need one index for efficient recall:
+Recall performance uses project scoping + FTS index:
 
 ```sql
--- Speed up recall queries that filter by project and search content
+-- Speed up recall queries scoped by project
 CREATE INDEX idx_memories_project_id ON memories(project_id);
+
+-- Speed up full-text recall
+CREATE INDEX idx_memories_search_tsv ON memories USING GIN (search_tsv);
 ```
 
-**Note:** Content search uses `ILIKE` in MVP. This is fast enough for small datasets. Phase 2 adds full-text search or pgvector.
+**Note:** Recall uses `plainto_tsquery('english', query)` + `ts_rank_cd(search_tsv, tsquery)`, with recency fallback when there are no FTS matches.
 
 ---
 
@@ -166,6 +170,7 @@ class Memory(Base):
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
     type = Column(String(50), nullable=False)  # decision|finding|definition|note|link|todo
     content = Column(Text, nullable=False)
+    search_tsv = Column(TSVECTOR, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationship: each memory belongs to one project

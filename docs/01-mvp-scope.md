@@ -28,7 +28,7 @@ These features WILL be built in MVP:
 - Supported types: `decision`, `finding`, `definition`, `note`, `link`, `todo`
 
 ### Recall Endpoint
-- Query memories by keyword using token overlap + recency scoring
+- Query memories by keyword using Postgres FTS ranking
 - Return a formatted "memory pack" text block
 - Limit results with `?limit=N` parameter
 
@@ -53,7 +53,7 @@ These features will NOT be built in MVP:
 | Feature | Phase | Reason for Deferral |
 |---------|-------|---------------------|
 | Multi-user auth / roles / teams | Phase 2 | Adds complexity; single-user fine for MVP |
-| Embeddings / semantic search | Phase 2 | Token overlap + recency is good enough for MVP |
+| Embeddings / semantic search | Phase 2 | Postgres FTS is good enough before vectors |
 | Update/delete memory cards | Phase 2 | Create + list covers core workflow |
 | Full production web app | Phase 2 | MVP UI stays intentionally small |
 | Graph database / knowledge graph | Phase 3 | Premature optimization |
@@ -82,6 +82,6 @@ MVP is complete when:
 | Decision | Rationale |
 |----------|-----------|
 | No auto-save | High-signal curation requires human intent |
-| Token overlap + recency first | YAGNI—add FTS/embeddings when needed |
+| Postgres FTS + recency fallback | Better ranked recall with low complexity |
 | No UI in MVP | API validates the model; UI is cosmetic |
 | Single user | Auth is complexity; defer until multi-user needed |
