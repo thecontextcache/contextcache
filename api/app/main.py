@@ -16,6 +16,12 @@ from .routes import router
 app = FastAPI(title="ContextCache API", version="0.1.0")
 PUBLIC_PATH_PREFIXES = ("/health", "/docs", "/openapi.json")
 WARNED_NO_KEYS = False
+APP_ENV = os.getenv("APP_ENV", "").strip().lower()
+BOOTSTRAP_API_KEY = os.getenv("BOOTSTRAP_API_KEY", "").strip()
+BOOTSTRAP_KEY_NAME = os.getenv("BOOTSTRAP_KEY_NAME", "dev-key").strip() or "dev-key"
+BOOTSTRAP_ORG_NAME = os.getenv("BOOTSTRAP_ORG_NAME", "Demo Org").strip() or "Demo Org"
+BOOTSTRAP_OWNER_EMAIL = "demo@local"
+BOOTSTRAP_OWNER_NAME = "Demo Owner"
 
 raw_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000")
 cors_origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
@@ -26,6 +32,75 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+async def ensure_dev_bootstrap_api_key() -> None:
+    if APP_ENV != "dev":
+        return
+    if not BOOTSTRAP_API_KEY:
+        return
+
+    async with AsyncSessionLocal() as session:
+        active_key_count = (
+            await session.execute(select(func.count(ApiKey.id)).where(ApiKey.revoked_at.is_(None)))
+        ).scalar_one()
+        if active_key_count > 0:
+            return
+
+        org = (
+            await session.execute(
+                select(Organization).where(Organization.name == BOOTSTRAP_ORG_NAME).order_by(Organization.id.asc()).limit(1)
+            )
+        ).scalar_one_or_none()
+        if org is None:
+            org = Organization(name=BOOTSTRAP_ORG_NAME)
+            session.add(org)
+            await session.flush()
+
+        user = (
+            await session.execute(
+                select(User).where(func.lower(User.email) == BOOTSTRAP_OWNER_EMAIL).limit(1)
+            )
+        ).scalar_one_or_none()
+        if user is None:
+            user = User(email=BOOTSTRAP_OWNER_EMAIL, display_name=BOOTSTRAP_OWNER_NAME)
+            session.add(user)
+            await session.flush()
+
+        membership = (
+            await session.execute(
+                select(Membership).where(Membership.org_id == org.id, Membership.user_id == user.id).limit(1)
+            )
+        ).scalar_one_or_none()
+        if membership is None:
+            session.add(Membership(org_id=org.id, user_id=user.id, role="owner"))
+
+        key_hash = hash_api_key(BOOTSTRAP_API_KEY)
+        prefix = BOOTSTRAP_API_KEY[:8]
+        existing_key = (
+            await session.execute(select(ApiKey).where(ApiKey.key_hash == key_hash).limit(1))
+        ).scalar_one_or_none()
+        if existing_key is None:
+            session.add(
+                ApiKey(
+                    org_id=org.id,
+                    name=BOOTSTRAP_KEY_NAME,
+                    key_hash=key_hash,
+                    prefix=prefix,
+                    revoked_at=None,
+                )
+            )
+        else:
+            existing_key.org_id = org.id
+            existing_key.name = BOOTSTRAP_KEY_NAME
+            existing_key.prefix = prefix
+            existing_key.revoked_at = None
+
+        await session.commit()
+        print(
+            f"[bootstrap] Ensured dev bootstrap API key for org='{org.name}' "
+            f"prefix='{prefix}' name='{BOOTSTRAP_KEY_NAME}'"
+        )
 
 
 @app.middleware("http")
@@ -127,6 +202,12 @@ async def api_key_middleware(request: Request, call_next):
         request.state.bootstrap_mode = bootstrap_mode
 
     return await call_next(request)
+
+
+@app.on_event("startup")
+async def startup() -> None:
+    await ensure_dev_bootstrap_api_key()
+
 
 app.include_router(router)
 

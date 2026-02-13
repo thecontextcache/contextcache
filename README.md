@@ -14,6 +14,8 @@ docker compose up -d --build
 Auth is DB-backed via `/orgs/{org_id}/api-keys`; use seeded key for local development.
 API startup now runs `python -m app.migrate` before serving requests.
 The migration runner handles both fresh DBs and legacy pre-Alembic DBs safely.
+For stable local auth, set `BOOTSTRAP_API_KEY` in `.env` (dev only). If no active keys exist,
+startup will ensure that exact key (hashed in DB) under `BOOTSTRAP_ORG_NAME` / `BOOTSTRAP_KEY_NAME`.
 
 ### 2) Verify API
 

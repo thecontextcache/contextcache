@@ -81,6 +81,11 @@ API container startup runs migrations automatically:
 python -m app.migrate
 ```
 
+Dev bootstrap key (optional, recommended):
+- Set `BOOTSTRAP_API_KEY` in `.env`
+- On `APP_ENV=dev` startup, if there are zero active API keys, API will ensure this exact key
+  (hashed in DB) plus `Demo Org`/owner membership.
+
 Seed demo data:
 
 ```bash

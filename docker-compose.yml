@@ -17,6 +17,22 @@ services:
       start_period: 5s
     restart: unless-stopped
 
+  db-test:
+    image: postgres:16
+    environment:
+      - POSTGRES_USER=contextcache
+      - POSTGRES_PASSWORD=contextcache
+      - POSTGRES_DB=contextcache_test
+    volumes:
+      - pgdata_test:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U contextcache -d contextcache_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
   api:
     build:
       context: ./api
@@ -43,10 +59,10 @@ services:
       - path: .env
         required: false
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD:-change-me}@db:5432/${POSTGRES_DB:-contextcache}
+      - DATABASE_URL=postgresql+asyncpg://contextcache:contextcache@db-test:5432/contextcache_test
       - RUN_MIGRATIONS=0
     depends_on:
-      db:
+      db-test:
         condition: service_healthy
 
   web:
@@ -71,3 +87,4 @@ services:
 
 volumes:
   pgdata:
+  pgdata_test:
