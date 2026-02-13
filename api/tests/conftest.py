@@ -9,6 +9,7 @@ from typing import AsyncIterator
 import httpx
 import pytest
 import pytest_asyncio
+from asgi_lifespan import LifespanManager
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -130,9 +131,10 @@ async def override_get_db(session_factory: async_sessionmaker[AsyncSession]) -> 
 
 @pytest_asyncio.fixture()
 async def client(test_engine: AsyncEngine) -> AsyncIterator[httpx.AsyncClient]:
-    transport = httpx.ASGITransport(app=app, lifespan="on")
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as async_client:
-        yield async_client
+    async with LifespanManager(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as async_client:
+            yield async_client
 
 
 @pytest_asyncio.fixture()
