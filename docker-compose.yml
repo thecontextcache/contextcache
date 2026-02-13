@@ -9,6 +9,12 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-contextcache} -d ${POSTGRES_DB:-contextcache}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
     restart: unless-stopped
 
   api:
@@ -20,21 +26,23 @@ services:
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD:-change-me}@db:5432/${POSTGRES_DB:-contextcache}
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     restart: unless-stopped
 
   api-test:
     build:
       context: ./api
       target: dev
-    command: uv run pytest -q
+    command: sh -c "uv run python -m app.migrate && uv run pytest -q"
     env_file:
       - path: .env
         required: false
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD:-change-me}@db:5432/${POSTGRES_DB:-contextcache}
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
   web:
     build: ./web
