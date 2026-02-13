@@ -28,6 +28,7 @@ CMD ["sh", "-c", "uv run python -m app.migrate && uv run uvicorn app.main:app --
 FROM dev-deps AS dev
 COPY app /app/app
 COPY tests /app/tests
+COPY pytest.ini /app/pytest.ini
 COPY alembic /app/alembic
 COPY alembic.ini /app/alembic.ini
 CMD ["uv", "run", "pytest", "-q"]

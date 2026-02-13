@@ -9,13 +9,17 @@ from typing import AsyncIterator
 import httpx
 import pytest
 import pytest_asyncio
-from sqlalchemy import delete, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from app.db import hash_api_key
+import app.db as db_module
+import app.main as main_module
+import app.migrate as migrate_module
+import app.rotate_key as rotate_key_module
+import app.seed as seed_module
+from app.db import get_db, hash_api_key
 from app.main import app
-from app.migrate import run_migrations
 from app.models import ApiKey, Membership, Organization, Project, User
 
 DATABASE_URL = os.getenv(
@@ -27,12 +31,11 @@ DB_WAIT_SECONDS = float(os.getenv("DB_WAIT_SECONDS", "1"))
 
 
 @dataclass
-class AppContext:
+class Ctx:
     org_id: int
     project_id: int
     api_key: str
     users: dict[str, str]
-    user_ids: list[int]
 
 
 async def wait_for_db(engine: AsyncEngine) -> None:
@@ -54,16 +57,35 @@ async def wait_for_db(engine: AsyncEngine) -> None:
 
 @pytest_asyncio.fixture(scope="session")
 async def test_engine() -> AsyncIterator[AsyncEngine]:
-    engine = create_async_engine(
-        DATABASE_URL,
-        future=True,
-        poolclass=NullPool,
-    )
+    engine = create_async_engine(DATABASE_URL, future=True, poolclass=NullPool)
+    session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
+
+    original_db_engine = db_module.engine
+    original_db_session_local = db_module.AsyncSessionLocal
+    original_main_session_local = main_module.AsyncSessionLocal
+    original_migrate_engine = migrate_module.engine
+    original_seed_session_local = seed_module.AsyncSessionLocal
+    original_rotate_session_local = rotate_key_module.AsyncSessionLocal
+
+    db_module.engine = engine
+    db_module.AsyncSessionLocal = session_factory
+    main_module.AsyncSessionLocal = session_factory
+    migrate_module.engine = engine
+    seed_module.AsyncSessionLocal = session_factory
+    rotate_key_module.AsyncSessionLocal = session_factory
+
     await wait_for_db(engine)
-    await run_migrations()
+    await migrate_module.run_migrations()
+
     try:
         yield engine
     finally:
+        db_module.engine = original_db_engine
+        db_module.AsyncSessionLocal = original_db_session_local
+        main_module.AsyncSessionLocal = original_main_session_local
+        migrate_module.engine = original_migrate_engine
+        seed_module.AsyncSessionLocal = original_seed_session_local
+        rotate_key_module.AsyncSessionLocal = original_rotate_session_local
         await engine.dispose()
 
 
@@ -72,13 +94,38 @@ async def session_factory(test_engine: AsyncEngine) -> async_sessionmaker[AsyncS
     return async_sessionmaker(bind=test_engine, expire_on_commit=False, class_=AsyncSession)
 
 
-@pytest_asyncio.fixture()
-async def db_session(session_factory: async_sessionmaker[AsyncSession]) -> AsyncIterator[AsyncSession]:
-    async with session_factory() as session:
-        try:
+@pytest_asyncio.fixture(autouse=True)
+async def clean_db(test_engine: AsyncEngine) -> AsyncIterator[None]:
+    async with test_engine.begin() as conn:
+        await conn.execute(
+            text(
+                """
+                TRUNCATE TABLE
+                    audit_logs,
+                    memories,
+                    projects,
+                    memberships,
+                    api_keys,
+                    users,
+                    organizations
+                RESTART IDENTITY CASCADE
+                """
+            )
+        )
+    yield
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def override_get_db(session_factory: async_sessionmaker[AsyncSession]) -> AsyncIterator[None]:
+    async def _override() -> AsyncIterator[AsyncSession]:
+        async with session_factory() as session:
             yield session
-        finally:
-            await session.close()
+
+    app.dependency_overrides[get_db] = _override
+    try:
+        yield
+    finally:
+        app.dependency_overrides.pop(get_db, None)
 
 
 @pytest_asyncio.fixture()
@@ -89,7 +136,13 @@ async def client(test_engine: AsyncEngine) -> AsyncIterator[httpx.AsyncClient]:
 
 
 @pytest_asyncio.fixture()
-async def app_ctx(db_session: AsyncSession) -> AsyncIterator[AppContext]:
+async def db_session(session_factory: async_sessionmaker[AsyncSession]) -> AsyncIterator[AsyncSession]:
+    async with session_factory() as session:
+        yield session
+
+
+@pytest_asyncio.fixture()
+async def app_ctx(db_session: AsyncSession) -> AsyncIterator[Ctx]:
     suffix = uuid.uuid4().hex[:8]
     org = Organization(name=f"Pytest Org {suffix}")
     db_session.add(org)
@@ -103,12 +156,10 @@ async def app_ctx(db_session: AsyncSession) -> AsyncIterator[AppContext]:
     }
 
     role_to_user_id: dict[str, int] = {}
-    created_user_ids: list[int] = []
     for role, email in users.items():
         user = User(email=email, display_name=role.title())
         db_session.add(user)
         await db_session.flush()
-        created_user_ids.append(user.id)
         role_to_user_id[role] = user.id
         db_session.add(Membership(org_id=org.id, user_id=user.id, role=role))
 
@@ -132,23 +183,15 @@ async def app_ctx(db_session: AsyncSession) -> AsyncIterator[AppContext]:
     await db_session.commit()
     await db_session.refresh(project)
 
-    ctx = AppContext(
+    yield Ctx(
         org_id=org.id,
         project_id=project.id,
         api_key=raw_key,
         users=users,
-        user_ids=created_user_ids,
     )
 
-    try:
-        yield ctx
-    finally:
-        await db_session.execute(delete(Organization).where(Organization.id == ctx.org_id))
-        await db_session.execute(delete(User).where(User.id.in_(ctx.user_ids)))
-        await db_session.commit()
 
-
-def auth_headers(ctx: AppContext, *, role: str | None = None, include_org: bool = True) -> dict[str, str]:
+def auth_headers(ctx: Ctx, *, role: str | None = None, include_org: bool = True) -> dict[str, str]:
     headers: dict[str, str] = {"X-API-Key": ctx.api_key}
     if include_org:
         headers["X-Org-Id"] = str(ctx.org_id)

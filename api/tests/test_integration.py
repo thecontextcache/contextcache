@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import hash_api_key
 from app.models import ApiKey, Organization
 from app.seed import seed
-from .conftest import AppContext, auth_headers
+from .conftest import Ctx, auth_headers
 
 pytestmark = pytest.mark.asyncio
 
@@ -20,7 +20,7 @@ async def test_health_public(client) -> None:
     assert response.json() == {"status": "ok"}
 
 
-async def test_me_requires_key_and_returns_context(client, app_ctx: AppContext) -> None:
+async def test_me_requires_key_and_returns_context(client, app_ctx: Ctx) -> None:
     unauthorized = await client.get("/me")
     assert unauthorized.status_code == 401
 
@@ -67,7 +67,7 @@ async def test_seed_smoke_and_list_projects(client, db_session: AsyncSession) ->
 
 
 @pytest.mark.parametrize("role", ["owner", "admin"])
-async def test_create_org_project_allowed_for_owner_admin(client, app_ctx: AppContext, role: str) -> None:
+async def test_create_org_project_allowed_for_owner_admin(client, app_ctx: Ctx, role: str) -> None:
     response = await client.post(
         f"/orgs/{app_ctx.org_id}/projects",
         headers=auth_headers(app_ctx, role=role),
@@ -80,7 +80,7 @@ async def test_create_org_project_allowed_for_owner_admin(client, app_ctx: AppCo
 
 
 @pytest.mark.parametrize("role", ["member", "owner"])
-async def test_create_memory_allowed_for_member_owner(client, app_ctx: AppContext, role: str) -> None:
+async def test_create_memory_allowed_for_member_owner(client, app_ctx: Ctx, role: str) -> None:
     response = await client.post(
         f"/projects/{app_ctx.project_id}/memories",
         headers=auth_headers(app_ctx, role=role),
@@ -92,7 +92,7 @@ async def test_create_memory_allowed_for_member_owner(client, app_ctx: AppContex
     assert body["type"] == "finding"
 
 
-async def test_recall_returns_rank_score_for_fts_matches(client, app_ctx: AppContext) -> None:
+async def test_recall_returns_rank_score_for_fts_matches(client, app_ctx: Ctx) -> None:
     first = await client.post(
         f"/projects/{app_ctx.project_id}/memories",
         headers=auth_headers(app_ctx, role="owner"),

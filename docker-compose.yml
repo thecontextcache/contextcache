@@ -34,7 +34,7 @@ services:
     build:
       context: ./api
       target: dev
-    command: sh -c "uv run python -m app.migrate && uv run pytest -q"
+    command: sh -c "uv run python -m app.wait_for_db && uv run python -m app.migrate && uv run pytest -q"
     env_file:
       - path: .env
         required: false
