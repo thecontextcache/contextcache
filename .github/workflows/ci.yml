@@ -19,7 +19,7 @@ jobs:
         run: docker compose up -d db
 
       - name: Run API tests
-        run: docker compose run --rm api-test
+        run: docker compose --profile test run --rm api-test
 
       - name: Tear down
         if: always()

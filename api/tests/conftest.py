@@ -133,7 +133,11 @@ async def override_get_db(session_factory: async_sessionmaker[AsyncSession]) -> 
 async def client(test_engine: AsyncEngine) -> AsyncIterator[httpx.AsyncClient]:
     async with LifespanManager(app):
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as async_client:
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://testserver",
+            timeout=5.0,
+        ) as async_client:
             yield async_client
 
 

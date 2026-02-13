@@ -80,7 +80,7 @@ In the web UI, paste API key and click `Connect` to auto-detect org id from `/me
 ### 6) Run tests
 
 ```bash
-docker compose run --rm api-test
+docker compose --profile test run --rm api-test
 ```
 
 Run migrations manually if needed:

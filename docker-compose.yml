@@ -18,13 +18,16 @@ services:
     restart: unless-stopped
 
   api:
-    build: ./api
+    build:
+      context: ./api
+      target: runtime
     ports:
       - "8000:8000"
     environment:
       - APP_ENV=${APP_ENV:-dev}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD:-change-me}@db:5432/${POSTGRES_DB:-contextcache}
+      - RUN_MIGRATIONS=1
     depends_on:
       db:
         condition: service_healthy
@@ -34,12 +37,14 @@ services:
     build:
       context: ./api
       target: dev
-    command: sh -c "uv run python -m app.wait_for_db && uv run python -m app.migrate && uv run pytest -q"
+    command: sh -c "uv run python -m app.wait_for_db && uv run pytest -q"
+    profiles: ["test"]
     env_file:
       - path: .env
         required: false
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD:-change-me}@db:5432/${POSTGRES_DB:-contextcache}
+      - RUN_MIGRATIONS=0
     depends_on:
       db:
         condition: service_healthy
