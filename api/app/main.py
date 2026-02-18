@@ -25,27 +25,29 @@ BOOTSTRAP_OWNER_NAME = "Demo Owner"
 
 raw_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000")
 cors_origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+cors_allow_headers = ["x-api-key", "x-org-id", "content-type"]
+if APP_ENV == "dev":
+    cors_allow_headers.append("x-user-email")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_credentials=False,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=cors_allow_headers,
 )
 
 
-async def ensure_dev_bootstrap_api_key() -> None:
+async def ensure_dev_bootstrap_api_key() -> tuple[bool, int]:
     if APP_ENV != "dev":
-        return
-    if not BOOTSTRAP_API_KEY:
-        return
+        return False, 0
 
+    ran_bootstrap = False
     async with AsyncSessionLocal() as session:
         active_key_count = (
             await session.execute(select(func.count(ApiKey.id)).where(ApiKey.revoked_at.is_(None)))
         ).scalar_one()
-        if active_key_count > 0:
-            return
+        if active_key_count > 0 or not BOOTSTRAP_API_KEY:
+            return False, int(active_key_count)
 
         org = (
             await session.execute(
@@ -97,10 +99,15 @@ async def ensure_dev_bootstrap_api_key() -> None:
             existing_key.revoked_at = None
 
         await session.commit()
+        ran_bootstrap = True
+        active_key_count = (
+            await session.execute(select(func.count(ApiKey.id)).where(ApiKey.revoked_at.is_(None)))
+        ).scalar_one()
         print(
             f"[bootstrap] Ensured dev bootstrap API key for org='{org.name}' "
             f"prefix='{prefix}' name='{BOOTSTRAP_KEY_NAME}'"
         )
+        return ran_bootstrap, int(active_key_count)
 
 
 @app.middleware("http")
@@ -117,7 +124,9 @@ async def api_key_middleware(request: Request, call_next):
 
     provided_key = request.headers.get("x-api-key", "").strip()
     provided_org_id = request.headers.get("x-org-id", "").strip()
-    provided_user_email = request.headers.get("x-user-email", "").strip().lower()
+    provided_user_email = (
+        request.headers.get("x-user-email", "").strip().lower() if APP_ENV == "dev" else ""
+    )
 
     try:
         header_org_id = int(provided_org_id) if provided_org_id else None
@@ -135,7 +144,10 @@ async def api_key_middleware(request: Request, call_next):
                 await session.execute(select(Organization.id).order_by(Organization.id.asc()).limit(1))
             ).scalar_one_or_none()
 
-        bootstrap_mode = active_key_count == 0
+        if active_key_count == 0 and APP_ENV != "dev":
+            return JSONResponse(status_code=503, content={"detail": "No active API keys configured"})
+
+        bootstrap_mode = active_key_count == 0 and APP_ENV == "dev"
         resolved_org_id = None
         resolved_role = None
         resolved_user_id = None
@@ -206,7 +218,17 @@ async def api_key_middleware(request: Request, call_next):
 
 @app.on_event("startup")
 async def startup() -> None:
-    await ensure_dev_bootstrap_api_key()
+    if APP_ENV == "dev":
+        print(
+            f"[bootstrap] APP_ENV=dev BOOTSTRAP_API_KEY_present="
+            f"{'yes' if bool(BOOTSTRAP_API_KEY) else 'no'}"
+        )
+    ran_bootstrap, active_key_count = await ensure_dev_bootstrap_api_key()
+    if APP_ENV == "dev":
+        print(
+            f"[bootstrap] startup_bootstrap_ran={'yes' if ran_bootstrap else 'no'} "
+            f"active_api_keys={active_key_count}"
+        )
 
 
 app.include_router(router)

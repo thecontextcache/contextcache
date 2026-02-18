@@ -11,6 +11,17 @@ Teams save high-signal memory cards and recall a paste-ready memory pack.
 docker compose up -d --build
 ```
 
+Postgres ports are intentionally not exposed in default compose.
+If you need host access for local debugging, create a local override file:
+
+```yaml
+# docker-compose.override.yml
+services:
+  db:
+    ports:
+      - "5432:5432"
+```
+
 Auth is DB-backed via `/orgs/{org_id}/api-keys`; use seeded key for local development.
 API startup now runs `python -m app.migrate` before serving requests.
 The migration runner handles both fresh DBs and legacy pre-Alembic DBs safely.
@@ -102,6 +113,48 @@ If API is in a restart loop after migration changes:
 docker compose logs -n 200 api
 docker compose exec api uv run python -m app.migrate
 docker compose up -d --build api
+```
+
+## Dev DB Recovery
+
+If dev DB was polluted by test/manual data, use one of these:
+
+1. Full dev DB reset (recommended):
+
+```bash
+docker compose down
+docker volume rm contextcache_pgdata
+docker compose up -d --build
+docker compose exec api uv run python -m app.seed
+```
+
+2. Keep volume, clear core tables:
+
+```bash
+docker compose exec db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
+"TRUNCATE TABLE audit_logs,memories,projects,memberships,api_keys,users,organizations RESTART IDENTITY CASCADE;"
+docker compose restart api
+docker compose exec api uv run python -m app.seed
+```
+
+Server reset + verification (dev DB only):
+
+```bash
+# 1) Wipe only dev DB volume (test DB volume untouched)
+docker compose down
+docker volume rm contextcache_pgdata
+docker compose up -d --build
+
+# 2) Confirm api container sees bootstrap env vars
+docker compose exec api env | grep BOOTSTRAP_
+
+# 3) Confirm bootstrap key row exists in dev DB
+docker compose exec db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
+"SELECT id,name,prefix,revoked_at FROM api_keys ORDER BY id DESC LIMIT 5;"
+
+# 4) Verify /me with bootstrap key (localhost + server IP)
+curl -s http://127.0.0.1:8000/me -H "X-API-Key: $BOOTSTRAP_API_KEY"
+curl -s http://<server-ip>:8000/me -H "X-API-Key: $BOOTSTRAP_API_KEY"
 ```
 
 ## Locked Out?

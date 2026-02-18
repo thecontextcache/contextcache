@@ -5,8 +5,6 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-contextcache}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-change-me}
       - POSTGRES_DB=${POSTGRES_DB:-contextcache}
-    ports:
-      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -19,6 +17,7 @@ services:
 
   db-test:
     image: postgres:16
+    profiles: ["test"]
     environment:
       - POSTGRES_USER=contextcache
       - POSTGRES_PASSWORD=contextcache
@@ -37,6 +36,8 @@ services:
     build:
       context: ./api
       target: runtime
+    env_file:
+      - .env
     ports:
       - "8000:8000"
     environment:
@@ -55,10 +56,8 @@ services:
       target: dev
     command: sh -c "uv run python -m app.wait_for_db && uv run pytest -q"
     profiles: ["test"]
-    env_file:
-      - path: .env
-        required: false
     environment:
+      - APP_ENV=test
       - DATABASE_URL=postgresql+asyncpg://contextcache:contextcache@db-test:5432/contextcache_test
       - RUN_MIGRATIONS=0
     depends_on:
@@ -67,6 +66,8 @@ services:
 
   web:
     build: ./web
+    env_file:
+      - .env
     ports:
       - "3000:3000"
     environment:

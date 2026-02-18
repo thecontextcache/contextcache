@@ -302,6 +302,42 @@ docker compose exec api uv run python -m app.migrate
 docker compose up -d --build api
 ```
 
+Recovery (polluted dev DB):
+
+```bash
+# Option A: wipe dev DB volume
+docker compose down
+docker volume rm contextcache_pgdata
+docker compose up -d --build
+docker compose exec api uv run python -m app.seed
+
+# Option B: truncate core tables in place
+docker compose exec db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
+"TRUNCATE TABLE audit_logs,memories,projects,memberships,api_keys,users,organizations RESTART IDENTITY CASCADE;"
+docker compose restart api
+docker compose exec api uv run python -m app.seed
+```
+
+Server reset recipe (dev DB only):
+
+```bash
+# Wipe only dev DB volume
+docker compose down
+docker volume rm contextcache_pgdata
+docker compose up -d --build
+
+# Check bootstrap env vars inside api container
+docker compose exec api env | grep BOOTSTRAP_
+
+# Verify bootstrap key row in dev db
+docker compose exec db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
+"SELECT id,name,prefix,revoked_at FROM api_keys ORDER BY id DESC LIMIT 5;"
+
+# Verify /me using bootstrap key (localhost + server ip)
+curl -s http://127.0.0.1:8000/me -H "X-API-Key: $BOOTSTRAP_API_KEY"
+curl -s http://<server-ip>:8000/me -H "X-API-Key: $BOOTSTRAP_API_KEY"
+```
+
 ---
 
 ## Troubleshooting
