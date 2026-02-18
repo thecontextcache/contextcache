@@ -145,7 +145,10 @@ async def api_key_middleware(request: Request, call_next):
             ).scalar_one_or_none()
 
         if active_key_count == 0 and APP_ENV != "dev":
-            return JSONResponse(status_code=503, content={"detail": "No active API keys configured"})
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "Service unavailable: no active API keys configured"},
+            )
 
         bootstrap_mode = active_key_count == 0 and APP_ENV == "dev"
         resolved_org_id = None

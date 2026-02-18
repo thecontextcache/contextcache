@@ -40,6 +40,27 @@ Expected:
 {"status":"ok"}
 ```
 
+## Debugging / Sanity checks
+
+```bash
+# /me with bootstrap key
+curl -s http://127.0.0.1:8000/me -H "X-API-Key: $BOOTSTRAP_API_KEY"
+curl -s http://<server-ip>:8000/me -H "X-API-Key: $BOOTSTRAP_API_KEY"
+
+# DB checks from inside container
+docker compose exec db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT id,name,prefix,revoked_at FROM api_keys ORDER BY id DESC LIMIT 5;"'
+docker compose exec db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT id,name FROM organizations ORDER BY id DESC LIMIT 5;"'
+
+# CORS preflight
+curl -i -X OPTIONS "http://127.0.0.1:8000/projects" \
+  -H "Origin: http://127.0.0.1:3000" \
+  -H "Access-Control-Request-Method: GET" \
+  -H "Access-Control-Request-Headers: x-api-key,x-org-id,content-type"
+
+# Integration tests
+docker compose --profile test run --rm api-test
+```
+
 ### 3) Seed demo data (optional)
 
 ```bash

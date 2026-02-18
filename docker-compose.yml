@@ -66,12 +66,11 @@ services:
 
   web:
     build: ./web
-    env_file:
-      - .env
     ports:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-}
+      - APP_ENV=${APP_ENV:-dev}
     depends_on:
       - api
     restart: unless-stopped
