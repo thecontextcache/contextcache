@@ -117,6 +117,25 @@ In the web UI, paste API key and click `Connect` to auto-detect org id from `/me
 docker compose --profile test run --rm api-test
 ```
 
+Profile behavior:
+- Normal: `docker compose up -d` does not start `db-test` or `api-test`.
+- Tests: `docker compose --profile test up -d db-test` then `docker compose --profile test run --rm api-test`.
+- Optional cleanup: `docker compose --profile test down -v`.
+
+If `db-test` is still running:
+
+```bash
+docker compose --profile test down -v
+# or force-remove only db-test
+docker compose rm -sf db-test
+```
+
+Quick helper:
+
+```bash
+./scripts/test.sh
+```
+
 Run migrations manually if needed:
 
 ```bash
