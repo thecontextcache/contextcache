@@ -1,378 +1,84 @@
 # Dev Workflow
 
-<!--
-  This document describes the daily development workflow.
-  Source of truth for how code moves from Mac to server.
-  
-  Key insight: Mac for coding, GitHub for sync, server for running.
--->
-
-## Overview
-
-```
-┌──────────────────┐      ┌──────────────────┐      ┌──────────────────┐
-│                  │      │                  │      │                  │
-│   MacBook        │─────▶│   GitHub         │─────▶│   Ubuntu Server  │
-│   (Cursor/Codex) │ push │   (Canonical)    │ pull │   (Docker)       │
-│                  │      │                  │      │                  │
-└──────────────────┘      └──────────────────┘      └──────────────────┘
-        │                                                    │
-        │                                                    │
-        └────────────────── Tailscale ───────────────────────┘
-                          (private access)
-```
-
----
-
-## Source of Truth
-
-| What | Where | Purpose |
-|------|-------|---------|
-| Code editing | MacBook (Cursor/Codex) | Local development |
-| Canonical repo | GitHub | Version control, backup |
-| Running services | Ubuntu server | Docker Compose (API, Postgres, Docs) |
-| Access method | Tailscale | Private network, no public ports |
-
----
-
-## Daily Development Loop
-
-### 1. Edit on Mac
-
-```bash
-# Open project in Cursor
-cd ~/Documents/contextcache
-cursor .
-
-# Make changes to API, docs, etc.
-```
-
-**Files you'll edit:**
-- `api/app/` — FastAPI routes, models, schemas
-- `docs/` — MkDocs documentation
-- `docker-compose.yml` — Service configuration
-- `deploy.sh` — Deployment script
-
-### 2. Test Locally (Optional)
-
-For quick iteration, you can run Docker Compose locally on Mac:
-
-```bash
-# Start services
-docker compose up -d
-
-# Check API
-curl http://localhost:8000/health
-
-# Check web UI
-open http://localhost:3000
-
-# Check docs
-open http://localhost:8001
-
-# Stop when done
-docker compose down
-```
-
-API container startup runs migrations automatically:
-
-```bash
-# runs on container boot
-python -m app.migrate
-```
-
-Auth/env knobs (new):
-- `APP_PUBLIC_BASE_URL` for magic-link redirect destination
-- `MAGIC_LINK_TTL_MINUTES`, `SESSION_TTL_DAYS`, `MAX_SESSIONS_PER_USER`
-- `AUTH_RATE_LIMIT_PER_IP_PER_HOUR`, `AUTH_RATE_LIMIT_PER_EMAIL_PER_HOUR`
-- SES: `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `SES_FROM_EMAIL`
-
-Dev bootstrap key (optional, recommended):
-- Set `BOOTSTRAP_API_KEY` in `.env`
-- On `APP_ENV=dev` startup, if there are zero active API keys, API will ensure this exact key
-  (hashed in DB) plus `Demo Org`/owner membership.
-
-Seed demo data:
-
-```bash
-docker compose exec api uv run python -m app.seed
-```
-
-Copy the printed demo API key and set local env:
-
-```bash
-export API_KEY="cck_..."
-export ORG_ID="1"
-```
-
-Recommended UI flow:
-
-1. Open `http://localhost:3000`
-2. Paste API key in `API Key`
-3. Click `Connect` (UI calls `/me`, auto-detects org id)
-4. UI stores org id and uses it for project/memory/recall requests
-
-Locked out flow (break-glass rotation):
-
-```bash
-docker compose exec api uv run python -m app.rotate_key --org-id X --name demo-key
-```
-
-After rotation, update your local/server `.env` API key value and restart:
+## Start stack
 
 ```bash
 docker compose up -d --build
 ```
 
-Run the end-to-end demo flow:
+Services:
+- API: `:8000`
+- Web: `:3000`
+- Docs: `:8001`
+- DB: internal only
 
-```bash
-./scripts/demo.sh
-```
-
-Run FTS ranking smoke demo:
-
-```bash
-./scripts/demo_fts.sh
-```
-
-Run API integration tests:
+## Run tests
 
 ```bash
 docker compose --profile test run --rm api-test
 ```
 
-### 3. Commit and Push to GitHub
+Optional explicit test DB boot:
 
 ```bash
-# Stage changes
-git add -A
-
-# Commit with descriptive message
-git commit -m "Add recall endpoint with memory pack format"
-
-# Push to GitHub
-git push origin main
+docker compose --profile test up -d db-test
+docker compose --profile test run --rm api-test
+docker compose --profile test down -v
 ```
 
-**Commit message guidelines:**
-- Start with verb: "Add", "Fix", "Update", "Remove"
-- Be specific: "Add recall endpoint" not "Update API"
-- Keep under 72 characters
+## Invite-only auth flow
 
-### 4. Deploy to Server
+1. Sign in as admin (existing session) and open `/admin`.
+2. Create invite for user email.
+3. User opens `/auth` and requests link.
+4. In dev, if SES fails/sandbox blocks, use `debug_link` returned by `/auth/request-link`.
+5. `/auth/verify` sets session cookie and redirects to `/app`.
 
-SSH to the Ubuntu server via Tailscale:
+## Programmatic API flow (API keys)
+
+Use `X-API-Key` (and optional `X-Org-Id`) for scripts/CLI.
 
 ```bash
-# SSH to server (use your Tailscale hostname or IP)
-ssh user@<tailscale-hostname>
-
-# Navigate to project
-cd /path/to/contextcache
-
-# Run deploy script
-./deploy.sh
+curl -s http://127.0.0.1:8000/projects \
+  -H "X-API-Key: $BOOTSTRAP_API_KEY"
 ```
 
-**What `deploy.sh` does:**
-1. `git pull origin main` — Get latest code
-2. `docker compose up -d --build` — Rebuild and restart
-
-### 5. Verify Deployment
-
-From your Mac, test the server endpoints via Tailscale:
+## CORS preflight check
 
 ```bash
-# Replace with your server's Tailscale IP
-export SERVER=100.126.216.28
-
-# Test API
-curl http://$SERVER:8000/health
-curl -H "X-API-Key: $API_KEY" -H "X-Org-Id: $ORG_ID" http://$SERVER:8000/projects
-
-# Verify CORS preflight for custom auth headers
-curl -i -X OPTIONS "http://$SERVER:8000/projects" \
-  -H "Origin: http://$SERVER:3000" \
+curl -i -X OPTIONS "http://127.0.0.1:8000/projects" \
+  -H "Origin: http://127.0.0.1:3000" \
   -H "Access-Control-Request-Method: GET" \
   -H "Access-Control-Request-Headers: x-api-key,x-org-id,content-type"
-
-# Expected: 200/204 + Access-Control-Allow-Origin + Access-Control-Allow-Headers including x-api-key,x-org-id
-
-# View docs in browser
-open http://$SERVER:8001
 ```
 
----
+Expected: `200/204` and `Access-Control-Allow-*` headers including requested auth headers.
 
-## File Structure
+## Migration flow
 
-```
-contextcache/
-├── api/                    # FastAPI application
-│   ├── app/
-│   │   ├── __init__.py
-│   │   ├── main.py         # App entry point
-│   │   ├── models.py       # SQLAlchemy models
-│   │   ├── schemas.py      # Pydantic schemas
-│   │   ├── routes.py       # API endpoints
-│   │   └── database.py     # DB connection
-│   ├── Dockerfile          # API container
-│   ├── pyproject.toml      # Dependencies
-│   ├── alembic.ini         # Alembic config
-│   ├── alembic/            # Migration scripts
-│   └── uv.lock             # Locked dependencies
-├── docs/                   # MkDocs documentation
-│   ├── 00-overview.md
-│   ├── 01-mvp-scope.md
-│   └── ...
-├── docker-compose.yml      # Service orchestration
-├── mkdocs.yml              # Docs configuration
-├── deploy.sh               # Deployment script
-├── .env.example            # Example environment
-└── .env                    # Actual secrets (NOT in git)
-```
-
----
-
-## Common Tasks
-
-### Add a New Dependency
+API runtime starts with:
 
 ```bash
-# On Mac, in api/ directory
-cd api
-uv add <package-name>
-
-# Commit the updated lockfile
-git add pyproject.toml uv.lock
-git commit -m "Add <package-name> dependency"
-git push
-
-# On server: deploy.sh will rebuild with new deps
+python -m app.migrate
 ```
 
-### View Logs
+Behavior:
+- fresh DB: `upgrade head`
+- legacy DB without alembic row: stamp baseline then upgrade
+- normal DB: upgrade head
 
-```bash
-# On server
-docker compose logs -f api        # API logs
-docker compose logs -f postgres   # Database logs
-docker compose logs -f docs       # MkDocs logs
-```
-
-### Create an API Key (Admin/Owner)
-
-```bash
-curl -X POST http://localhost:8000/orgs/$ORG_ID/api-keys \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: $API_KEY" \
-  -H "X-Org-Id: $ORG_ID" \
-  -d '{"name":"local-dev-key"}'
-```
-
-### Restart a Service
-
-```bash
-# On server
-docker compose restart api
-```
-
-### Full Rebuild
-
-```bash
-# On server (nuclear option)
-docker compose down
-docker compose up -d --build
-```
-
-### Run Migrations Manually
+Manual run:
 
 ```bash
 docker compose exec api uv run python -m app.migrate
 ```
 
-Migration runner behavior:
+## Server docs link
 
-```bash
-fresh DB -> upgrade head
-legacy DB (tables exist, no alembic_version row) -> stamp baseline + upgrade head
-normal DB (alembic_version row exists) -> upgrade head
-```
+Set `NEXT_PUBLIC_DOCS_URL` in `.env` when the docs host differs from `http://<server>:8001`.
 
-Recovery (legacy DB or restart loop):
-
-```bash
-docker compose logs -n 200 api
-docker compose exec api uv run python -m app.migrate
-docker compose up -d --build api
-```
-
-Recovery (polluted dev DB):
-
-```bash
-# Option A: wipe dev DB volume
-docker compose down
-docker volume rm contextcache_pgdata
-docker compose up -d --build
-docker compose exec api uv run python -m app.seed
-
-# Option B: truncate core tables in place
-docker compose exec db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
-"TRUNCATE TABLE audit_logs,memories,projects,memberships,api_keys,users,organizations RESTART IDENTITY CASCADE;"
-docker compose restart api
-docker compose exec api uv run python -m app.seed
-```
-
-Server reset recipe (dev DB only):
-
-```bash
-# Wipe only dev DB volume
-docker compose down
-docker volume rm contextcache_pgdata
-docker compose up -d --build
-
-# Check bootstrap env vars inside api container
-docker compose exec api env | grep BOOTSTRAP_
-
-# Verify bootstrap key row in dev db
-docker compose exec db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
-"SELECT id,name,prefix,revoked_at FROM api_keys ORDER BY id DESC LIMIT 5;"
-
-# Verify /me using bootstrap key (localhost + server ip)
-curl -s http://127.0.0.1:8000/me -H "X-API-Key: $BOOTSTRAP_API_KEY"
-curl -s http://<server-ip>:8000/me -H "X-API-Key: $BOOTSTRAP_API_KEY"
-```
-
----
-
-## Troubleshooting
-
-| Problem | Solution |
-|---------|----------|
-| API not responding | `docker compose logs api` to check errors |
-| Database connection failed | Ensure Postgres is running: `docker compose ps` |
-| Changes not reflected | Did you push? Did you run deploy.sh? |
-| Port already in use | `docker compose down` then `up` again |
-| Docs not updating | MkDocs may need restart: `docker compose restart docs` |
-
----
-
-## Environment Files
-
-### `.env.example` (committed to git)
-
-Template showing required variables:
+Example:
 
 ```env
-POSTGRES_USER=contextcache
-POSTGRES_PASSWORD=your-password-here
-POSTGRES_DB=contextcache
-DATABASE_URL=postgresql://contextcache:your-password-here@postgres:5432/contextcache
+NEXT_PUBLIC_DOCS_URL=https://docs.thecontextcache.com
 ```
-
-### `.env` (NOT in git)
-
-Actual secrets, exists only on server. Generated from 1Password.
-
-See [Security](07-security.md) for secrets management.

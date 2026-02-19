@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 function buildDefaultApiBase() {
   if (typeof window === "undefined") return "http://localhost:8000";
@@ -8,6 +9,7 @@ function buildDefaultApiBase() {
 }
 
 export default function AdminPage() {
+  const router = useRouter();
   const apiBase = useMemo(() => process.env.NEXT_PUBLIC_API_BASE_URL || buildDefaultApiBase(), []);
   const [email, setEmail] = useState("");
   const [notes, setNotes] = useState("");
@@ -29,6 +31,11 @@ export default function AdminPage() {
 
   async function load() {
     try {
+      const me = await apiRequest("/auth/me");
+      if (!me.is_admin) {
+        router.replace("/app");
+        return;
+      }
       const [inviteRows, userRows, usageRows] = await Promise.all([
         apiRequest("/admin/invites"),
         apiRequest("/admin/users"),
@@ -38,7 +45,12 @@ export default function AdminPage() {
       setUsers(userRows);
       setUsage(usageRows);
     } catch (err) {
-      setError(err.message || "Admin access required");
+      if ((err.message || "").toLowerCase().includes("unauthorized")) {
+        router.replace("/auth");
+        return;
+      }
+      if (process.env.NODE_ENV !== "production") console.error(err);
+      setError("Admin access required.");
     }
   }
 
@@ -58,7 +70,8 @@ export default function AdminPage() {
       setNotes("");
       await load();
     } catch (err) {
-      setError(err.message || "Failed to create invite");
+      if (process.env.NODE_ENV !== "production") console.error(err);
+      setError("Could not create invite.");
     }
   }
 
@@ -67,7 +80,28 @@ export default function AdminPage() {
       await apiRequest(`/admin/invites/${id}/revoke`, { method: "POST" });
       await load();
     } catch (err) {
-      setError(err.message || "Failed to revoke invite");
+      if (process.env.NODE_ENV !== "production") console.error(err);
+      setError("Could not revoke invite.");
+    }
+  }
+
+  async function setUserDisabled(id, disabled) {
+    try {
+      await apiRequest(`/admin/users/${id}/${disabled ? "disable" : "enable"}`, { method: "POST" });
+      await load();
+    } catch (err) {
+      if (process.env.NODE_ENV !== "production") console.error(err);
+      setError("Could not update user status.");
+    }
+  }
+
+  async function revokeSessions(id) {
+    try {
+      await apiRequest(`/admin/users/${id}/revoke-sessions`, { method: "POST" });
+      await load();
+    } catch (err) {
+      if (process.env.NODE_ENV !== "production") console.error(err);
+      setError("Could not revoke sessions.");
     }
   }
 
@@ -110,10 +144,23 @@ export default function AdminPage() {
         <h2>Users</h2>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Email</th><th>Admin</th><th>Last login</th></tr></thead>
+            <thead><tr><th>Email</th><th>Admin</th><th>Last login</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody>
               {users.map((u) => (
-                <tr key={u.id}><td>{u.email}</td><td>{u.is_admin ? "yes" : "no"}</td><td>{u.last_login_at ? new Date(u.last_login_at).toLocaleString() : "-"}</td></tr>
+                <tr key={u.id}>
+                  <td>{u.email}</td>
+                  <td>{u.is_admin ? "yes" : "no"}</td>
+                  <td>{u.last_login_at ? new Date(u.last_login_at).toLocaleString() : "-"}</td>
+                  <td>{u.is_disabled ? "disabled" : "active"}</td>
+                  <td className="row">
+                    <button className="btn secondary" onClick={() => setUserDisabled(u.id, !u.is_disabled)}>
+                      {u.is_disabled ? "Enable" : "Disable"}
+                    </button>
+                    <button className="btn secondary" onClick={() => revokeSessions(u.id)}>
+                      Revoke Sessions
+                    </button>
+                  </td>
+                </tr>
               ))}
             </tbody>
           </table>

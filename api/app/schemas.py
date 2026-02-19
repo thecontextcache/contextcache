@@ -113,6 +113,7 @@ class AuthRequestLinkIn(BaseModel):
 class AuthRequestLinkOut(BaseModel):
     status: str
     detail: str
+    debug_link: str | None = None
 
 
 class AuthMeOut(BaseModel):

@@ -70,6 +70,7 @@ services:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-}
+      - NEXT_PUBLIC_DOCS_URL=${NEXT_PUBLIC_DOCS_URL:-}
       - APP_ENV=${APP_ENV:-dev}
     depends_on:
       - api

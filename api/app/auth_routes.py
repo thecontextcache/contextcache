@@ -120,7 +120,9 @@ async def request_link(
     token_hash = hash_token(raw_token)
     link = f"{APP_PUBLIC_BASE_URL}/auth/verify?token={raw_token}"
 
-    _, send_status = send_magic_link(email=email, link=link, template_type="login")
+    sent, send_status = send_magic_link(email=email, link=link, template_type="login")
+    if not sent:
+        raise HTTPException(status_code=500, detail="Email delivery failed")
 
     db.add(
         AuthMagicLink(
@@ -144,7 +146,8 @@ async def request_link(
         )
     )
     await db.commit()
-    return AuthRequestLinkOut(status="ok", detail="Check your email for a sign-in link.")
+    debug_link = link if APP_ENV == "dev" and send_status == "logged" else None
+    return AuthRequestLinkOut(status="ok", detail="Check your email for a sign-in link.", debug_link=debug_link)
 
 
 @router.get("/auth/verify")
@@ -250,7 +253,8 @@ async def verify_link(
         httponly=True,
         secure=APP_ENV == "prod",
         samesite="lax",
-        max_age=int(timedelta(days=7).total_seconds()),
+        max_age=int((new_session.expires_at - now).total_seconds()),
+        expires=new_session.expires_at,
         path="/",
     )
 
@@ -382,6 +386,52 @@ async def list_users(request: Request, db: AsyncSession = Depends(get_db)) -> li
         )
         for u in rows
     ]
+
+
+@router.post("/admin/users/{user_id}/disable")
+async def disable_user(user_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    _, is_admin = _require_session_auth(request)
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    user = (await db.execute(select(AuthUser).where(AuthUser.id == user_id).limit(1))).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.is_disabled = True
+    await db.commit()
+    return {"status": "ok"}
+
+
+@router.post("/admin/users/{user_id}/enable")
+async def enable_user(user_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    _, is_admin = _require_session_auth(request)
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    user = (await db.execute(select(AuthUser).where(AuthUser.id == user_id).limit(1))).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.is_disabled = False
+    await db.commit()
+    return {"status": "ok"}
+
+
+@router.post("/admin/users/{user_id}/revoke-sessions")
+async def revoke_sessions(user_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    _, is_admin = _require_session_auth(request)
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    user = (await db.execute(select(AuthUser).where(AuthUser.id == user_id).limit(1))).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    now = now_utc()
+    sessions = (
+        await db.execute(
+            select(AuthSession).where(AuthSession.user_id == user_id, AuthSession.revoked_at.is_(None))
+        )
+    ).scalars().all()
+    for session in sessions:
+        session.revoked_at = now
+    await db.commit()
+    return {"status": "ok", "revoked": len(sessions)}
 
 
 @router.get("/admin/usage", response_model=list[AdminUsageOut])

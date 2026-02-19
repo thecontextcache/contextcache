@@ -1,12 +1,8 @@
-# API Contract (Phase B)
+# API Contract
 
-## Base URL
+Base URL: `http://<host>:8000`
 
-`http://<tailscale-ip>:8000`
-
-## Auth + Org Headers
-
-Public routes:
+## Public endpoints
 
 - `GET /health`
 - `GET /docs`
@@ -14,132 +10,117 @@ Public routes:
 - `POST /auth/request-link`
 - `GET /auth/verify?token=...`
 
-Protected routes use:
+## Authentication
 
-- `X-API-Key: <plaintext key>`
-- `X-Org-Id: <org_id>` (preferred)
+Protected endpoints accept either:
 
-Optional dev header for role simulation:
+1. Session cookie (`contextcache_session`) from magic-link login (web flow)
+2. `X-API-Key` (programmatic/dev flow)
 
-- `X-User-Email: <user email>` (maps request to membership role in org)
-- If omitted, the server uses the first membership row for that org as actor context.
+Org scoping:
+- API-key requests can send `X-Org-Id` (must match key org).
+- Session requests derive org from domain membership; optional `X-Org-Id` must be one of user memberships.
 
-Notes:
+Dev-only header:
+- `X-User-Email` is honored only in `APP_ENV=dev`.
 
-- API keys are DB-backed (`api_keys` table), hashed at rest.
-- Web UI uses session cookie auth via magic links (`auth_sessions`), API key remains for programmatic/dev use.
-- If no active API keys exist yet, protected requests are allowed in bootstrap mode.
-- `GET /me` works with only `X-API-Key`; org is inferred from the key record.
-- If `X-Org-Id` is omitted on other routes, the server uses key-org context (or single-org default in dev).
+If no active API keys exist:
+- `APP_ENV=dev`: bootstrap convenience may allow keyless API-key path.
+- non-dev: protected requests return `503` until keys exist.
 
-## Roles
+## Auth endpoints
 
-- `viewer`: read/list/recall
-- `member`: viewer + create memories
-- `admin`: member + manage projects + create/revoke API keys
-- `owner`: admin + manage memberships/org
+### `POST /auth/request-link`
+Body:
+```json
+{"email":"user@example.com"}
+```
+Rules:
+- invite-only (or existing user)
+- rate-limited per IP + per email
 
-## Endpoints
+Response `200`:
+```json
+{"status":"ok","detail":"Check your email for a sign-in link.","debug_link":null}
+```
+`debug_link` is only returned in dev when SES fallback logging is used.
 
-### Health
+### `GET /auth/verify?token=...`
+- validates single-use token
+- consumes token
+- creates/updates user
+- sets HttpOnly session cookie
 
-- `GET /health` -> `{ "status": "ok" }`
+Response `200`:
+```json
+{"status":"ok","redirect_to":"/app"}
+```
 
-### Org + Membership
+### `POST /auth/logout`
+Revokes current session cookie.
 
-- `POST /orgs` (bootstrap when no orgs; otherwise `admin+`)
+### `GET /auth/me`
+Session-only endpoint.
+
+Response:
+```json
+{"email":"user@example.com","is_admin":true,"created_at":"...","last_login_at":"..."}
+```
+
+## Admin endpoints (session + `is_admin=true`)
+
+- `POST /admin/invites`
+- `GET /admin/invites`
+- `POST /admin/invites/{id}/revoke`
+- `GET /admin/users`
+- `POST /admin/users/{id}/disable`
+- `POST /admin/users/{id}/enable`
+- `POST /admin/users/{id}/revoke-sessions`
+- `GET /admin/usage`
+
+Non-admin returns `403`.
+
+## Core org/project endpoints
+
+- `GET /me`
+- `POST /orgs`
 - `GET /orgs`
-- `POST /orgs/{org_id}/memberships` (`owner`)
-- `GET /orgs/{org_id}/memberships` (`owner`)
-- `GET /me` (resolved context)
-- `GET /orgs/{org_id}/audit-logs?limit=50` (`owner`)
+- `POST /orgs/{org_id}/projects`
+- `GET /orgs/{org_id}/projects`
+- `POST /projects`
+- `GET /projects`
+- `POST /projects/{project_id}/memories`
+- `GET /projects/{project_id}/memories`
+- `GET /projects/{project_id}/recall?query=...&limit=10`
 
-`/me` includes:
-
-- `org_id`
-- `role`
-- `actor_user_id`
-- `api_key_prefix`
-
-`actor_user_id` and `api_key_prefix` can be `null` in bootstrap mode (no API keys yet).
-
-### Org-scoped Projects
-
-- `POST /orgs/{org_id}/projects` (`admin+`)
-- `GET /orgs/{org_id}/projects` (`viewer+`)
-
-### API Keys
-
-- `POST /orgs/{org_id}/api-keys` (`admin+`)  
-  Returns plaintext once:
+## Recall response
 
 ```json
 {
-  "id": 1,
-  "org_id": 1,
-  "name": "team-key",
-  "prefix": "cck_ab12",
-  "created_at": "2026-01-01T00:00:00Z",
-  "revoked_at": null,
-  "api_key": "cck_ab12..."
+  "project_id": 1,
+  "query": "migrations reliability",
+  "memory_pack_text": "...",
+  "items": [
+    {
+      "id": 11,
+      "project_id": 1,
+      "type": "finding",
+      "content": "...",
+      "created_at": "...",
+      "rank_score": 0.42
+    }
+  ]
 }
 ```
 
-- `GET /orgs/{org_id}/api-keys` (`admin+`) (no plaintext)
-- `POST /orgs/{org_id}/api-keys/{key_id}/revoke` (`admin+`)
+- FTS matches include `rank_score` (float).
+- Recency fallback rows use `rank_score: null`.
+- `memory_pack_text` remains grouped and paste-ready.
 
-### Legacy Project Routes (still supported; org-scoped internally)
-
-- `POST /projects` (`admin+`)
-- `GET /projects` (`viewer+`)
-- `POST /projects/{project_id}/memories` (`member+`)
-- `GET /projects/{project_id}/memories` (`viewer+`)
-- `GET /projects/{project_id}/recall` (`viewer+`)
-
-Cross-org access is blocked (returns `403` or `404` depending on context).
-Project responses include `org_id` and `created_by_user_id`.
-
-## Recall Behavior
-
-`GET /projects/{project_id}/recall?query=...&limit=10`
-
-- Primary: Postgres FTS with `websearch_to_tsquery('english', query)`
-- Filter: `search_tsv @@ tsquery`
-- Rank: `ts_rank_cd(search_tsv, tsquery)` DESC
-- Tie-break: `created_at` DESC
-- Fallback: recent memories when no FTS matches
-- `memory_pack_text` remains paste-ready grouped text
-
-Recall response item shape:
+## Errors
 
 ```json
-{
-  "id": 10,
-  "project_id": 5,
-  "type": "finding",
-  "content": "Postgres FTS ranking improved precision.",
-  "created_at": "2026-01-01T00:00:00Z",
-  "rank_score": 0.42
-}
+{"detail":"..."}
 ```
 
-- `rank_score` is `null` for recency fallback rows.
-
-## Error Format
-
-```json
-{
-  "detail": "Error message"
-}
-```
-
-Common codes:
-
-- `200` success
-- `201` created
-- `400` bad request (e.g. invalid `X-Org-Id`)
-- `401` unauthorized (missing/invalid key)
-- `403` forbidden (role/org mismatch)
-- `404` not found
-- `422` validation error
-- `500` server error
+Common codes: `400`, `401`, `403`, `404`, `422`, `429`, `500`, `503`.

@@ -1,50 +1,76 @@
-# Security (Phase B)
+# Security
 
-## Current Controls
+## Auth model
 
-### API Key Auth (DB-backed)
+ContextCache supports two auth modes:
 
-- Protected routes require `X-API-Key`.
-- Keys are stored in `api_keys` as SHA-256 hashes (`key_hash`), never plaintext.
-- Key plaintext is returned once at creation.
-- Revocation uses `revoked_at`; revoked keys are rejected.
-- Break-glass rotation is CLI-only (`python -m app.rotate_key`) inside the API container.
-- No HTTP key-rotation endpoint is exposed.
+1. Session auth (web): invite-only magic links + HttpOnly cookie
+2. API key auth (programmatic): hashed DB keys scoped to org
 
-### Org Isolation
+## Session protections
 
-- Each key belongs to one org (`api_keys.org_id`).
-- Project and memory access is validated against org context.
-- Cross-org access is denied (`403` or `404`).
-- `X-Org-Id` is supported for explicit scoping; single-org default works in dev.
+Cookie settings:
+- `HttpOnly=true`
+- `Secure=true` only in `APP_ENV=prod`
+- `SameSite=lax`
+- explicit `Max-Age`, `Expires`, `Path=/`
 
-### RBAC
+Session controls:
+- magic links are single-use (`consumed_at`)
+- magic link TTL defaults to 10 minutes
+- sessions are revocable (`revoked_at`)
+- max active sessions per user (default 3), oldest revoked first
 
-- Roles: `owner`, `admin`, `member`, `viewer`.
-- Enforced on route level:
-  - `viewer`: read/list/recall
-  - `member`: create memory
-  - `admin`: manage projects and API keys
-  - `owner`: manage memberships and org-level administration
+## Invite-only enforcement
 
-### Audit Log
+`POST /auth/request-link` returns `403` when:
+- no invite and no existing user
+- invite revoked
+- invite expired
 
-- Write actions store an entry in `audit_logs`:
-  - action
-  - entity type/id
-  - org id
-  - actor user id (if resolved)
-  - api key prefix (if key-authenticated)
-  - metadata JSON
+`GET /auth/verify`:
+- rejects expired/consumed tokens
+- marks token consumed on success
+- marks invite accepted when applicable
+- blocks disabled users
 
-## Operational Notes
+## Email delivery behavior
 
-- Public endpoints: `/health`, `/docs`, `/openapi.json`.
-- Bootstrap convenience: if no active API keys exist, protected routes are temporarily allowed.
-- For local/dev role simulation, `X-User-Email` can map requests to org membership.
+- Uses AWS SES via `boto3`
+- `APP_ENV=dev`: SES failures log `[magic-link-debug]` and flow returns success with `debug_link`
+- non-dev: SES failure returns `500` (`Email delivery failed`)
 
-## Secrets Hygiene
+## API key storage + org isolation
 
-- Keep `.env` out of git.
-- Rotate keys if leaked and revoke old keys immediately.
-- Prefer generating keys via `/orgs/{org_id}/api-keys` instead of static env values.
+- plaintext key never stored
+- SHA-256 hash in `api_keys.key_hash`
+- key prefix stored separately for identification
+- revoked keys are rejected
+- key org isolation enforced (cross-org blocked)
+
+## Authorization
+
+- `/admin/*` requires session auth + `is_admin`
+- Core APIs require session or API key
+- Role checks on org resources: `viewer`, `member`, `admin`, `owner`
+
+## Rate limiting
+
+Current limiter is in-memory:
+- `/auth/request-link`: per-IP + per-email
+- `/auth/verify`: per-IP
+
+This is sufficient for single-instance alpha. For multi-instance prod, move limiter state to Redis or another shared store.
+
+## Auditing and usage
+
+- Writes produce `audit_logs` with actor context and key prefix where available
+- `usage_events` tracks coarse telemetry with `ip_prefix` (not raw long-term IP)
+
+## Operational hardening notes
+
+- Keep `.env` out of git
+- Rotate leaked API keys immediately
+- Use TLS in production
+- Restrict CORS origins to trusted web hosts
+- Keep `X-User-Email` disabled outside dev (enforced in middleware)

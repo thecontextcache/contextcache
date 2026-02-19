@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 const MEMORY_TYPES = ["decision", "finding", "definition", "note", "link", "todo"];
 
@@ -11,6 +12,7 @@ function buildDefaultApiBase() {
 }
 
 export default function AppPage() {
+  const router = useRouter();
   const apiBase = useMemo(() => process.env.NEXT_PUBLIC_API_BASE_URL || buildDefaultApiBase(), []);
   const [auth, setAuth] = useState(null);
   const [projects, setProjects] = useState([]);
@@ -45,7 +47,12 @@ export default function AppPage() {
       setProjects(list);
       if (list.length && !projectId) setProjectId(String(list[0].id));
     } catch (err) {
-      setError(err.message || "Please sign in");
+      if ((err.message || "").toLowerCase().includes("unauthorized")) {
+        router.replace("/auth");
+        return;
+      }
+      if (process.env.NODE_ENV !== "production") console.error(err);
+      setError("Could not load app data right now.");
     }
   }
 
@@ -71,7 +78,8 @@ export default function AppPage() {
       setStatus("Project created.");
       await load();
     } catch (err) {
-      setError(err.message || "Failed to create project");
+      if (process.env.NODE_ENV !== "production") console.error(err);
+      setError("Could not create project.");
     }
   }
 
@@ -86,7 +94,8 @@ export default function AppPage() {
       setMemoryContent("");
       setStatus("Memory saved.");
     } catch (err) {
-      setError(err.message || "Failed to save memory");
+      if (process.env.NODE_ENV !== "production") console.error(err);
+      setError("Could not save memory.");
     }
   }
 
@@ -97,8 +106,57 @@ export default function AppPage() {
       setMemoryPack(data.memory_pack_text || "");
       setStatus(`Recall complete (${data.items?.length || 0} items)`);
     } catch (err) {
-      setError(err.message || "Recall failed");
+      if (process.env.NODE_ENV !== "production") console.error(err);
+      setError("Recall failed. Please try again.");
     }
+  }
+
+  async function copyMemoryPack() {
+    if (!memoryPack) return;
+    setError("");
+    setStatus("");
+
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(memoryPack);
+        setStatus("Memory pack copied.");
+        return;
+      }
+    } catch {
+      // Fall through to legacy copy method.
+    }
+
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = memoryPack;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      ta.style.top = "-9999px";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      if (!ok) throw new Error("execCommand copy failed");
+      setStatus("Memory pack copied.");
+    } catch {
+      setError("Copy failed in this browser on HTTP. Use Download .txt or run over HTTPS.");
+    }
+  }
+
+  function downloadMemoryPack() {
+    if (!memoryPack) return;
+    const blob = new Blob([memoryPack], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "memory-pack.txt";
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+    setStatus("Memory pack downloaded.");
   }
 
   return (
@@ -148,7 +206,15 @@ export default function AppPage() {
         <h2>Recall</h2>
         <div className="stack">
           <input value={recallQuery} onChange={(e) => setRecallQuery(e.target.value)} placeholder="What context do you need?" />
-          <button className="btn primary" type="button" onClick={recall}>Run recall</button>
+          <div className="row">
+            <button className="btn primary" type="button" onClick={recall}>Run recall</button>
+            <button className="btn secondary" type="button" onClick={copyMemoryPack} disabled={!memoryPack}>
+              Copy
+            </button>
+            <button className="btn secondary" type="button" onClick={downloadMemoryPack} disabled={!memoryPack}>
+              Download .txt
+            </button>
+          </div>
           <pre className="pre">{memoryPack || "Memory pack appears here."}</pre>
         </div>
       </section>

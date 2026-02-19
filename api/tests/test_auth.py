@@ -7,13 +7,33 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth_utils import hash_token, now_utc
-from app.models import AuthInvite, AuthMagicLink, AuthUser
+from app.models import AuthInvite, AuthMagicLink, AuthSession, AuthUser
 
 pytestmark = pytest.mark.asyncio
 
 
+@pytest.fixture(autouse=True)
+def patch_email_sender(monkeypatch):
+    monkeypatch.setattr("app.auth_routes.send_magic_link", lambda email, link, template_type="login": (True, "logged"))
+
+
 async def test_request_link_forbidden_when_not_invited(client) -> None:
     response = await client.post("/auth/request-link", json={"email": "new-user@example.com"})
+    assert response.status_code == 403
+
+
+async def test_request_link_forbidden_when_invite_revoked(client, db_session: AsyncSession) -> None:
+    db_session.add(
+        AuthInvite(
+            email="revoked@example.com",
+            invited_by_user_id=None,
+            expires_at=now_utc() + timedelta(days=7),
+            revoked_at=now_utc(),
+        )
+    )
+    await db_session.commit()
+
+    response = await client.post("/auth/request-link", json={"email": "revoked@example.com"})
     assert response.status_code == 403
 
 
@@ -134,3 +154,63 @@ async def test_admin_invite_endpoints_require_admin(client, db_session: AsyncSes
 
     blocked = await client.post("/admin/invites", json={"email": "nope@example.com"})
     assert blocked.status_code == 403
+
+
+async def test_admin_requires_auth(client) -> None:
+    response = await client.get("/admin/users")
+    assert response.status_code == 401
+
+
+async def test_disabled_user_cannot_login(client, db_session: AsyncSession) -> None:
+    db_session.add(
+        AuthUser(
+            email="disabled@example.com",
+            is_admin=False,
+            is_disabled=True,
+        )
+    )
+    db_session.add(
+        AuthMagicLink(
+            email="disabled@example.com",
+            token_hash=hash_token("tok_disabled_123"),
+            expires_at=now_utc() + timedelta(minutes=10),
+            purpose="login",
+            send_status="logged",
+        )
+    )
+    await db_session.commit()
+
+    response = await client.get("/auth/verify?token=tok_disabled_123")
+    assert response.status_code == 403
+
+
+async def test_session_cap_enforced(client, db_session: AsyncSession) -> None:
+    email = "sessioncap@example.com"
+    tokens = ["tok_cap_1", "tok_cap_2", "tok_cap_3", "tok_cap_4"]
+    for token in tokens:
+        db_session.add(
+            AuthMagicLink(
+                email=email,
+                token_hash=hash_token(token),
+                expires_at=now_utc() + timedelta(minutes=10),
+                purpose="login",
+                send_status="logged",
+            )
+        )
+    await db_session.commit()
+
+    for token in tokens:
+        resp = await client.get(f"/auth/verify?token={token}")
+        assert resp.status_code == 200
+
+    user = (await db_session.execute(select(AuthUser).where(AuthUser.email == email).limit(1))).scalar_one()
+    active_sessions = (
+        await db_session.execute(
+            select(AuthSession).where(
+                AuthSession.user_id == user.id,
+                AuthSession.revoked_at.is_(None),
+                AuthSession.expires_at > now_utc(),
+            )
+        )
+    ).scalars().all()
+    assert len(active_sessions) == 3

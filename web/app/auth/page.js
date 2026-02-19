@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 
 function buildDefaultApiBase() {
   if (typeof window === "undefined") return "http://localhost:8000";
@@ -12,11 +13,13 @@ export default function AuthPage() {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [debugLink, setDebugLink] = useState("");
 
   async function submit(event) {
     event.preventDefault();
     setStatus("");
     setError("");
+    setDebugLink("");
     try {
       const response = await fetch(`${apiBase}/auth/request-link`, {
         method: "POST",
@@ -25,10 +28,17 @@ export default function AuthPage() {
       });
       const body = await response.json();
       if (!response.ok) {
-        throw new Error(body.detail || "Failed to send sign-in link");
+        if (response.status === 403) {
+          throw new Error("You're not invited yet. Request access from an admin.");
+        }
+        throw new Error("We could not send a sign-in link right now. Please try again.");
       }
       setStatus("Check your email for a sign-in link.");
+      if (body.debug_link) {
+        setDebugLink(body.debug_link);
+      }
     } catch (err) {
+      if (process.env.NODE_ENV !== "production") console.error(err);
       setError(err.message || "Failed to send sign-in link");
     }
   }
@@ -50,6 +60,7 @@ export default function AuthPage() {
         <button type="submit" className="btn primary">Send me a sign-in link</button>
       </form>
       {status ? <p className="ok">{status}</p> : null}
+      {debugLink ? <Link className="btn secondary" href={debugLink}>Continue (Dev Debug Link)</Link> : null}
       {error ? <p className="err">{error}</p> : null}
     </main>
   );

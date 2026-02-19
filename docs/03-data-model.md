@@ -1,106 +1,126 @@
-# Data Model (Phase B)
+# Data Model
 
-## Overview
-
-ContextCache now uses org-scoped multi-tenancy:
-
-- `organizations` own `projects`
-- `users` join orgs through `memberships`
-- `api_keys` are stored per org (hashed, revocable)
-- `audit_logs` record write actions
-- `memories` keep FTS document `search_tsv`
-
-## Core Tables
+## Core multi-tenant tables
 
 ### `organizations`
+- `id` (PK)
+- `name`
+- `created_at`
 
-| Column | Type | Notes |
-|---|---|---|
-| `id` | `INTEGER` | PK |
-| `name` | `VARCHAR(200)` | required |
-| `created_at` | `TIMESTAMPTZ` | default now |
-
-### `users`
-
-| Column | Type | Notes |
-|---|---|---|
-| `id` | `INTEGER` | PK |
-| `email` | `VARCHAR(255)` | unique, required |
-| `display_name` | `VARCHAR(255)` | nullable |
-| `created_at` | `TIMESTAMPTZ` | default now |
+### `users` (domain membership identity)
+- `id` (PK)
+- `email` (unique)
+- `display_name`
+- `created_at`
 
 ### `memberships`
-
-| Column | Type | Notes |
-|---|---|---|
-| `id` | `INTEGER` | PK |
-| `org_id` | `INTEGER` | FK -> `organizations.id` |
-| `user_id` | `INTEGER` | FK -> `users.id` |
-| `role` | `VARCHAR(20)` | `owner|admin|member|viewer` |
-| `created_at` | `TIMESTAMPTZ` | default now |
+- `id` (PK)
+- `org_id` (FK -> organizations)
+- `user_id` (FK -> users)
+- `role` (`owner|admin|member|viewer`)
+- `created_at`
 
 Unique: `(org_id, user_id)`.
 
 ### `projects`
-
-| Column | Type | Notes |
-|---|---|---|
-| `id` | `INTEGER` | PK |
-| `org_id` | `INTEGER` | FK -> `organizations.id`, required |
-| `created_by_user_id` | `INTEGER` | FK -> `users.id`, nullable |
-| `name` | `VARCHAR(200)` | required |
-| `created_at` | `TIMESTAMPTZ` | default now |
+- `id` (PK)
+- `org_id` (FK -> organizations)
+- `created_by_user_id` (FK -> users, nullable)
+- `name`
+- `created_at`
 
 ### `memories`
+- `id` (PK)
+- `project_id` (FK -> projects)
+- `type`
+- `content`
+- `search_tsv` (`tsvector`)
+- `created_at`
 
-| Column | Type | Notes |
-|---|---|---|
-| `id` | `INTEGER` | PK |
-| `project_id` | `INTEGER` | FK -> `projects.id` |
-| `type` | `VARCHAR(50)` | required |
-| `content` | `TEXT` | required |
-| `search_tsv` | `TSVECTOR` | FTS doc (trigger-maintained) |
-| `created_at` | `TIMESTAMPTZ` | default now |
+FTS index: `GIN(search_tsv)`.
 
 ### `api_keys`
-
-| Column | Type | Notes |
-|---|---|---|
-| `id` | `INTEGER` | PK |
-| `org_id` | `INTEGER` | FK -> `organizations.id` |
-| `name` | `VARCHAR(200)` | required |
-| `key_hash` | `VARCHAR(64)` | SHA-256 hex, unique |
-| `prefix` | `VARCHAR(16)` | first chars for display |
-| `created_at` | `TIMESTAMPTZ` | default now |
-| `revoked_at` | `TIMESTAMPTZ` | nullable |
-
-Plaintext API key is returned once on create, never stored in plaintext.
+- `id` (PK)
+- `org_id` (FK -> organizations)
+- `name`
+- `key_hash` (SHA-256 hex, unique)
+- `prefix`
+- `created_at`
+- `revoked_at` (nullable)
 
 ### `audit_logs`
+- `id` (PK)
+- `org_id` (FK -> organizations)
+- `actor_user_id` (FK -> users, nullable)
+- `api_key_prefix` (nullable)
+- `action`
+- `entity_type`
+- `entity_id`
+- `metadata` (`jsonb`)
+- `created_at`
 
-| Column | Type | Notes |
-|---|---|---|
-| `id` | `INTEGER` | PK |
-| `org_id` | `INTEGER` | FK -> `organizations.id` |
-| `actor_user_id` | `INTEGER` | FK -> `users.id`, nullable |
-| `action` | `VARCHAR(100)` | e.g. `project.create` |
-| `entity_type` | `VARCHAR(100)` | e.g. `project` |
-| `entity_id` | `INTEGER` | target id |
-| `metadata` | `JSONB` | extra context |
-| `created_at` | `TIMESTAMPTZ` | default now |
+## Auth tables (invite-only alpha)
 
-## FTS Indexing
+### `auth_users`
+- `id` (PK)
+- `email` (unique, lowercase)
+- `created_at`
+- `last_login_at` (nullable)
+- `is_admin` (bool)
+- `is_disabled` (bool)
+- `invite_accepted_at` (nullable)
+- `invite_token_hash` (nullable)
 
-Recall uses Postgres FTS with English config:
+### `auth_magic_links`
+- `id` (PK)
+- `email` (indexed)
+- `token_hash` (unique, indexed)
+- `created_at`
+- `expires_at`
+- `consumed_at` (nullable)
+- `request_ip` (nullable)
+- `user_agent` (nullable)
+- `purpose` (`login` now)
+- `send_status` (`sent|failed|logged`)
 
-- Query parser: `websearch_to_tsquery('english', query)`
-- Filter: `search_tsv @@ tsquery`
-- Rank: `ts_rank_cd(search_tsv, tsquery)`
-- Fallback: most recent memories when no FTS matches
+### `auth_sessions`
+- `id` (PK)
+- `user_id` (FK -> auth_users)
+- `session_token_hash` (unique)
+- `created_at`
+- `expires_at`
+- `revoked_at` (nullable)
+- `last_seen_at`
+- `ip` (nullable)
+- `user_agent` (nullable)
+- `device_label` (nullable)
 
-Indexes:
+### `auth_invites`
+- `id` (PK)
+- `email` (indexed)
+- `invited_by_user_id` (FK -> auth_users, nullable)
+- `created_at`
+- `expires_at`
+- `accepted_at` (nullable)
+- `revoked_at` (nullable)
+- `notes` (nullable)
 
-```sql
-CREATE INDEX idx_memories_project_id ON memories(project_id);
-CREATE INDEX idx_memories_search_tsv ON memories USING GIN (search_tsv);
-```
+### `usage_events`
+- `id` (PK)
+- `user_id` (FK -> auth_users, nullable)
+- `event_type` (`login_requested|login_success|project_created|memory_created|recall_called`)
+- `created_at`
+- `ip_prefix` (coarse `/24` or `/64`)
+- `user_agent_hash` (nullable)
+- `project_id` (nullable)
+- `org_id` (nullable)
+
+## Recall behavior
+
+Primary retrieval uses Postgres FTS:
+- `websearch_to_tsquery('english', query)`
+- filter: `search_tsv @@ tsquery`
+- rank: `ts_rank_cd(search_tsv, tsquery)`
+- tie-break: `created_at desc`
+
+Fallback: latest memories when no FTS match.

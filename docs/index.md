@@ -1,17 +1,20 @@
 # ContextCache Docs
 
-This is the docs home page for ContextCache.
+ContextCache is an invite-only alpha for team memory recall.
 
-- Start with [Overview](00-overview.md)
-- API details: [API Contract](04-api-contract.md)
-- Build and run: [Dev Workflow](05-dev-workflow.md)
-- Phase planning: [Roadmap](08-roadmap.md)
+## Start here
 
-## Multi-tenant & RBAC
+- [Overview](00-overview.md)
+- [Data Model](03-data-model.md)
+- [API Contract](04-api-contract.md)
+- [Dev Workflow](05-dev-workflow.md)
+- [Security](07-security.md)
+- [Legal](legal.md)
 
-Phase B introduces org-scoped team memory:
+## Current product shape
 
-- Organizations own projects
-- API keys are per-org and stored hashed
-- Membership roles enforce route permissions
-- Audit logs capture write actions
+- Magic-link login + session cookie for web UI
+- Admin invite controls for alpha access
+- API key auth retained for programmatic access
+- Org-scoped projects/memories with RBAC and audit logs
+- Postgres FTS recall with rank score and recency fallback
