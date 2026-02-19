@@ -180,3 +180,50 @@ def cleanup_old_login_events(self, retain_days: int = 90) -> dict:
     deleted = asyncio.run(_run_in_db(_cleanup))
     logger.info("[worker] cleanup_old_login_events deleted=%s rows", deleted)
     return {"status": "ok", "deleted": deleted}
+
+
+# ---------------------------------------------------------------------------
+# Task: compute_memory_embedding  (placeholder — activates when pgvector ready)
+# ---------------------------------------------------------------------------
+
+@celery_app.task(
+    name="contextcache.compute_memory_embedding",
+    bind=True,
+    max_retries=3,
+    default_retry_delay=60,
+)
+def compute_memory_embedding(self, memory_id: int, model: str = "text-embedding-3-small") -> dict:
+    """Compute and store an embedding vector for a single memory.
+
+    This is a PLACEHOLDER.  When pgvector + an embedding provider are ready:
+      1. Enable the pgvector extension in Postgres.
+      2. Run:  ALTER TABLE memory_embeddings ADD COLUMN embedding vector(1536);
+              CREATE INDEX ON memory_embeddings USING ivfflat (embedding vector_cosine_ops);
+      3. Replace this body with actual embedding computation and upsert logic.
+      4. Set WORKER_ENABLED=true and ANALYZER_MODE=local (or service).
+
+    The task is already registered and will be enqueued automatically when
+    _enqueue_if_enabled(compute_memory_embedding, memory_id) is called from
+    the memory-creation route.
+
+    Safe: only receives an integer memory_id, no raw content in task args.
+    """
+    logger.info(
+        "[worker] compute_memory_embedding memory_id=%s model=%s (placeholder — no-op)",
+        memory_id, model,
+    )
+    # Future implementation sketch:
+    #   async def _upsert(session):
+    #       mem = await session.get(Memory, memory_id)
+    #       if not mem:
+    #           return
+    #       text = f"{mem.title or ''} {mem.content or ''}".strip()
+    #       vector = await embedding_provider.embed(text, model=model)
+    #       row = await session.get(MemoryEmbedding, mem.id) or MemoryEmbedding(memory_id=mem.id)
+    #       row.embedding = vector
+    #       row.model = model
+    #       row.dims = len(vector)
+    #       row.updated_at = datetime.now(timezone.utc)
+    #       session.add(row)
+    #   asyncio.run(_run_in_db(_upsert))
+    return {"status": "placeholder", "memory_id": memory_id}

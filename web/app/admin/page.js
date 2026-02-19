@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "../lib/api";
 import { useToast } from "../components/toast";
@@ -202,6 +202,17 @@ export default function AdminPage() {
     }
   }
 
+  // ── Pagination ────────────────────────────────────────────────────────────
+  const PAGE_SIZE = 20;
+  const [wlPage,   setWlPage]   = useState(1);
+  const [invPage,  setInvPage]  = useState(1);
+  const [userPage, setUserPage] = useState(1);
+
+  // Reset to page 1 when filter changes
+  const handleWlFilter   = useCallback((v) => { setWaitlistFilter(v); setWlPage(1);   }, []);
+  const handleInvFilter  = useCallback((v) => { setInviteFilter(v);   setInvPage(1);  }, []);
+  const handleUserFilter = useCallback((v) => { setUserFilter(v);     setUserPage(1); }, []);
+
   // ── Filtered views ────────────────────────────────────────────────────────
   const filteredWaitlist = useMemo(
     () => waitlist.filter((w) => !waitlistFilter || w.email.toLowerCase().includes(waitlistFilter.toLowerCase())),
@@ -215,6 +226,21 @@ export default function AdminPage() {
     () => users.filter((u) => !userFilter || u.email.toLowerCase().includes(userFilter.toLowerCase())),
     [users, userFilter]
   );
+
+  // ── Paginated slices ──────────────────────────────────────────────────────
+  const pagedWaitlist = useMemo(
+    () => filteredWaitlist.slice((wlPage - 1) * PAGE_SIZE, wlPage * PAGE_SIZE),
+    [filteredWaitlist, wlPage]
+  );
+  const pagedInvites = useMemo(
+    () => filteredInvites.slice((invPage - 1) * PAGE_SIZE, invPage * PAGE_SIZE),
+    [filteredInvites, invPage]
+  );
+  const pagedUsers = useMemo(
+    () => filteredUsers.slice((userPage - 1) * PAGE_SIZE, userPage * PAGE_SIZE),
+    [filteredUsers, userPage]
+  );
+
   const maxUsage = Math.max(...usage.map((r) => r.count || 0), 1);
   const pendingCount = waitlist.filter((w) => w.status === "pending").length;
 
@@ -285,7 +311,7 @@ export default function AdminPage() {
             <input
               placeholder="Filter by email…"
               value={waitlistFilter}
-              onChange={(e) => setWaitlistFilter(e.target.value)}
+              onChange={(e) => handleWlFilter(e.target.value)}
               style={{ maxWidth: 220 }}
               aria-label="Filter waitlist by email"
             />
@@ -309,7 +335,7 @@ export default function AdminPage() {
                     </td>
                   </tr>
                 )}
-                {filteredWaitlist.map((w) => (
+                {pagedWaitlist.map((w) => (
                   <tr key={w.id}>
                     <td className="mono">{w.email}</td>
                     <td><StatusBadge status={w.status} /></td>
@@ -334,6 +360,7 @@ export default function AdminPage() {
               </tbody>
             </table>
           </div>
+          <Paginator total={filteredWaitlist.length} page={wlPage} pageSize={PAGE_SIZE} onPage={setWlPage} />
         </section>
       )}
 
@@ -390,7 +417,7 @@ export default function AdminPage() {
               <input
                 placeholder="Filter by email…"
                 value={inviteFilter}
-                onChange={(e) => setInviteFilter(e.target.value)}
+                onChange={(e) => handleInvFilter(e.target.value)}
                 style={{ maxWidth: 220 }}
                 aria-label="Filter invitations by email"
               />
@@ -410,7 +437,7 @@ export default function AdminPage() {
                   {filteredInvites.length === 0 && (
                     <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--muted)", padding: 20 }}>No invitations found.</td></tr>
                   )}
-                  {filteredInvites.map((i) => (
+                  {pagedInvites.map((i) => (
                     <tr key={i.id}>
                       <td className="mono">{i.email}</td>
                       <td>
@@ -432,6 +459,7 @@ export default function AdminPage() {
                 </tbody>
               </table>
             </div>
+            <Paginator total={filteredInvites.length} page={invPage} pageSize={PAGE_SIZE} onPage={setInvPage} />
           </section>
         </>
       )}
@@ -449,7 +477,7 @@ export default function AdminPage() {
             <input
               placeholder="Filter by email…"
               value={userFilter}
-              onChange={(e) => setUserFilter(e.target.value)}
+              onChange={(e) => handleUserFilter(e.target.value)}
               style={{ maxWidth: 220 }}
               aria-label="Filter users by email"
             />
@@ -469,7 +497,7 @@ export default function AdminPage() {
                 {filteredUsers.length === 0 && (
                   <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--muted)", padding: 20 }}>No users found.</td></tr>
                 )}
-                {filteredUsers.map((u) => {
+                {pagedUsers.map((u) => {
                   const stats = userStats[u.id];
                   const statsLoaded = stats !== undefined;
                   return (
@@ -537,6 +565,7 @@ export default function AdminPage() {
               </tbody>
             </table>
           </div>
+          <Paginator total={filteredUsers.length} page={userPage} pageSize={PAGE_SIZE} onPage={setUserPage} />
         </section>
       )}
 
@@ -694,6 +723,60 @@ export default function AdminPage() {
           )}
         </section>
       )}
+    </div>
+  );
+}
+
+// ── Paginator ────────────────────────────────────────────────────────────────
+
+function Paginator({ total, page, pageSize, onPage }) {
+  const totalPages = Math.ceil(total / pageSize);
+  if (totalPages <= 1) return null;
+
+  const start = (page - 1) * pageSize + 1;
+  const end   = Math.min(page * pageSize, total);
+
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      paddingTop: 12, marginTop: 8,
+      borderTop: "1px solid var(--line)",
+      fontSize: "0.8rem", color: "var(--ink-2)",
+    }}>
+      <span>{start}–{end} of {total}</span>
+      <div style={{ display: "flex", gap: 4 }}>
+        <button
+          className="btn ghost sm"
+          disabled={page <= 1}
+          onClick={() => onPage(1)}
+          title="First page"
+          style={{ padding: "2px 8px" }}
+        >«</button>
+        <button
+          className="btn ghost sm"
+          disabled={page <= 1}
+          onClick={() => onPage(page - 1)}
+          title="Previous page"
+          style={{ padding: "2px 8px" }}
+        >‹</button>
+        <span style={{ padding: "2px 8px", color: "var(--ink)", fontWeight: 600 }}>
+          {page} / {totalPages}
+        </span>
+        <button
+          className="btn ghost sm"
+          disabled={page >= totalPages}
+          onClick={() => onPage(page + 1)}
+          title="Next page"
+          style={{ padding: "2px 8px" }}
+        >›</button>
+        <button
+          className="btn ghost sm"
+          disabled={page >= totalPages}
+          onClick={() => onPage(totalPages)}
+          title="Last page"
+          style={{ padding: "2px 8px" }}
+        >»</button>
+      </div>
     </div>
   );
 }

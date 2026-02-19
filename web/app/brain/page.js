@@ -38,6 +38,33 @@ export default function BrainPage() {
   const [recalling,     setRecalling]     = useState(false);
   const [stats, setStats] = useState({ projects: 0, memories: 0, edges: 0 });
 
+  // Animation: default to paused when OS prefers reduced motion
+  const [animPaused, setAnimPaused] = useState(() =>
+    typeof window !== "undefined"
+      ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      : false,
+  );
+
+  // Type filter: null = show all, Set = show only these types
+  const [activeTypes, setActiveTypes] = useState(null); // null means "all"
+
+  function toggleType(type) {
+    setActiveTypes((prev) => {
+      // First click on any type while "all" → start filter with just that type
+      if (prev === null) return new Set([type]);
+      const next = new Set(prev);
+      if (next.has(type)) {
+        next.delete(type);
+        // If nothing left, reset to "all"
+        return next.size === 0 ? null : next;
+      }
+      next.add(type);
+      return next;
+    });
+  }
+
+  function clearTypeFilter() { setActiveTypes(null); }
+
   // ── One-shot data load — no unstable deps ────────────────────────────────
   useEffect(() => {
     let cancelled = false;
@@ -242,6 +269,17 @@ export default function BrainPage() {
           </span>
         )}
 
+        {/* Animation toggle */}
+        <button
+          type="button"
+          className="btn ghost sm"
+          onClick={() => setAnimPaused((p) => !p)}
+          title={animPaused ? "Resume animation" : "Pause animation"}
+          style={{ flexShrink: 0, fontSize: "0.78rem", fontFamily: "var(--mono, monospace)" }}
+        >
+          {animPaused ? "▶ Animate" : "⏸ Pause"}
+        </button>
+
         <Link
           href="/app"
           className="btn ghost sm"
@@ -264,6 +302,8 @@ export default function BrainPage() {
               memoriesByProject={memoriesByProject}
               highlightIds={highlightIds}
               onNodeClick={handleNodeClick}
+              filterTypes={activeTypes}
+              pauseAnimation={animPaused}
             />
           )}
         </div>
@@ -285,30 +325,59 @@ export default function BrainPage() {
             zIndex: 1,
           }}
         >
-          {/* Legend */}
+          {/* Legend / type filter */}
           <div>
-            <p
-              style={{
-                fontSize: "0.65rem",
-                letterSpacing: "0.1em",
-                color: "rgba(100,140,180,0.55)",
-                fontFamily: "var(--mono, monospace)",
-                fontWeight: 700,
-                marginBottom: 10,
-              }}
-            >
-              NODE TYPES
-            </p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-              {/* Project hub row */}
-              <LegendItem color="#00D4FF" label="project hub" ring />
-              {usedTypes.map((type) => (
-                <LegendItem key={type} color={TYPE_COLORS[type] || "#4A6685"} label={type} />
-              ))}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <p
+                style={{
+                  fontSize: "0.65rem",
+                  letterSpacing: "0.1em",
+                  color: "rgba(100,140,180,0.55)",
+                  fontFamily: "var(--mono, monospace)",
+                  fontWeight: 700,
+                  margin: 0,
+                }}
+              >
+                NODE TYPES
+              </p>
+              {activeTypes !== null && (
+                <button
+                  onClick={clearTypeFilter}
+                  style={{
+                    background: "none", border: "none", cursor: "pointer",
+                    fontSize: "0.62rem", color: "rgba(0,212,255,0.7)",
+                    fontFamily: "var(--mono, monospace)", padding: 0,
+                  }}
+                  title="Show all types"
+                >
+                  reset
+                </button>
+              )}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              {/* Project hub row — not filterable */}
+              <LegendItem color="#00D4FF" label="project hub" ring active />
+              {usedTypes.map((type) => {
+                const isActive = activeTypes === null || activeTypes.has(type);
+                return (
+                  <LegendItem
+                    key={type}
+                    color={TYPE_COLORS[type] || "#4A6685"}
+                    label={type}
+                    active={isActive}
+                    onClick={() => toggleType(type)}
+                  />
+                );
+              })}
               {!usedTypes.length && !loading && (
                 <span style={{ fontSize: "0.72rem", color: "rgba(100,140,180,0.45)" }}>
                   No memories yet
                 </span>
+              )}
+              {usedTypes.length > 0 && (
+                <p style={{ fontSize: "0.62rem", color: "rgba(100,140,180,0.38)", margin: "4px 0 0", lineHeight: 1.4 }}>
+                  Click a type to filter
+                </p>
               )}
             </div>
           </div>
@@ -355,9 +424,23 @@ export default function BrainPage() {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function LegendItem({ color, label, ring }) {
+function LegendItem({ color, label, ring, active = true, onClick }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+    <div
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={onClick ? (e) => e.key === "Enter" && onClick() : undefined}
+      style={{
+        display: "flex", alignItems: "center", gap: 8,
+        cursor: onClick ? "pointer" : "default",
+        opacity: active ? 1 : 0.38,
+        transition: "opacity 0.2s",
+        borderRadius: 6,
+        padding: "2px 4px",
+        margin: "-2px -4px",
+      }}
+    >
       <div
         style={{
           width: ring ? 14 : 10,
@@ -365,15 +448,18 @@ function LegendItem({ color, label, ring }) {
           borderRadius: "50%",
           background: ring ? `radial-gradient(circle, ${color}cc 0%, ${color}44 100%)` : color + "bb",
           border: ring ? `1.5px solid ${color}88` : "none",
-          boxShadow: `0 0 6px ${color}44`,
+          boxShadow: active ? `0 0 6px ${color}44` : "none",
           flexShrink: 0,
+          transition: "box-shadow 0.2s",
         }}
       />
       <span
         style={{
           fontSize: "0.73rem",
-          color: "rgba(100,140,180,0.75)",
+          color: active ? "rgba(100,140,180,0.85)" : "rgba(100,140,180,0.45)",
           fontFamily: "var(--mono, monospace)",
+          transition: "color 0.2s",
+          userSelect: "none",
         }}
       >
         {label}

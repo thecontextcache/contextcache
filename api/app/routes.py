@@ -788,6 +788,11 @@ async def create_memory(
     await _increment_daily_counter(db, auth_user_id, "memories_created")
     await db.commit()
     await db.refresh(memory)
+
+    # Fire-and-forget embedding task (no-op until WORKER_ENABLED=true + pgvector ready)
+    from app.worker.tasks import compute_memory_embedding, _enqueue_if_enabled
+    _enqueue_if_enabled(compute_memory_embedding, memory.id)
+
     return _memory_to_out(memory, tag_names)
 
 

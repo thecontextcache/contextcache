@@ -343,6 +343,76 @@ export default function PricingPage() {
           ))}
         </div>
 
+        {/* ── Usage limits table ── */}
+        <div style={{ marginTop: 64 }}>
+          <div style={{ textAlign: "center", marginBottom: 32 }}>
+            <p className="l-section-label">Limits</p>
+            <h2 className="l-section-title" style={{ fontSize: "clamp(1.3rem, 3vw, 2rem)", marginBottom: 8 }}>
+              What counts against your quota?
+            </h2>
+            <p className="l-section-sub" style={{ margin: "0 auto" }}>
+              Alpha users run with generous defaults. Paid plans will raise or remove all limits.
+            </p>
+          </div>
+
+          <div style={{ overflowX: "auto" }}>
+            <table style={{
+              width: "100%", borderCollapse: "collapse",
+              fontSize: "0.87rem", color: "var(--ink-2)",
+              minWidth: 520,
+            }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid var(--line)" }}>
+                  {["Limit", "Alpha (free)", "Pro", "Team", "Enterprise"].map((h) => (
+                    <th key={h} style={{
+                      padding: "10px 14px", textAlign: "left",
+                      color: "var(--ink)", fontWeight: 700,
+                      fontSize: "0.8rem", letterSpacing: "0.04em",
+                      fontFamily: "var(--display)",
+                    }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  ["Memories / day",      "100",          "1 000",      "10 000",     "Custom"],
+                  ["Recalls / day",        "50",           "500",        "5 000",      "Custom"],
+                  ["Projects / day",       "10",           "100",        "Unlimited",  "Unlimited"],
+                  ["Projects total",       "Unlimited",    "Unlimited",  "Unlimited",  "Unlimited"],
+                  ["Memory pack size",     "10 000 chars", "50 000",     "100 000",    "Custom"],
+                  ["API key access",       "✓",            "✓",          "✓",          "✓"],
+                  ["is_unlimited flag",    "Admin-only",   "Per account","Per account","Per account"],
+                  ["Data retention",       "Yours",        "Yours",      "Yours",      "Custom SLA"],
+                  ["Support",              "Founder direct","Email","Priority email","Dedicated SLA"],
+                ].map(([limit, ...vals]) => (
+                  <tr key={limit} style={{ borderBottom: "1px solid rgba(0,212,255,0.06)" }}>
+                    <td style={{ padding: "10px 14px", fontWeight: 600, color: "var(--ink)", whiteSpace: "nowrap" }}>
+                      {limit}
+                    </td>
+                    {vals.map((v, i) => (
+                      <td key={i} style={{
+                        padding: "10px 14px",
+                        color: v === "✓" ? "var(--ok)" : v === "Unlimited" || v === "Custom" ? "var(--brand)" : "var(--ink-2)",
+                        fontFamily: v === "✓" ? undefined : "var(--mono)",
+                        fontSize: "0.82rem",
+                      }}>{v}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <p style={{
+            fontSize: "0.74rem", color: "var(--muted)",
+            fontFamily: "var(--mono)", marginTop: 12,
+            textAlign: "center",
+          }}>
+            * Limits are configured via environment variables (DAILY_MEMORY_LIMIT, DAILY_RECALL_LIMIT,
+            DAILY_PROJECT_LIMIT). Admin users can set is_unlimited=true to bypass all counters.
+          </p>
+        </div>
+
         {/* ── Waitlist ── */}
         <div id="waitlist" style={{ scrollMarginTop: 80, marginTop: 64 }}>
           <div className="l-cta-box" style={{ padding: "48px 32px" }}>

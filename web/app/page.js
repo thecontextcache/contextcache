@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
 
 // Never statically cache — the middleware must run on every request
@@ -84,6 +87,23 @@ const TECH = [
   { label: "alembic",    color: "#7C3AFF" },
   { label: "docker",     color: "#00D4FF" },
 ];
+
+function FaqItem({ q, a }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={`l-faq-item${open ? " open" : ""}`}>
+      <button
+        className="l-faq-q"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <span>{q}</span>
+        <span className="l-faq-chevron" aria-hidden="true">{open ? "−" : "+"}</span>
+      </button>
+      {open && <div className="l-faq-a">{a}</div>}
+    </div>
+  );
+}
 
 export default function LandingPage() {
   return (
@@ -287,29 +307,102 @@ export default function LandingPage() {
         </div>
       </div>
 
+      {/* ══ TRUST STRIP ═══════════════════════════════════════════════════════ */}
+      <div className="l-section" style={{ paddingTop: 0 }}>
+        <div className="l-trust-strip">
+          {[
+            { icon: "🏠", label: "Self-hosted",       desc: "Runs entirely on your infrastructure. No SaaS lock-in." },
+            { icon: "🔒", label: "No telemetry",       desc: "Zero data sent to third parties. We never see your memories." },
+            { icon: "🛡", label: "Invite-only alpha",  desc: "Hand-picked users. We onboard carefully to maintain quality." },
+            { icon: "🗝",  label: "API key + session",  desc: "Two auth methods. Keys are hashed at rest, sessions are HttpOnly." },
+            { icon: "🧹", label: "Auto-purge",         desc: "Login IPs capped at 10 per user. Usage rows purged after 90 days." },
+            { icon: "📄", label: "Proprietary license",desc: "Source visible but not open source. Your IP stays yours." },
+          ].map(({ icon, label, desc }) => (
+            <div key={label} className="l-trust-item">
+              <span className="l-trust-icon">{icon}</span>
+              <div>
+                <div className="l-trust-label">{label}</div>
+                <div className="l-trust-desc">{desc}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ══ FAQ ═══════════════════════════════════════════════════════════════ */}
+      <div className="l-section" style={{ paddingTop: 0 }}>
+        <div style={{ textAlign: "center", marginBottom: 48 }}>
+          <p className="l-section-label">FAQ</p>
+          <h2 className="l-section-title">Common questions</h2>
+        </div>
+        <div className="l-faq">
+          {[
+            {
+              q: "What is thecontextcache™?",
+              a: "A project memory layer for AI teams. You capture decisions, findings, and notes; we return a formatted memory pack when your LLM needs context. Think of it as a persistent, searchable brain for every project.",
+            },
+            {
+              q: "Who is this for?",
+              a: "Engineers and teams who use LLMs daily — writing code, debugging, or making architectural decisions. If you've ever re-explained the same context to ChatGPT twice, this is for you.",
+            },
+            {
+              q: "Is my data private?",
+              a: "Yes. The app is self-hosted: everything runs in your Docker environment. We never see your projects or memories. Login IPs are stored temporarily (last 10 per user, purged after 90 days).",
+            },
+            {
+              q: "What's the difference between Alpha and the upcoming Pro plan?",
+              a: "Alpha is free and invite-only, giving you full access to shape the product. Pro (coming after LLC formation) will add team seats, higher limits, webhooks, and SLA support. Alpha users will receive a discount.",
+            },
+            {
+              q: "How does recall work?",
+              a: "We use Postgres full-text search (FTS) with rank scoring and a recency fallback. Results are grouped by memory type and returned as a paste-ready pack. Vector embeddings via pgvector are planned for a future release.",
+            },
+            {
+              q: "Can I use the CLI or API directly?",
+              a: "Yes. Every endpoint is available via REST API. A Python CLI (cc) and SDK are included. Authenticate with an API key for programmatic access from scripts, CI, or agents.",
+            },
+            {
+              q: "Is the source code open source?",
+              a: "No. The code is source-visible but proprietary — you can inspect it, self-host it under the alpha license, but you cannot redistribute or build commercial products with it. See the Legal page.",
+            },
+          ].map(({ q, a }) => (
+            <FaqItem key={q} q={q} a={a} />
+          ))}
+        </div>
+      </div>
+
       {/* ══ FINAL CTA ═════════════════════════════════════════════════════════ */}
       <div className="l-section" style={{ paddingTop: 0 }}>
         <div className="l-cta-box">
           <div className="l-grid-bg" style={{ opacity: 0.5 }} />
           <div className="l-cta-glow" />
-          <p
-            className="l-section-label"
-            style={{ textAlign: "center", marginBottom: 14, position: "relative", zIndex: 1 }}
+          <div
+            className="l-badge"
+            style={{ position: "relative", zIndex: 1, marginBottom: 20, display: "inline-flex" }}
           >
-            Ready to start
-          </p>
+            <span className="l-badge-dot" />
+            Now accepting alpha applications
+          </div>
           <h2>Give your AI team a memory.</h2>
           <p>
-            Request your invitation to the alpha. We onboard in small batches to maintain quality.
+            Request your invitation. We onboard in small batches — direct founder support, full feature
+            access, and a seat at the table while we shape the product.
           </p>
-          <div className="l-cta-actions">
-            <Link href="/waitlist" className="btn-glow">
+          <div className="l-cta-actions" style={{ justifyContent: "center" }}>
+            <Link href="/waitlist" className="btn-glow" style={{ fontSize: "1rem", padding: "14px 36px" }}>
               Join the waitlist →
             </Link>
             <Link href="/auth" className="btn-outline-glow">
-              Sign in
+              Already invited? Sign in
             </Link>
           </div>
+          <p style={{
+            position: "relative", zIndex: 1,
+            fontSize: "0.75rem", color: "rgba(100,140,180,0.5)",
+            marginTop: 20, textAlign: "center",
+          }}>
+            No credit card · Self-hosted · Your data stays yours
+          </p>
         </div>
       </div>
 

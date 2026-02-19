@@ -127,6 +127,8 @@ export default function BrainGraph({
   memoriesByProject = {},
   highlightIds = [],
   onNodeClick,
+  filterTypes = null,   // Set<string> | null — null means show all
+  pauseAnimation = false,
 }) {
   const canvasRef    = useRef(null);
   const animRef      = useRef(null);
@@ -134,7 +136,13 @@ export default function BrainGraph({
   const hoverRef     = useRef(null);
   const highlightRef = useRef(new Set(highlightIds));
   const reducedRef   = useRef(false);
+  const pauseRef     = useRef(pauseAnimation);
+  const filterRef    = useRef(filterTypes);
   const timeRef      = useRef(0);
+
+  // Sync pause + filter via refs so the animation loop picks them up without restart
+  useEffect(() => { pauseRef.current  = pauseAnimation; }, [pauseAnimation]);
+  useEffect(() => { filterRef.current = filterTypes;    }, [filterTypes]);
 
   // Sync highlight set
   useEffect(() => {
@@ -194,10 +202,11 @@ export default function BrainGraph({
       timeRef.current += 0.016;
       const t = timeRef.current;
       const { nodes, edges, stars, w: W, h: H } = stateRef.current;
-      const reduced = reducedRef.current;
+      const paused  = pauseRef.current || reducedRef.current;
+      const ftypes  = filterRef.current; // Set<string> | null
 
       // ── Physics ─────────────────────────────────────────────────────────────
-      if (!reduced && nodes.length) {
+      if (!paused && nodes.length) {
         const nm = {};
         for (const n of nodes) nm[n.id] = n;
 
@@ -247,6 +256,9 @@ export default function BrainGraph({
         }
       }
 
+      // When paused, still advance time slowly for subtle pulse (not physics)
+      if (paused) timeRef.current -= 0.014; // net +0.002/frame
+
       // ── Draw ─────────────────────────────────────────────────────────────────
       ctx.clearRect(0, 0, W, H);
 
@@ -284,6 +296,14 @@ export default function BrainGraph({
         const a = nm2[e.from], b = nm2[e.to];
         if (!a || !b) continue;
 
+        const bMuted = ftypes !== null && b.kind === "memory" && !ftypes.has(b.type);
+        if (bMuted) {
+          ctx.strokeStyle = "rgba(0,212,255,0.04)";
+          ctx.lineWidth = 0.5;
+          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+          continue;
+        }
+
         const aHot = a.id === hoverId || highlights.has(String(a.rawId));
         const bHot = b.id === hoverId || highlights.has(String(b.rawId));
         const hot  = aHot || bHot || a.id === hoverId || b.id === hoverId;
@@ -308,8 +328,14 @@ export default function BrainGraph({
       for (const n of nodes) {
         const isHover = n.id === hoverId;
         const isHot   = highlights.has(String(n.rawId));
+
+        // Type filter: dim nodes whose type is not in the active filter set
+        // Project hubs are never dimmed; null filterTypes = no filter
+        const typeMuted = ftypes !== null && n.kind === "memory" && !ftypes.has(n.type);
+        const dimAlpha  = typeMuted ? 0.12 : 1.0;
+
         const breath  = n.kind === "project" ? 0.12 * Math.sin(t * 1.4 + n.pulse) : 0;
-        const baseR   = n.radius + (isHover ? 3 : 0) + breath;
+        const baseR   = n.radius + (isHover && !typeMuted ? 3 : 0) + breath;
         const hp      = n.hitPulse;
 
         // Hit pulse ring
@@ -322,8 +348,8 @@ export default function BrainGraph({
           ctx.stroke();
         }
 
-        // Glow halo
-        if (isHot || isHover || hp > 0.05) {
+        // Glow halo — skip for muted nodes
+        if (!typeMuted && (isHot || isHover || hp > 0.05)) {
           const glowR = baseR + 18 + hp * 10;
           const g = ctx.createRadialGradient(n.x, n.y, baseR * 0.4, n.x, n.y, glowR);
           g.addColorStop(0, rgbaStr(n.color, (isHot ? 0.35 : 0.22) + hp * 0.2));
@@ -335,7 +361,7 @@ export default function BrainGraph({
         }
 
         // Node fill — radial gradient for depth
-        const fillAlpha = isHot || isHover ? 1.0 : 0.85;
+        const fillAlpha = (isHot || isHover ? 1.0 : 0.85) * dimAlpha;
         const fillG = ctx.createRadialGradient(
           n.x - baseR * 0.3, n.y - baseR * 0.3, 0,
           n.x, n.y, baseR * 1.3,
@@ -354,8 +380,8 @@ export default function BrainGraph({
           ctx.stroke();
         }
 
-        // Labels
-        const showLabel = n.kind === "project" || isHover || isHot;
+        // Labels — hide for muted nodes unless hovered
+        const showLabel = (!typeMuted || isHover) && (n.kind === "project" || isHover || isHot);
         if (showLabel) {
           const text = n.label.length > 24 ? n.label.slice(0, 23) + "…" : n.label;
           const lY   = n.y + baseR + 14;

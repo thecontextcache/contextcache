@@ -297,6 +297,44 @@ cloudflared tunnel run <YOUR-TUNNEL-NAME>
 
 ---
 
+## AWS SES production checklist
+
+Domain and `support@thecontextcache.com` are verified in SES. Production access (sandbox removal) is pending AWS approval. Once approved:
+
+1. **Update `.env`** with real credentials:
+   ```env
+   APP_ENV=prod
+   AWS_REGION=us-east-1
+   AWS_ACCESS_KEY_ID=<your-key-id>
+   AWS_SECRET_ACCESS_KEY=<your-secret>
+   SES_FROM_EMAIL=support@thecontextcache.com
+   APP_PUBLIC_BASE_URL=https://thecontextcache.com
+   ```
+
+2. **Remove the `BOOTSTRAP_API_KEY`** line (or leave blank) — it is only used in `APP_ENV=dev`.
+
+3. **Rebuild and restart** the API container:
+   ```bash
+   docker compose up -d --build api
+   ```
+
+4. **End-to-end smoke test** — run once after switching to prod SES:
+   ```bash
+   # 1. Request a magic link (should send a real email, NOT log to console)
+   curl -s -X POST https://api.thecontextcache.com/auth/request-link \
+     -H 'Content-Type: application/json' \
+     -d '{"email":"your-verified-address@example.com"}'
+   # Expected: {"status":"ok","detail":"Check your email...","debug_link":null}
+
+   # 2. Confirm debug_link is null (would be a URL in dev mode)
+   # 3. Check your inbox — magic link should arrive within ~30 s
+   # 4. Click the link → confirm session cookie is set → /app loads
+   ```
+
+5. **Monitor SES bounce/complaint rate** in the AWS console — stay below 0.1% bounce / 0.1% complaint to avoid SES suspension.
+
+---
+
 ## Common operations
 
 ### Verify API is up
@@ -462,3 +500,48 @@ docker compose --profile analyzer up -d
 The analyzer service **must have no `ports:` mapping** in `docker-compose.yml`.
 It communicates only on the Docker internal `default` network, which is
 unreachable from outside the host.
+
+---
+
+## Embedding pipeline (future — requires pgvector)
+
+The `memory_embeddings` table and the Celery task `compute_memory_embedding` are already scaffolded. The task is registered and will be enqueued automatically on every new memory creation — but because `WORKER_ENABLED=false` by default it is silently skipped.
+
+### Activation steps (when ready)
+
+1. **Enable pgvector** in Postgres — add to your migration or run once:
+   ```sql
+   CREATE EXTENSION IF NOT EXISTS vector;
+   ALTER TABLE memory_embeddings ADD COLUMN embedding vector(1536);
+   CREATE INDEX ON memory_embeddings USING ivfflat (embedding vector_cosine_ops)
+     WITH (lists = 100);
+   ```
+
+2. **Add an embedding provider** — implement in `api/app/analyzer/core.py` or a new `api/app/embeddings.py`. Supported providers: OpenAI `text-embedding-3-small` (1536 dims), `text-embedding-3-large` (3072 dims), or a local model via `sentence-transformers`.
+
+3. **Fill in the task body** in `api/app/worker/tasks.py` — the `compute_memory_embedding` task has a commented sketch of the implementation.
+
+4. **Set env vars**:
+   ```env
+   WORKER_ENABLED=true
+   CELERY_BROKER_URL=redis://redis:6379/0
+   CELERY_RESULT_BACKEND=redis://redis:6379/0
+   OPENAI_API_KEY=<your-key>          # if using OpenAI
+   EMBEDDING_MODEL=text-embedding-3-small
+   ```
+
+5. **Start the worker profile**:
+   ```bash
+   docker compose --profile worker up -d
+   ```
+
+6. **Backfill existing memories** (optional — enqueue once):
+   ```python
+   from app.worker.tasks import compute_memory_embedding, _enqueue_if_enabled
+   from app.models import Memory
+   # Run via a management script or a one-off Celery task
+   for mem_id in all_memory_ids:
+       _enqueue_if_enabled(compute_memory_embedding, mem_id)
+   ```
+
+Until pgvector is active, the recall endpoint continues to use Postgres FTS (no change in behaviour).

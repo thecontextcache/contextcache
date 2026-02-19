@@ -52,12 +52,85 @@ function TypeBadge({ type, size = "sm" }) {
   );
 }
 
+// ── Usage meter ─────────────────────────────────────────────────────────────
+
+function UsageMeter({ usage, isUnlimited }) {
+  const lim = usage?.limits ?? {};
+  const rows = [
+    { label: "memories", used: usage?.memories_created ?? 0, max: lim.memories_per_day ?? 0, color: "#00D4FF" },
+    { label: "recalls",  used: usage?.recall_queries    ?? 0, max: lim.recalls_per_day   ?? 0, color: "#A78BFA" },
+    { label: "projects", used: usage?.projects_created  ?? 0, max: lim.projects_per_day  ?? 0, color: "#00E5A0" },
+  ];
+
+  return (
+    <div style={{
+      padding: "10px 12px",
+      borderTop: "1px solid var(--line)",
+      marginTop: "auto",
+    }}>
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        marginBottom: 8,
+      }}>
+        <span style={{
+          fontSize: "0.62rem", letterSpacing: "0.1em",
+          color: "var(--muted)", fontFamily: "var(--mono)", fontWeight: 700,
+        }}>
+          TODAY&apos;S USAGE
+        </span>
+        {isUnlimited && (
+          <span style={{
+            fontSize: "0.62rem", color: "var(--ok)",
+            fontFamily: "var(--mono)", letterSpacing: "0.06em",
+          }}>
+            ∞ unlimited
+          </span>
+        )}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {rows.map(({ label, used, max, color }) => {
+          const pct = max > 0 && !isUnlimited ? Math.min(100, (used / max) * 100) : 0;
+          const near = pct >= 80;
+          const full = pct >= 100;
+          return (
+            <div key={label}>
+              <div style={{
+                display: "flex", justifyContent: "space-between",
+                fontSize: "0.68rem", color: "var(--ink-2)",
+                fontFamily: "var(--mono)", marginBottom: 3,
+              }}>
+                <span>{label}</span>
+                <span style={{ color: full ? "var(--danger)" : near ? "var(--warn)" : "var(--muted)" }}>
+                  {isUnlimited ? `${used} / ∞` : max > 0 ? `${used} / ${max}` : `${used}`}
+                </span>
+              </div>
+              {max > 0 && !isUnlimited && (
+                <div style={{
+                  height: 3, borderRadius: 99,
+                  background: "var(--panel-3)", overflow: "hidden",
+                }}>
+                  <div style={{
+                    height: "100%", borderRadius: 99, width: `${pct}%`,
+                    background: full ? "var(--danger)" : near ? "var(--warn)" : color,
+                    transition: "width 0.4s ease",
+                  }} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function AppPage() {
   const router  = useRouter();
   const toast   = useToast();
 
   const [loading, setLoading]         = useState(true);
   const [auth, setAuth]               = useState(null);
+  const [usage, setUsage]             = useState(null);
   const [projects, setProjects]       = useState([]);
   const [projectId, setProjectId]     = useState("");
   const [tab, setTab]                 = useState("compose");
@@ -100,13 +173,15 @@ export default function AppPage() {
   async function loadInitial() {
     setLoading(true);
     try {
-      const [me, list] = await Promise.all([
+      const [me, list, usageRes] = await Promise.all([
         apiFetch("/auth/me"),
         apiFetch("/projects"),
+        apiFetch("/me/usage").catch(() => null), // non-fatal
       ]);
       setAuth(me);
       setProjects(list);
       if (list.length) setProjectId(String(list[0].id));
+      if (usageRes) setUsage(usageRes);
     } catch (err) {
       handleApiError(err);
     } finally {
@@ -391,6 +466,9 @@ export default function AppPage() {
             ))
           )}
         </div>
+
+        {/* ── Usage meter ────────────────────────────────────────────────── */}
+        {usage && <UsageMeter usage={usage} isUnlimited={auth?.is_unlimited} />}
       </aside>
 
       {/* ── Main panel ────────────────────────────────────────────────────── */}
