@@ -287,6 +287,15 @@ label {
   letter-spacing: 0.01em;
 }
 
+/* Checkboxes and radio buttons must never inherit width:100% */
+input[type="checkbox"],
+input[type="radio"] {
+  width: auto;
+  padding: 0;
+  border: none;
+  background: none;
+}
+
 input, select, textarea {
   width: 100%;
   padding: 9px 13px;

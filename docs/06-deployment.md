@@ -347,7 +347,7 @@ batch recall, scheduled cleanup).
 |---------|-------|------|
 | `redis` | `redis:7-alpine` | Broker + result backend |
 | `worker` | same as `api` | Celery worker process |
-| `beat` _(commented)_ | same as `api` | Celery Beat scheduler |
+| `beat` | same as `api` | Celery Beat scheduler (periodic tasks) |
 
 ### Enable worker mode
 
@@ -381,16 +381,37 @@ docker compose --profile worker down
 
 ### Periodic tasks (Celery Beat)
 
-Uncomment the `beat:` service block in `docker-compose.yml` and add a
-schedule to `api/app/worker/celery_app.py`:
+The `beat` service is included in the `worker` profile and starts automatically with `--profile worker`. It manages three built-in cleanup schedules:
+
+| Task | Schedule | Description |
+|------|----------|-------------|
+| `cleanup_expired_magic_links` | Every hour | Deletes magic links older than 24 h |
+| `cleanup_old_usage_counters` | Daily at 02:00 UTC | Purges usage rows older than 90 days |
+| `cleanup_old_login_events` | Daily at 03:00 UTC | Purges login-event rows older than 90 days (per-user cap of last 10 is also enforced at write time) |
+
+The schedule lives in `api/app/worker/celery_app.py` — edit that file to add or adjust tasks:
 
 ```python
 celery_app.conf.beat_schedule = {
-    "cleanup-magic-links-daily": {
+    "cleanup-magic-links-hourly": {
         "task": "contextcache.cleanup_expired_magic_links",
-        "schedule": crontab(hour=3, minute=0),  # 03:00 UTC daily
+        "schedule": crontab(minute=0),           # top of every hour
+    },
+    "cleanup-usage-counters-nightly": {
+        "task": "contextcache.cleanup_old_usage_counters",
+        "schedule": crontab(hour=2, minute=0),   # 02:00 UTC
+    },
+    "cleanup-login-events-nightly": {
+        "task": "contextcache.cleanup_old_login_events",
+        "schedule": crontab(hour=3, minute=0),   # 03:00 UTC
     },
 }
+```
+
+Verify beat is running:
+```bash
+docker compose --profile worker logs beat | tail -20
+# Should show: "beat: Starting... Scheduler: DatabaseScheduler"
 ```
 
 ### Worker security notes

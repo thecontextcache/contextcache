@@ -116,31 +116,49 @@ export default function AuthPage() {
           </span>
         </div>
 
-        {/* Terms acceptance */}
-        <label
-          style={{
-            display: "flex", alignItems: "flex-start", gap: 10,
-            fontSize: "0.82rem", color: "var(--ink-2)", cursor: "pointer",
-            padding: "8px 0",
-          }}
-        >
+        {/* Terms acceptance — wrapper must be div, not label, because the
+            global `label { display:block }` and `input { width:100% }` rules
+            would cause the checkbox to stretch full-width and push the text
+            outside the card. Using div + htmlFor on the label text is valid
+            and keeps the click-to-toggle behaviour intact. */}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "6px 0" }}>
           <input
+            id="terms-accept"
             type="checkbox"
             checked={termsAccepted}
             onChange={(e) => setTermsAccepted(e.target.checked)}
-            style={{ marginTop: 2, flexShrink: 0, accentColor: "var(--brand)" }}
-            aria-label="I agree to the Terms of Service and Privacy Policy"
+            style={{
+              marginTop: 3,
+              flexShrink: 0,
+              width: "auto",
+              cursor: "pointer",
+              accentColor: "var(--brand)",
+            }}
           />
-          <span>
+          <label
+            htmlFor="terms-accept"
+            style={{
+              fontSize: "0.82rem",
+              color: "var(--ink-2)",
+              fontWeight: "normal",
+              lineHeight: 1.5,
+              marginBottom: 0,
+              cursor: "pointer",
+            }}
+          >
             I agree to the{" "}
-            <Link href="/legal" target="_blank" rel="noopener noreferrer"
-              style={{ color: "var(--brand)" }}>
+            <Link
+              href="/legal"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "var(--brand)" }}
+            >
               Terms of Service &amp; Privacy Policy
             </Link>
             {" "}of thecontextcache™. I understand this is an invite-only alpha
             and data may change.
-          </span>
-        </label>
+          </label>
+        </div>
 
         <button
           type="submit"
