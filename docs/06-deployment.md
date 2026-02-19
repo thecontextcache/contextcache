@@ -1,6 +1,127 @@
 # Deployment
 
-Two supported deployment modes. Pick one, set the env vars, rebuild.
+Three supported deployment modes. Pick one, set the env vars, rebuild.
+
+---
+
+## Mode C — Cloudflare Tunnel (Subdomain deployment — RECOMMENDED for production)
+
+Each service gets its own public subdomain. No nginx sidecar needed.
+
+```
+https://thecontextcache.com       → web:3000   (Next.js)
+https://api.thecontextcache.com   → api:8000   (FastAPI)
+https://docs.thecontextcache.com  → docs:8001  (MkDocs)
+```
+
+The web UI calls `/api/*` through the **Next.js server-side proxy** — the
+browser never talks to `api.thecontextcache.com` directly. This means:
+
+- Zero CORS issues for the web UI
+- Session cookies set correctly on `thecontextcache.com`
+- The API subdomain is still exposed for CLI and direct API access
+
+### 1. Create and authenticate the tunnel
+
+```bash
+cloudflared login
+cloudflared tunnel create contextcache
+```
+
+### 2. Add DNS records (Cloudflare dashboard)
+
+In **Zero Trust → Tunnels → your tunnel → Public Hostnames**, add:
+
+| Subdomain | Domain | Type | URL |
+|-----------|--------|------|-----|
+| _(blank)_ | `thecontextcache.com` | HTTP | `http://localhost:3000` |
+| `api` | `thecontextcache.com` | HTTP | `http://localhost:8000` |
+| `docs` | `thecontextcache.com` | HTTP | `http://localhost:8001` |
+
+Or use the config file at `docs/examples/cloudflared-config.yml`.
+
+### 3. Install config
+
+```bash
+sudo cp docs/examples/cloudflared-config.yml /etc/cloudflared/config.yml
+# Edit tunnel ID and credentials-file path
+sudo nano /etc/cloudflared/config.yml
+```
+
+### 4. Install as systemd service
+
+```bash
+sudo cloudflared service install
+sudo systemctl enable --now cloudflared
+```
+
+### 5. .env (Mode C)
+
+```env
+APP_ENV=prod
+APP_PUBLIC_BASE_URL=https://thecontextcache.com
+CORS_ORIGINS=https://thecontextcache.com
+
+# Leave NEXT_PUBLIC_API_BASE_URL blank — the Next.js proxy handles /api/*
+NEXT_PUBLIC_API_BASE_URL=
+NEXT_PUBLIC_DOCS_URL=https://docs.thecontextcache.com
+
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=<from secrets>
+AWS_SECRET_ACCESS_KEY=<from secrets>
+SES_FROM_EMAIL=support@thecontextcache.com
+
+POSTGRES_USER=contextcache
+POSTGRES_PASSWORD=<strong-random-password>
+POSTGRES_DB=contextcache
+
+DAILY_MEMORY_LIMIT=100
+DAILY_RECALL_LIMIT=50
+DAILY_PROJECT_LIMIT=10
+```
+
+### 6. Start
+
+```bash
+docker compose up -d --build
+sudo systemctl start cloudflared
+```
+
+### Verification checklist
+
+Run these after deployment:
+
+```bash
+# 1. API health
+curl -s https://api.thecontextcache.com/health
+# → {"status":"ok"}
+
+# 2. CORS preflight (should return 200 with Access-Control-Allow-Origin)
+curl -si -X OPTIONS https://api.thecontextcache.com/auth/me \
+  -H "Origin: https://thecontextcache.com" \
+  -H "Access-Control-Request-Method: GET" | grep -i "access-control"
+
+# 3. Docs site
+curl -I https://docs.thecontextcache.com
+# → HTTP/2 200
+
+# 4. Web UI (check response is HTML)
+curl -sI https://thecontextcache.com | head -5
+
+# 5. Browser: open https://thecontextcache.com/auth
+#    → request magic link → check docker logs for debug_link
+#    → verify → check /app loads + session cookie is set
+docker compose logs api | grep -i "MAGIC LINK" | tail -3
+```
+
+### Cookie / session notes
+
+- `APP_ENV=prod` sets `Secure=true; SameSite=Lax` on the session cookie.
+- Cookies are set by the **web** origin (`thecontextcache.com`) because the
+  browser only ever talks to the Next.js proxy, not the API subdomain.
+- `SameSite=Lax` is sufficient here — no cross-site POST needed.
+- If you ever route the frontend to call `api.thecontextcache.com` directly,
+  switch to `SameSite=None; Secure` and set `Domain=.thecontextcache.com`.
 
 ---
 

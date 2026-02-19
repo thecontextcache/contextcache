@@ -258,3 +258,21 @@ class LoginEventOut(BaseModel):
     ip: str
     user_agent: str | None = None
     created_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Usage limits
+# ---------------------------------------------------------------------------
+
+class UsageLimitsOut(BaseModel):
+    memories_per_day: int
+    recalls_per_day: int
+    projects_per_day: int
+
+
+class UsageOut(BaseModel):
+    day: str
+    memories_created: int
+    recall_queries: int
+    projects_created: int
+    limits: UsageLimitsOut

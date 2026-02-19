@@ -46,17 +46,25 @@ APP_PUBLIC_BASE_URL=http://<tailscale-ip>:3000
 CORS_ORIGINS=http://localhost:3000,http://<tailscale-ip>:3000
 ```
 
-### Mode B — Cloudflare Tunnel (HTTPS domain)
+### Mode B — Cloudflare Tunnel (subdomain, recommended for production)
+
+Each service gets its own subdomain — no nginx needed.
+
+```
+https://thecontextcache.com       → web (Next.js)
+https://api.thecontextcache.com   → API (FastAPI)
+https://docs.thecontextcache.com  → docs (MkDocs)
+```
 
 ```env
 APP_ENV=prod
 APP_PUBLIC_BASE_URL=https://thecontextcache.com
 CORS_ORIGINS=https://thecontextcache.com
+NEXT_PUBLIC_DOCS_URL=https://docs.thecontextcache.com
 ```
 
-The frontend auto-detects the production domain and switches to same-origin
-API paths (`/api`, `/docs`). See [`docs/06-deployment.md`](docs/06-deployment.md)
-for the full Cloudflare Tunnel and nginx path-stripping setup.
+See [`docs/06-deployment.md`](docs/06-deployment.md) for the full setup guide,
+including the `cloudflared` config at `docs/examples/cloudflared-config.yml`.
 
 ---
 
@@ -84,3 +92,52 @@ docker compose --profile test down -v
 Copy `.env.example` to `.env`. Key variables are documented inline in that file.
 
 Never commit `.env` — it is git-ignored.
+
+---
+
+## CLI (cc)
+
+A zero-dependency Python CLI for interacting with the API from the terminal or scripts.
+
+**Requirements:** Python 3.9+ (no extra packages needed)
+
+### Setup
+
+```bash
+# Save your API key (created in the web UI under Org → API Keys)
+python cli/cc.py login --api-key cck_yourkey --base-url https://api.thecontextcache.com
+
+# Or for local dev
+python cli/cc.py login --api-key cck_yourkey --base-url http://localhost:8000
+```
+
+Config is stored at `~/.contextcache/config.json` (chmod 600).
+
+### Commands
+
+```bash
+# Check API health
+python cli/cc.py health
+
+# Projects
+python cli/cc.py projects list
+python cli/cc.py projects create "My Project"
+
+# Memories
+python cli/cc.py mem add --project 1 --type decision --text "We chose Postgres for persistence"
+python cli/cc.py mem add --project 1 --type note --file ./notes.txt --title "Sprint retro"
+python cli/cc.py mem list --project 1
+
+# Recall
+python cli/cc.py recall --project 1 "postgres schema decisions"
+
+# Today's usage
+python cli/cc.py usage
+```
+
+### Alias (optional)
+
+```bash
+# Add to ~/.zshrc or ~/.bashrc
+alias cc="python /path/to/contextcache/cli/cc.py"
+```

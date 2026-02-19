@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from dataclasses import dataclass
+from datetime import date as _today_date
 from datetime import datetime, timezone
 from typing import Any, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import desc, func, select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import generate_api_key, get_db, hash_api_key
-from .models import ApiKey, AuditLog, Membership, Memory, MemoryTag, Organization, Project, Tag, UsageEvent, User
+from .models import ApiKey, AuditLog, Membership, Memory, MemoryTag, Organization, Project, Tag, UsageCounter, UsageEvent, User
 from .recall import build_memory_pack
 from .schemas import (
     ApiKeyCreate,
@@ -30,7 +33,14 @@ from .schemas import (
     RecallOut,
     RoleType,
     SearchOut,
+    UsageLimitsOut,
+    UsageOut,
 )
+
+# ── Daily usage limits (env-configurable, 0 = no limit) ─────────────────────
+DAILY_MEMORY_LIMIT  = int(os.getenv("DAILY_MEMORY_LIMIT",  "100"))
+DAILY_RECALL_LIMIT  = int(os.getenv("DAILY_RECALL_LIMIT",  "50"))
+DAILY_PROJECT_LIMIT = int(os.getenv("DAILY_PROJECT_LIMIT", "10"))
 
 router = APIRouter()
 
@@ -141,6 +151,58 @@ async def write_usage(
     )
 
 
+async def _get_usage_counter(db: AsyncSession, auth_user_id: int) -> UsageCounter | None:
+    """Return today's UsageCounter for auth_user_id, or None if no row yet."""
+    return (
+        await db.execute(
+            select(UsageCounter)
+            .where(UsageCounter.user_id == auth_user_id, UsageCounter.day == _today_date.today())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
+async def _check_daily_limit(db: AsyncSession, auth_user_id: int | None, field: str, limit: int) -> None:
+    """Raise HTTP 429 if the user has hit their daily limit for *field*.
+
+    Skips the check when:
+    - auth_user_id is None (API-key-only calls, no auth user)
+    - limit <= 0 (unlimited)
+    """
+    if auth_user_id is None or limit <= 0:
+        return
+    counter = await _get_usage_counter(db, auth_user_id)
+    if counter is not None:
+        current = getattr(counter, field, 0) or 0
+        if current >= limit:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Daily limit reached ({limit}). Resets at midnight UTC.",
+            )
+
+
+async def _increment_daily_counter(db: AsyncSession, auth_user_id: int | None, field: str) -> None:
+    """Atomically increment a daily counter field for auth_user_id (upsert).
+
+    Uses PostgreSQL INSERT … ON CONFLICT DO UPDATE for a single round-trip.
+    Safe under concurrent requests — no read-modify-write race.
+    """
+    if auth_user_id is None:
+        return
+    today = _today_date.today()
+    # Build the upsert: insert a row with count=1; if it already exists for
+    # (user_id, day), increment the target column by 1.
+    stmt = (
+        pg_insert(UsageCounter)
+        .values(user_id=auth_user_id, day=today, **{field: 1})
+        .on_conflict_do_update(
+            index_elements=["user_id", "day"],
+            set_={field: UsageCounter.__table__.c[field] + 1},
+        )
+    )
+    await db.execute(stmt)
+
+
 async def get_org_or_404(db: AsyncSession, org_id: int) -> Organization:
     org = (
         await db.execute(select(Organization).where(Organization.id == org_id).limit(1))
@@ -171,6 +233,31 @@ async def get_me(ctx: RequestContext = Depends(get_actor_context)) -> MeOut:
         role=ctx.role,
         api_key_prefix=ctx.api_key_prefix,
         actor_user_id=ctx.actor_user_id,
+    )
+
+
+@router.get("/me/usage", response_model=UsageOut)
+async def get_my_usage(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> UsageOut:
+    """Return today's usage counters + configured limits for the current user."""
+    auth_user_id: int | None = getattr(request.state, "auth_user_id", None)
+    if auth_user_id is None:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    counter = await _get_usage_counter(db, auth_user_id)
+    today = _today_date.today()
+    return UsageOut(
+        day=today.isoformat(),
+        memories_created=counter.memories_created if counter else 0,
+        recall_queries=counter.recall_queries if counter else 0,
+        projects_created=counter.projects_created if counter else 0,
+        limits=UsageLimitsOut(
+            memories_per_day=DAILY_MEMORY_LIMIT,
+            recalls_per_day=DAILY_RECALL_LIMIT,
+            projects_per_day=DAILY_PROJECT_LIMIT,
+        ),
     )
 
 
@@ -377,6 +464,9 @@ async def create_org_project(
     require_role(ctx, "member")
     await get_org_or_404(db, org_id)
 
+    auth_user_id: int | None = getattr(request.state, "auth_user_id", None)
+    await _check_daily_limit(db, auth_user_id, "projects_created", DAILY_PROJECT_LIMIT)
+
     project = Project(name=payload.name, org_id=org_id, created_by_user_id=ctx.actor_user_id)
     db.add(project)
     await db.flush()
@@ -390,6 +480,7 @@ async def create_org_project(
         metadata={"name": project.name},
     )
     await write_usage(db, request=request, ctx=ctx, event_type="project_created", org_id=org_id, project_id=project.id)
+    await _increment_daily_counter(db, auth_user_id, "projects_created")
     await db.commit()
     await db.refresh(project)
     return ProjectOut(
@@ -648,6 +739,9 @@ async def create_memory(
     require_role(ctx, "member")
     project = await get_project_or_404(db, project_id, ctx)
 
+    auth_user_id: int | None = getattr(request.state, "auth_user_id", None)
+    await _check_daily_limit(db, auth_user_id, "memories_created", DAILY_MEMORY_LIMIT)
+
     memory = Memory(
         project_id=project.id,
         created_by_user_id=ctx.actor_user_id,
@@ -686,6 +780,7 @@ async def create_memory(
         org_id=project.org_id,
         project_id=project.id,
     )
+    await _increment_daily_counter(db, auth_user_id, "memories_created")
     await db.commit()
     await db.refresh(memory)
     return _memory_to_out(memory, tag_names)
@@ -796,6 +891,9 @@ async def recall(
     require_role(ctx, "viewer")
     project = await get_project_or_404(db, project_id, ctx)
 
+    auth_user_id: int | None = getattr(request.state, "auth_user_id", None)
+    await _check_daily_limit(db, auth_user_id, "recall_queries", DAILY_RECALL_LIMIT)
+
     query_clean = query.strip()
     top_with_rank: list[tuple[Memory, float | None]] = []
     if query_clean:
@@ -835,6 +933,7 @@ async def recall(
         org_id=project.org_id,
         project_id=project.id,
     )
+    await _increment_daily_counter(db, auth_user_id, "recall_queries")
     await db.commit()
 
     tag_map = await _load_tag_names(db, [m.id for m, _ in top_with_rank])

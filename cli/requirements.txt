@@ -1,0 +1,2 @@
+# cc CLI v0 has no external dependencies — uses Python stdlib only.
+# Python 3.9+ required.

@@ -19,8 +19,13 @@ export function buildApiBase() {
 
 /**
  * Docs base URL.
- * MkDocs runs on a separate container so we link externally.
- * On production (HTTPS + thecontextcache.com) we assume a /docs proxy.
+ *
+ * Resolution order:
+ * 1. NEXT_PUBLIC_DOCS_URL env var (explicit override — set this in production)
+ * 2. Auto-detect from window.location:
+ *    - https://thecontextcache.com  → https://docs.thecontextcache.com
+ *    - any other https subdomain    → https://docs.thecontextcache.com
+ *    - Tailscale / local dev        → http://<host>:8001
  */
 const PRODUCTION_DOMAIN = "thecontextcache.com";
 
@@ -34,7 +39,8 @@ export function buildDocsBase() {
       protocol === "https:" &&
       (hostname === PRODUCTION_DOMAIN || hostname.endsWith(`.${PRODUCTION_DOMAIN}`))
     ) {
-      return "/docs";
+      // With subdomain deployment, docs live at docs.thecontextcache.com
+      return `https://docs.${PRODUCTION_DOMAIN}`;
     }
     // Tailscale / local: open docs on :8001 of the same host
     return `${protocol}//${hostname}:8001`;

@@ -1,0 +1,46 @@
+# ============================================================
+# Cloudflare Tunnel config — ContextCache subdomain deployment
+# ============================================================
+#
+# Save to: /etc/cloudflared/config.yml  (or ~/.cloudflared/config.yml)
+#
+# Prerequisites:
+#   1. cloudflared installed + authenticated:
+#        cloudflared login
+#   2. Tunnel created:
+#        cloudflared tunnel create contextcache
+#   3. DNS CNAME entries created for each hostname
+#        (Cloudflare dashboard → Zero Trust → Tunnels → your tunnel → DNS)
+#
+# Public hostname mapping:
+#   thecontextcache.com       → http://localhost:3000  (Next.js web)
+#   api.thecontextcache.com   → http://localhost:8000  (FastAPI)
+#   docs.thecontextcache.com  → http://localhost:8001  (MkDocs)
+#
+# The API container (port 8000) is also reachable directly at
+# api.thecontextcache.com for the CLI and external integrations.
+# The web UI always calls /api/* through the Next.js proxy, so
+# the browser never calls api.thecontextcache.com directly.
+# ============================================================
+
+tunnel: <YOUR-TUNNEL-ID>
+credentials-file: /etc/cloudflared/<YOUR-TUNNEL-ID>.json
+
+ingress:
+  # ── FastAPI — exposed as api subdomain ─────────────────────
+  - hostname: api.thecontextcache.com
+    service: http://localhost:8000
+    originRequest:
+      # Forward real visitor IP to the API for login-event tracking
+      noTLSVerify: false
+
+  # ── MkDocs — exposed as docs subdomain ─────────────────────
+  - hostname: docs.thecontextcache.com
+    service: http://localhost:8001
+
+  # ── Next.js web — main domain (catch-all last) ─────────────
+  - hostname: thecontextcache.com
+    service: http://localhost:3000
+
+  # Catch-all required by cloudflared
+  - service: http_status:404

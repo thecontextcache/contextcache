@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from datetime import date as _date
 from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -341,6 +343,26 @@ class UsageEvent(Base):
     user_agent_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     project_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     org_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+
+
+class UsageCounter(Base):
+    """Daily per-user usage counters for live limit enforcement.
+
+    One row per (user_id, day).  Updated atomically via ON CONFLICT DO UPDATE
+    inside each create/recall operation.  Rows are never deleted automatically
+    so they form a lightweight audit trail.
+    """
+    __tablename__ = "usage_counters"
+    __table_args__ = (UniqueConstraint("user_id", "day", name="uq_usage_counters_user_day"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("auth_users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    day: Mapped[_date] = mapped_column(Date, nullable=False, index=True)
+    memories_created: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    recall_queries: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    projects_created: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
 
 
 class UsagePeriod(Base):
