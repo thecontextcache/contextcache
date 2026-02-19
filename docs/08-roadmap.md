@@ -22,19 +22,29 @@
 - Tags and metadata on memory cards
 
 ### Infrastructure
-- Docker Compose with optional Celery worker profile
+- Docker Compose with Redis in default stack + optional Celery worker profile
 - Celery Beat with nightly cleanup tasks:
   - Purge expired magic links (hourly)
   - Purge old usage counters (nightly, 90-day rolling)
   - Purge old login events (nightly, 90-day rolling)
+  - Purge old waitlist entries (nightly, 90-day rolling)
+  - Purge expired sessions + expired invites (nightly)
 - Cloudflare Tunnel — Mode C subdomain deployment (docs in `06-deployment.md`)
 - Amazon SES integration (sandbox — awaiting production approval)
 
 ### Usage Limits
-- Daily per-user counters (projects, memories, recall queries)
-- Configurable via `DAILY_MAX_PROJECTS`, `DAILY_MAX_MEMORIES`, `DAILY_MAX_RECALLS`
+- Daily + weekly per-user counters (projects, memories, recall queries)
+- Configurable via `DAILY_MAX_*` + `WEEKLY_MAX_*`
 - Per-user override via admin toggle
 - `/me/usage` endpoint
+
+### Retrieval
+- Hybrid recall in production path:
+  - FTS (`websearch_to_tsquery` + `ts_rank_cd`)
+  - pgvector cosine similarity (`memories.embedding_vector`)
+  - recency boost
+- Weight tuning via `FTS_WEIGHT`, `VECTOR_WEIGHT`, `RECENCY_WEIGHT`
+- Deterministic local embedding fallback when external providers are unavailable
 
 ### UX
 - Next.js App Router with dark/light theme
@@ -76,10 +86,10 @@
 - Remaining: date-range filters and bulk actions.
 
 ### Background Worker Expansion
-- Embedding generation: Celery task to compute and store OpenAI / sentence-transformer
-  embeddings in `memory_embeddings` table (scaffolded, not yet implemented).
+- Embedding generation: Celery task computes and stores vectors + metadata.
+- Ollama contextualization task scaffold (`contextualize_memory_with_ollama`).
 - Reindex project task: rebuild FTS tsvector for all memories in a project.
-- Embedding-based recall path: hybrid FTS + cosine similarity (requires pgvector extension).
+- Remaining: production-grade model quality tuning and ANN index optimization.
 
 ---
 
@@ -110,8 +120,8 @@
 - Uptime monitoring with alerting.
 
 ### Redis-backed Rate Limiting
-- Replace in-process `slowapi` limiter with Redis-backed version for multi-instance scaling.
-- Requires Redis to be part of the default (non-worker) stack.
+- Implemented for auth + recall sensitive endpoints.
+- Remaining: migrate all usage counters to durable Redis/KV with observability dashboards.
 
 ### Trademark & Legal
 - Register "thecontextcache™" as a trademark (pending incorporation).

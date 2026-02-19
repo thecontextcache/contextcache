@@ -50,7 +50,9 @@ Session controls:
 
 ## Authorization
 
-- `/admin/*` requires session auth + `is_admin`
+- `/admin/*` requires admin privileges via:
+  - session auth with `is_admin=true`, or
+  - org API key context with role `owner|admin`
 - Core APIs require session or API key
 - Role checks on org resources: `viewer`, `member`, `admin`, `owner`
 
@@ -59,6 +61,7 @@ Session controls:
 Current limiter is in-memory:
 - `/auth/request-link`: per-IP + per-email
 - `/auth/verify`: per-IP
+- `/projects/{id}/recall`: per-IP + per-account
 
 This is sufficient for single-instance alpha. For multi-instance prod, move limiter state to Redis or another shared store.
 
@@ -75,3 +78,12 @@ This is sufficient for single-instance alpha. For multi-instance prod, move limi
 - Use TLS in production
 - Restrict CORS origins to trusted web hosts
 - Keep `X-User-Email` disabled outside dev (enforced in middleware)
+- Ignore untrusted forwarding headers; trust `CF-Connecting-IP` (or socket peer fallback).
+
+## Security best practices checklist
+
+- Rotate API keys regularly and revoke old keys on role changes.
+- Keep Cloudflare/TLS enabled for all public endpoints.
+- Restrict dashboard/API access by IP at the firewall when possible.
+- Retain audit logs and usage records per your policy; purge old rows on schedule.
+- Confirm only the last 10 login events per user are retained and older rows are purged after 90 days.

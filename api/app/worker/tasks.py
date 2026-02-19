@@ -202,6 +202,152 @@ def cleanup_old_login_events(self, retain_days: int = 90) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Task: cleanup_old_waitlist_entries
+# ---------------------------------------------------------------------------
+
+@celery_app.task(
+    name="contextcache.cleanup_old_waitlist_entries",
+    bind=True,
+    max_retries=2,
+)
+def cleanup_old_waitlist_entries(self, retain_days: int = 90) -> dict:
+    """Delete waitlist rows older than retain_days."""
+    skipped = _skip_if_disabled("cleanup_old_waitlist_entries")
+    if skipped is not None:
+        return skipped
+    logger.info("[worker] cleanup_old_waitlist_entries started retain_days=%s", retain_days)
+
+    from sqlalchemy import delete as sa_delete
+    from app.models import Waitlist
+
+    async def _cleanup(session):
+        cutoff = datetime.now(timezone.utc) - timedelta(days=retain_days)
+        result = await session.execute(sa_delete(Waitlist).where(Waitlist.created_at < cutoff))
+        return result.rowcount
+
+    deleted = asyncio.run(_run_in_db(_cleanup))
+    logger.info("[worker] cleanup_old_waitlist_entries deleted=%s rows", deleted)
+    return {"status": "ok", "deleted": deleted}
+
+
+# ---------------------------------------------------------------------------
+# Task: cleanup_expired_sessions
+# ---------------------------------------------------------------------------
+
+@celery_app.task(name="contextcache.cleanup_expired_sessions", bind=True, max_retries=2)
+def cleanup_expired_sessions(self) -> dict:
+    skipped = _skip_if_disabled("cleanup_expired_sessions")
+    if skipped is not None:
+        return skipped
+    logger.info("[worker] cleanup_expired_sessions started")
+
+    from sqlalchemy import delete as sa_delete
+    from app.models import AuthSession
+
+    async def _cleanup(session):
+        now = datetime.now(timezone.utc)
+        result = await session.execute(sa_delete(AuthSession).where(AuthSession.expires_at < now))
+        return result.rowcount
+
+    deleted = asyncio.run(_run_in_db(_cleanup))
+    logger.info("[worker] cleanup_expired_sessions deleted=%s rows", deleted)
+    return {"status": "ok", "deleted": deleted}
+
+
+# ---------------------------------------------------------------------------
+# Task: cleanup_expired_invites
+# ---------------------------------------------------------------------------
+
+@celery_app.task(name="contextcache.cleanup_expired_invites", bind=True, max_retries=2)
+def cleanup_expired_invites(self) -> dict:
+    skipped = _skip_if_disabled("cleanup_expired_invites")
+    if skipped is not None:
+        return skipped
+    logger.info("[worker] cleanup_expired_invites started")
+
+    from app.models import AuthInvite
+    from sqlalchemy import update
+
+    async def _cleanup(session):
+        now = datetime.now(timezone.utc)
+        result = await session.execute(
+            update(AuthInvite)
+            .where(
+                AuthInvite.revoked_at.is_(None),
+                AuthInvite.accepted_at.is_(None),
+                AuthInvite.expires_at < now,
+            )
+            .values(revoked_at=now)
+        )
+        return result.rowcount
+
+    updated = asyncio.run(_run_in_db(_cleanup))
+    logger.info("[worker] cleanup_expired_invites revoked=%s rows", updated)
+    return {"status": "ok", "revoked": updated}
+
+
+# ---------------------------------------------------------------------------
+# Task: contextualize_memory_with_ollama
+# ---------------------------------------------------------------------------
+
+@celery_app.task(name="contextcache.contextualize_memory_with_ollama", bind=True, max_retries=2)
+def contextualize_memory_with_ollama(self, memory_id: int) -> dict:
+    skipped = _skip_if_disabled("contextualize_memory_with_ollama")
+    if skipped is not None:
+        return skipped
+
+    import json
+    from urllib import request as urllib_request
+
+    base_url = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434").strip().rstrip("/")
+    model = os.getenv("OLLAMA_CONTEXT_MODEL", "llama3.1").strip() or "llama3.1"
+    logger.info("[worker] contextualize_memory_with_ollama started memory_id=%s", memory_id)
+
+    from sqlalchemy import select
+    from app.models import Memory, MemoryEmbedding
+
+    async def _contextualize(session):
+        memory = await session.get(Memory, memory_id)
+        if memory is None:
+            return {"status": "not_found", "memory_id": memory_id}
+        prompt = (
+            "Summarize this memory in one concise sentence and suggest up to 3 tags as JSON "
+            '{"summary":"...","tags":["..."]}.\n\n'
+            f"Title: {memory.title or ''}\nContent: {memory.content}"
+        )
+        req = urllib_request.Request(
+            f"{base_url}/api/generate",
+            data=json.dumps({"model": model, "prompt": prompt, "stream": False}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib_request.urlopen(req, timeout=20) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+            raw_response = payload.get("response", "").strip()
+        except Exception as exc:
+            return {"status": "failed", "memory_id": memory_id, "detail": str(exc)}
+
+        mem_meta = dict(memory.metadata_json or {})
+        mem_meta["ollama_context"] = {"model": model, "response": raw_response}
+        memory.metadata_json = mem_meta
+
+        emb_row = (
+            await session.execute(select(MemoryEmbedding).where(MemoryEmbedding.memory_id == memory_id).limit(1))
+        ).scalar_one_or_none()
+        if emb_row is not None:
+            emb_meta = dict(emb_row.metadata_json or {})
+            emb_meta["contextualized"] = True
+            emb_meta["context_model"] = model
+            emb_row.metadata_json = emb_meta
+            emb_row.updated_at = datetime.now(timezone.utc)
+
+        return {"status": "ok", "memory_id": memory_id}
+
+    return asyncio.run(_run_in_db(_contextualize))
+
+
+# ---------------------------------------------------------------------------
 # Task: compute_memory_embedding  (placeholder — activates when pgvector ready)
 # ---------------------------------------------------------------------------
 
@@ -244,7 +390,12 @@ def compute_memory_embedding(self, memory_id: int, model: str = "text-embedding-
         text = " ".join(
             part for part in [mem.title or "", mem.content or ""] if part
         ).strip()
+        provider = os.getenv("EMBEDDING_PROVIDER", "local").strip().lower()
+        if provider == "ollama":
+            model = os.getenv("OLLAMA_EMBED_MODEL", model).strip() or model
         vector = compute_embedding(text, model=model)
+        mem.search_vector = vector
+        mem.embedding_vector = vector
 
         from sqlalchemy import select
         row = (
@@ -253,7 +404,14 @@ def compute_memory_embedding(self, memory_id: int, model: str = "text-embedding-
             )
         ).scalar_one_or_none() or MemoryEmbedding(memory_id=memory_id)
         row.model = model
+        row.model_name = model
+        row.model_version = os.getenv("EMBEDDING_MODEL_VERSION", "v1").strip() or "v1"
+        row.confidence = 1.0
         row.dims = len(vector)
+        row.metadata_json = {
+            "provider": provider,
+            "updated_by": "worker",
+        }
         row.updated_at = datetime.now(timezone.utc)
         session.add(row)
         return {"status": "ok", "memory_id": memory_id, "dims": len(vector)}

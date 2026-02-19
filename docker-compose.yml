@@ -46,6 +46,7 @@ services:
       - APP_PUBLIC_BASE_URL=${APP_PUBLIC_BASE_URL:-http://localhost:3000}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD:-change-me}@db:5432/${POSTGRES_DB:-contextcache}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - RUN_MIGRATIONS=1
     depends_on:
       db:
@@ -61,9 +62,12 @@ services:
     environment:
       - APP_ENV=test
       - DATABASE_URL=postgresql+asyncpg://contextcache:contextcache@db-test:5432/contextcache_test
+      - REDIS_URL=redis://redis:6379/0
       - RUN_MIGRATIONS=0
     depends_on:
       db-test:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   web:
@@ -98,7 +102,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    profiles: ["worker"]
     command: redis-server --save 60 1 --loglevel warning
     volumes:
       - redis_data:/data
@@ -123,6 +126,7 @@ services:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD:-change-me}@db:5432/${POSTGRES_DB:-contextcache}
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - WORKER_ENABLED=true
     depends_on:
       redis:
@@ -148,6 +152,8 @@ services:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD:-change-me}@db:5432/${POSTGRES_DB:-contextcache}
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - WORKER_ENABLED=true
     depends_on:
       redis:
         condition: service_healthy

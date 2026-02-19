@@ -51,6 +51,10 @@ class MemoryCreate(BaseModel):
     tags: List[str] = Field(default_factory=list)
 
 
+class MemoryCaptureIn(MemoryCreate):
+    project_id: int = Field(ge=1)
+
+
 class MemoryOut(BaseModel):
     id: int
     project_id: int
@@ -278,6 +282,9 @@ class UsageLimitsOut(BaseModel):
     memories_per_day: int
     recalls_per_day: int
     projects_per_day: int
+    memories_per_week: int
+    recalls_per_week: int
+    projects_per_week: int
 
 
 class UsageOut(BaseModel):
@@ -285,4 +292,8 @@ class UsageOut(BaseModel):
     memories_created: int
     recall_queries: int
     projects_created: int
+    week_start: str
+    weekly_memories_created: int
+    weekly_recall_queries: int
+    weekly_projects_created: int
     limits: UsageLimitsOut

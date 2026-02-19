@@ -1,0 +1,27 @@
+name: Publish SDK (TestPyPI)
+
+on:
+  push:
+    tags:
+      - "sdk-v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build sdk package
+        working-directory: cli
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+      - name: Publish to TestPyPI
+        working-directory: cli
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
+        run: |
+          python -m twine upload --repository testpypi dist/*

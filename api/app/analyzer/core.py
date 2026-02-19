@@ -13,6 +13,9 @@ from __future__ import annotations
 import math
 import re
 import hashlib
+import json
+import os
+from urllib import request as urllib_request
 from datetime import datetime, timezone
 from typing import Any
 
@@ -156,7 +159,62 @@ def _build_pack(query: str, items: list[tuple[str, str]]) -> str:
     return "\n".join(lines).strip()
 
 
-def compute_embedding(text: str, *, model: str = "local-hash-128", dims: int = 128) -> list[float]:
+def _openai_embedding(text: str, model: str) -> list[float] | None:
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        return None
+    body = json.dumps({"model": model, "input": text}).encode("utf-8")
+    req = urllib_request.Request(
+        "https://api.openai.com/v1/embeddings",
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+        method="POST",
+    )
+    try:
+        with urllib_request.urlopen(req, timeout=15) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        vec = payload.get("data", [{}])[0].get("embedding")
+        if isinstance(vec, list) and vec:
+            return [float(v) for v in vec]
+    except Exception:
+        return None
+    return None
+
+
+def _ollama_embedding(text: str, model: str) -> list[float] | None:
+    base_url = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434").strip().rstrip("/")
+    body = json.dumps({"model": model, "prompt": text}).encode("utf-8")
+    req = urllib_request.Request(
+        f"{base_url}/api/embeddings",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib_request.urlopen(req, timeout=15) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        vec = payload.get("embedding")
+        if isinstance(vec, list) and vec:
+            return [float(v) for v in vec]
+    except Exception:
+        return None
+    return None
+
+
+def _fit_dims(vec: list[float], dims: int) -> list[float]:
+    if len(vec) == dims:
+        return vec
+    if len(vec) > dims:
+        vec = vec[:dims]
+    else:
+        vec = vec + ([0.0] * (dims - len(vec)))
+    return vec
+
+
+def compute_embedding(text: str, *, model: str = "text-embedding-3-small", dims: int = 1536) -> list[float]:
     """Deterministic local embedding stub (server-only).
 
     This is intentionally simple for alpha:
@@ -168,7 +226,23 @@ def compute_embedding(text: str, *, model: str = "local-hash-128", dims: int = 1
     if not text:
         return [0.0] * dims
 
-    seed = hashlib.sha256(f"{model}:{text}".encode("utf-8")).digest()
+    dims = int(os.getenv("EMBEDDING_DIMS", str(dims)))
+    provider = os.getenv("EMBEDDING_PROVIDER", "local").strip().lower()
+    if provider == "openai":
+        vec = _openai_embedding(text, model)
+        if vec:
+            vec = _fit_dims(vec, dims)
+            norm = math.sqrt(sum(v * v for v in vec)) or 1.0
+            return [v / norm for v in vec]
+    elif provider == "ollama":
+        ollama_model = os.getenv("OLLAMA_EMBED_MODEL", model).strip() or model
+        vec = _ollama_embedding(text, ollama_model)
+        if vec:
+            vec = _fit_dims(vec, dims)
+            norm = math.sqrt(sum(v * v for v in vec)) or 1.0
+            return [v / norm for v in vec]
+
+    seed = hashlib.sha256(f"fallback:{model}:{text}".encode("utf-8")).digest()
     vec: list[float] = []
     cur = seed
     while len(vec) < dims:

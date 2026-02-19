@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import hash_api_key
-from app.models import ApiKey, Organization
+from app.models import ApiKey, Memory, Organization
 from app.seed import seed
 from .conftest import Ctx, auth_headers
 
@@ -116,3 +116,67 @@ async def test_recall_returns_rank_score_for_fts_matches(client, app_ctx: Ctx) -
     items = recall.json()["items"]
     assert len(items) >= 1
     assert items[0]["rank_score"] is not None
+
+
+async def test_recall_uses_recency_fallback_when_no_hybrid_match(client, app_ctx: Ctx) -> None:
+    create_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=auth_headers(app_ctx, role="owner"),
+        json={"type": "note", "content": "Short memory for fallback behavior."},
+    )
+    assert create_resp.status_code == 201
+
+    recall = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=auth_headers(app_ctx, role="viewer"),
+        params={"query": "zzzxxyyqqqvvmn unusualtoken", "limit": 5},
+    )
+    assert recall.status_code == 200
+    items = recall.json()["items"]
+    assert len(items) >= 1
+    assert items[0]["rank_score"] is None
+
+
+async def test_create_memory_persists_embedding_vectors(
+    client,
+    app_ctx: Ctx,
+    db_session: AsyncSession,
+) -> None:
+    response = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=auth_headers(app_ctx, role="owner"),
+        json={"type": "finding", "content": "Embedding vector persistence test"},
+    )
+    assert response.status_code == 201
+    memory_id = response.json()["id"]
+
+    memory = (await db_session.execute(select(Memory).where(Memory.id == memory_id).limit(1))).scalar_one()
+    assert memory.search_vector is not None
+    assert memory.embedding_vector is not None
+
+
+async def test_usage_includes_weekly_fields(client, app_ctx: Ctx) -> None:
+    response = await client.get("/me/usage", headers=auth_headers(app_ctx, role="owner"))
+    assert response.status_code == 200
+    body = response.json()
+    assert "week_start" in body
+    assert "weekly_memories_created" in body
+    assert "weekly_recall_queries" in body
+    assert "weekly_projects_created" in body
+
+
+async def test_contextualize_endpoint_returns_queued(client, app_ctx: Ctx) -> None:
+    create_response = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=auth_headers(app_ctx, role="owner"),
+        json={"type": "note", "content": "Queue contextualization"},
+    )
+    assert create_response.status_code == 201
+    memory_id = create_response.json()["id"]
+
+    response = await client.post(
+        f"/integrations/memories/{memory_id}/contextualize",
+        headers=auth_headers(app_ctx, role="member"),
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "queued"

@@ -51,15 +51,11 @@ def _client_ip(request: Request) -> str:
 
     Priority:
     1. CF-Connecting-IP  — set by Cloudflare to the actual visitor IP
-    2. X-Forwarded-For   — first (leftmost) entry, set by proxies/LBs
-    3. request.client.host — direct connection fallback
+    2. request.client.host — direct connection fallback
     """
     cf_ip = request.headers.get("cf-connecting-ip", "").strip()
     if cf_ip:
         return cf_ip
-    xff = request.headers.get("x-forwarded-for", "").strip()
-    if xff:
-        return xff.split(",")[0].strip()
     if request.client and request.client.host:
         return request.client.host
     return "unknown"
@@ -148,7 +144,8 @@ async def request_link(
 
     allowed, detail = check_request_link_limits(ip, email)
     if not allowed:
-        raise HTTPException(status_code=429, detail=detail)
+        code = 503 if detail and detail.startswith("Service unavailable") else 429
+        raise HTTPException(status_code=code, detail=detail)
 
     now = now_utc()
     auth_user = (
@@ -234,7 +231,8 @@ async def verify_link(
     ip = _client_ip(request)
     allowed, detail = check_verify_limits(ip)
     if not allowed:
-        raise HTTPException(status_code=429, detail=detail)
+        code = 503 if detail and detail.startswith("Service unavailable") else 429
+        raise HTTPException(status_code=code, detail=detail)
 
     now = now_utc()
     token_hash = hash_token(token)
@@ -771,7 +769,8 @@ async def waitlist_join(
     # Basic rate-limit reuse (same limits as request_link per IP)
     allowed, detail = check_request_link_limits(ip, email)
     if not allowed:
-        raise HTTPException(status_code=429, detail=detail)
+        code = 503 if detail and detail.startswith("Service unavailable") else 429
+        raise HTTPException(status_code=code, detail=detail)
 
     existing = (
         await db.execute(select(Waitlist).where(func.lower(Waitlist.email) == email).limit(1))

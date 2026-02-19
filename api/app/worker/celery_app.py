@@ -63,5 +63,18 @@ celery_app.conf.update(
             "schedule": 86400,
             "kwargs": {"retain_days": 90},
         },
+        "cleanup-old-waitlist-entries": {
+            "task": "contextcache.cleanup_old_waitlist_entries",
+            "schedule": 86400,
+            "kwargs": {"retain_days": 90},
+        },
+        "cleanup-expired-sessions": {
+            "task": "contextcache.cleanup_expired_sessions",
+            "schedule": 86400,
+        },
+        "cleanup-expired-invites": {
+            "task": "contextcache.cleanup_expired_invites",
+            "schedule": 86400,
+        },
     },
 )

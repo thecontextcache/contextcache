@@ -400,7 +400,7 @@ docker compose up -d --build
 
 ## Background Workers (optional)
 
-The worker stack is **off by default** — the app runs fine without it.
+Redis is part of the default stack. Worker/beat remain optional.
 Enable it when you need async heavy tasks (future: embedding indexing,
 batch recall, scheduled cleanup).
 
@@ -408,7 +408,7 @@ batch recall, scheduled cleanup).
 
 | Service | Image | Role |
 |---------|-------|------|
-| `redis` | `redis:7-alpine` | Broker + result backend |
+| `redis` | `redis:7-alpine` | Shared rate-limit counters + Celery broker/result backend |
 | `worker` | same as `api` | Celery worker process |
 | `beat` | same as `api` | Celery Beat scheduler (periodic tasks) |
 
@@ -420,6 +420,7 @@ batch recall, scheduled cleanup).
 WORKER_ENABLED=true
 CELERY_BROKER_URL=redis://redis:6379/0
 CELERY_RESULT_BACKEND=redis://redis:6379/0
+REDIS_URL=redis://redis:6379/0
 ```
 
 2. Start the worker profile:
@@ -444,13 +445,16 @@ docker compose --profile worker down
 
 ### Periodic tasks (Celery Beat)
 
-The `beat` service is included in the `worker` profile and starts automatically with `--profile worker`. It manages three built-in cleanup schedules:
+The `beat` service is included in the `worker` profile and starts automatically with `--profile worker`. It manages cleanup schedules:
 
 | Task | Schedule | Description |
 |------|----------|-------------|
 | `cleanup_expired_magic_links` | Every hour | Deletes magic links older than 24 h |
-| `cleanup_old_usage_counters` | Daily at 02:00 UTC | Purges usage rows older than 90 days |
-| `cleanup_old_login_events` | Daily at 03:00 UTC | Purges login-event rows older than 90 days (per-user cap of last 10 is also enforced at write time) |
+| `cleanup_old_usage_counters` | Daily | Purges usage rows older than 90 days |
+| `cleanup_old_login_events` | Daily | Purges login-event rows older than 90 days (per-user cap of last 10 is also enforced at write time) |
+| `cleanup_old_waitlist_entries` | Daily | Purges waitlist entries older than 90 days |
+| `cleanup_expired_sessions` | Daily | Deletes expired auth sessions |
+| `cleanup_expired_invites` | Daily | Revokes expired invites |
 
 The schedule lives in `api/app/worker/celery_app.py` — edit that file to add or adjust tasks:
 
@@ -528,45 +532,44 @@ unreachable from outside the host.
 
 ---
 
-## Embedding pipeline (future — requires pgvector)
+## Embedding pipeline + hybrid recall
 
-The `memory_embeddings` table and the Celery task `compute_memory_embedding` are already scaffolded. The task is registered and will be enqueued automatically on every new memory creation — but because `WORKER_ENABLED=false` by default it is silently skipped.
+Current behavior:
 
-### Activation steps (when ready)
+- Every new memory stores embeddings in:
+  - `memories.embedding_vector` (pgvector, 1536 dims)
+  - `memories.search_vector` (JSON fallback/debug payload)
+- `compute_memory_embedding` (Celery) updates both `memories` and `memory_embeddings`.
+- Embeddings use:
+  - `EMBEDDING_PROVIDER=openai` when `OPENAI_API_KEY` is configured
+  - deterministic local fallback when provider/network is unavailable
+- Recall uses hybrid ranking:
+  - FTS (`websearch_to_tsquery` + `ts_rank_cd`)
+  - vector cosine similarity over `embedding_vector`
+  - recency boost
 
-1. **Enable pgvector** in Postgres — add to your migration or run once:
-   ```sql
-   CREATE EXTENSION IF NOT EXISTS vector;
-   ALTER TABLE memory_embeddings ADD COLUMN embedding vector(1536);
-   CREATE INDEX ON memory_embeddings USING ivfflat (embedding vector_cosine_ops)
-     WITH (lists = 100);
-   ```
+Tune with:
 
-2. **Add an embedding provider** — implement in `api/app/analyzer/core.py` or a new `api/app/embeddings.py`. Supported providers: OpenAI `text-embedding-3-small` (1536 dims), `text-embedding-3-large` (3072 dims), or a local model via `sentence-transformers`.
+```env
+FTS_WEIGHT=0.65
+VECTOR_WEIGHT=0.25
+RECENCY_WEIGHT=0.10
+RECALL_VECTOR_MIN_SCORE=0.20
+RECALL_VECTOR_CANDIDATES=200
+EMBEDDING_PROVIDER=local
+# OPENAI_API_KEY=...
+```
 
-3. **Fill in the task body** in `api/app/worker/tasks.py` — the `compute_memory_embedding` task has a commented sketch of the implementation.
+### Current pgvector schema
 
-4. **Set env vars**:
-   ```env
-   WORKER_ENABLED=true
-   CELERY_BROKER_URL=redis://redis:6379/0
-   CELERY_RESULT_BACKEND=redis://redis:6379/0
-   OPENAI_API_KEY=<your-key>          # if using OpenAI
-   EMBEDDING_MODEL=text-embedding-3-small
-   ```
+Applied via Alembic:
 
-5. **Start the worker profile**:
-   ```bash
-   docker compose --profile worker up -d
-   ```
+- `CREATE EXTENSION IF NOT EXISTS vector`
+- `memories.embedding_vector vector(1536)`
+- IVFFLAT index: `ix_memories_embedding_vector_ivfflat`
 
-6. **Backfill existing memories** (optional — enqueue once):
-   ```python
-   from app.worker.tasks import compute_memory_embedding, _enqueue_if_enabled
-   from app.models import Memory
-   # Run via a management script or a one-off Celery task
-   for mem_id in all_memory_ids:
-       _enqueue_if_enabled(compute_memory_embedding, mem_id)
-   ```
+Scaling guidance (single-host beta):
 
-Until pgvector is active, the recall endpoint continues to use Postgres FTS (no change in behaviour).
+- 10-15 users: `worker --concurrency=2` is enough
+- 50+ active users: raise worker concurrency and `RECALL_VECTOR_CANDIDATES`
+- keep one `beat` instance only

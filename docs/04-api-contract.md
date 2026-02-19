@@ -127,18 +127,25 @@ Response for `GET /me/usage`:
 ```json
 {
   "day": "2026-02-19",
+  "week_start": "2026-02-17",
   "memories_created": 4,
   "recall_queries": 2,
   "projects_created": 1,
+  "weekly_memories_created": 9,
+  "weekly_recall_queries": 7,
+  "weekly_projects_created": 2,
   "limits": {
     "memories_per_day": 100,
     "recalls_per_day": 50,
-    "projects_per_day": 10
+    "projects_per_day": 10,
+    "memories_per_week": 500,
+    "recalls_per_week": 300,
+    "projects_per_week": 50
   }
 }
 ```
 
-Daily limits are configured via environment variables (`DAILY_MAX_MEMORIES`, `DAILY_MAX_RECALLS`, `DAILY_MAX_PROJECTS`; legacy aliases still supported). Set to `0` to disable. Users with `is_unlimited=true` bypass all limits regardless of the global values.
+Daily + weekly limits are configured via environment variables (`DAILY_MAX_*`, `WEEKLY_MAX_*`). Set to `0` to disable. Users with `is_unlimited=true` bypass all limits regardless of global values.
 
 ## Core org/project endpoints
 
@@ -150,8 +157,12 @@ Daily limits are configured via environment variables (`DAILY_MAX_MEMORIES`, `DA
 - `POST /projects`
 - `GET /projects`
 - `POST /projects/{project_id}/memories`
+- `POST /integrations/memories`
+- `POST /integrations/memories/{memory_id}/contextualize`
 - `GET /projects/{project_id}/memories`
 - `GET /projects/{project_id}/recall?query=...&limit=10`
+- `GET /health/worker`
+- `GET /health/redis`
 
 ## Recall response
 
@@ -173,9 +184,41 @@ Daily limits are configured via environment variables (`DAILY_MAX_MEMORIES`, `DA
 }
 ```
 
-- FTS matches include `rank_score` (float).
+- Recall ranking uses hybrid scoring:
+  - Postgres FTS with `websearch_to_tsquery('english', query)` + `ts_rank_cd`
+  - pgvector cosine similarity from `memories.embedding_vector` (when vectors exist)
+  - Recency boost
+- Weights are env-configurable (`FTS_WEIGHT`, `VECTOR_WEIGHT`, `RECENCY_WEIGHT`; legacy `RECALL_WEIGHT_*` aliases still supported).
+- Rows returned from hybrid scoring include `rank_score` (float).
 - Recency fallback rows use `rank_score: null`.
 - `memory_pack_text` remains grouped and paste-ready.
+
+## Integration capture endpoint
+
+`POST /integrations/memories` accepts:
+
+```json
+{
+  "project_id": 1,
+  "type": "note",
+  "source": "extension",
+  "title": "Optional",
+  "content": "Captured content",
+  "metadata": {},
+  "tags": []
+}
+```
+
+It is functionally equivalent to `POST /projects/{project_id}/memories` and keeps the same auth + rate-limit behavior.
+
+`POST /integrations/memories/{memory_id}/contextualize` queues an Ollama contextualization worker task.
+
+## Worker/Redis health
+
+- `GET /health/worker`
+  - returns worker enablement and broker URL (`status: ok|disabled`)
+- `GET /health/redis`
+  - connectivity probe to the Redis broker host (`status: ok|unreachable`)
 
 ## Errors
 

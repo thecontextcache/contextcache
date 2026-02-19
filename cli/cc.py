@@ -23,6 +23,11 @@ Usage:
     cc waitlist list
     cc waitlist approve ENTRY_ID
     cc waitlist reject ENTRY_ID
+    cc integrations upload --project 1 --type note --text "hello"
+    cc integrations contextualize --memory-id 42
+    cc admin users [--limit 20 --offset 0 --email-q foo --status active]
+    cc admin set-unlimited USER_ID [--value true|false]
+    cc admin login-events USER_ID
 """
 from __future__ import annotations
 
@@ -31,6 +36,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 try:
     import urllib.request
@@ -256,7 +262,13 @@ def cmd_invites(args: list[str]) -> None:
     """cc invites list | create EMAIL [--notes TEXT] | revoke ID"""
     sub = args[0] if args else ""
     if sub == "list":
-        rows = _request("GET", "/admin/invites") or []
+        query = {}
+        for flag, key in [("--limit", "limit"), ("--offset", "offset"), ("--status", "status"), ("--email-q", "email_q")]:
+            val = _flag(args, flag)
+            if val:
+                query[key] = val
+        suffix = f"?{urlencode(query)}" if query else ""
+        rows = _request("GET", f"/admin/invites{suffix}") or []
         _print_table(rows, ["id", "email", "status", "expires_at", "notes"])
     elif sub == "create":
         email = args[1] if len(args) > 1 and not args[1].startswith("--") else None
@@ -282,8 +294,14 @@ def cmd_waitlist(args: list[str]) -> None:
     """cc waitlist list | approve ID | reject ID"""
     sub = args[0] if args else ""
     if sub == "list":
-        rows = _request("GET", "/admin/waitlist") or []
-        _print_table(rows, ["id", "email", "created_at", "source", "note"])
+        query = {}
+        for flag, key in [("--limit", "limit"), ("--offset", "offset"), ("--status", "status"), ("--email-q", "email_q")]:
+            val = _flag(args, flag)
+            if val:
+                query[key] = val
+        suffix = f"?{urlencode(query)}" if query else ""
+        rows = _request("GET", f"/admin/waitlist{suffix}") or []
+        _print_table(rows, ["id", "email", "status", "created_at", "reviewed_at"])
     elif sub == "approve":
         entry_id = args[1] if len(args) > 1 else None
         if not entry_id:
@@ -309,7 +327,85 @@ def cmd_usage(_args: list[str]) -> None:
     print(f"  Memories created : {result.get('memories_created', 0)} / {limits.get('memories_per_day', '∞')}")
     print(f"  Recall queries   : {result.get('recall_queries', 0)} / {limits.get('recalls_per_day', '∞')}")
     print(f"  Projects created : {result.get('projects_created', 0)} / {limits.get('projects_per_day', '∞')}")
+    print(f"  Weekly memories  : {result.get('weekly_memories_created', 0)} / {limits.get('memories_per_week', '∞')}")
+    print(f"  Weekly recalls   : {result.get('weekly_recall_queries', 0)} / {limits.get('recalls_per_week', '∞')}")
+    print(f"  Weekly projects  : {result.get('weekly_projects_created', 0)} / {limits.get('projects_per_week', '∞')}")
     print()
+
+
+def cmd_integrations(args: list[str]) -> None:
+    """cc integrations upload --project ID --type TYPE --text TEXT
+       cc integrations contextualize --memory-id ID"""
+    sub = args[0] if args else ""
+    if sub == "upload":
+        project_id = _flag(args, "--project")
+        mem_type = _flag(args, "--type") or "note"
+        text_val = _flag(args, "--text")
+        title = _flag(args, "--title")
+        if not project_id or not text_val:
+            _err("Usage: cc integrations upload --project ID --type TYPE --text TEXT")
+        body: dict[str, Any] = {
+            "project_id": int(project_id),
+            "type": mem_type,
+            "source": "api",
+            "content": text_val,
+            "metadata": {},
+            "tags": [],
+        }
+        if title:
+            body["title"] = title
+        out = _request("POST", "/integrations/memories", body=body)
+        _ok(f"Memory uploaded via integrations endpoint — id={out.get('id')}")
+    elif sub == "contextualize":
+        memory_id = _flag(args, "--memory-id") or (args[1] if len(args) > 1 else None)
+        if not memory_id:
+            _err("Usage: cc integrations contextualize --memory-id ID")
+        out = _request("POST", f"/integrations/memories/{memory_id}/contextualize")
+        _ok(f"Contextualization queued for memory {out.get('memory_id')}")
+    else:
+        print("Usage: cc integrations [upload|contextualize] ...")
+
+
+def cmd_admin(args: list[str]) -> None:
+    """cc admin users|set-unlimited|login-events|stats ..."""
+    sub = args[0] if args else ""
+    if sub == "users":
+        query = {}
+        for flag, key in [
+            ("--limit", "limit"),
+            ("--offset", "offset"),
+            ("--email-q", "email_q"),
+            ("--status", "status"),
+            ("--is-admin", "is_admin"),
+            ("--is-disabled", "is_disabled"),
+        ]:
+            val = _flag(args, flag)
+            if val:
+                query[key] = val
+        suffix = f"?{urlencode(query)}" if query else ""
+        rows = _request("GET", f"/admin/users{suffix}") or []
+        _print_table(rows, ["id", "email", "is_admin", "is_disabled", "is_unlimited", "last_login_at"])
+    elif sub == "set-unlimited":
+        user_id = args[1] if len(args) > 1 else None
+        val = (_flag(args, "--value") or "true").lower()
+        if not user_id:
+            _err("Usage: cc admin set-unlimited USER_ID [--value true|false]")
+        out = _request("POST", f"/admin/users/{user_id}/set-unlimited?unlimited={'true' if val != 'false' else 'false'}")
+        _ok(f"User {user_id} unlimited set to {out.get('is_unlimited')}")
+    elif sub == "login-events":
+        user_id = args[1] if len(args) > 1 else None
+        if not user_id:
+            _err("Usage: cc admin login-events USER_ID")
+        rows = _request("GET", f"/admin/users/{user_id}/login-events") or []
+        _print_table(rows, ["id", "ip", "created_at", "user_agent"])
+    elif sub == "stats":
+        user_id = args[1] if len(args) > 1 else None
+        if not user_id:
+            _err("Usage: cc admin stats USER_ID")
+        out = _request("GET", f"/admin/users/{user_id}/stats")
+        print(json.dumps(out, indent=2))
+    else:
+        print("Usage: cc admin [users|set-unlimited|login-events|stats] ...")
 
 
 # ── Argument parsing helpers ──────────────────────────────────────────────
@@ -338,6 +434,8 @@ COMMANDS = {
     "usage":    cmd_usage,
     "invites":  cmd_invites,
     "waitlist": cmd_waitlist,
+    "integrations": cmd_integrations,
+    "admin": cmd_admin,
 }
 
 

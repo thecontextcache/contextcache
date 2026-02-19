@@ -64,6 +64,10 @@ NEXT_PUBLIC_DOCS_URL=https://docs.thecontextcache.com
 DAILY_MAX_MEMORIES=100
 DAILY_MAX_RECALLS=50
 DAILY_MAX_PROJECTS=10
+WEEKLY_MAX_MEMORIES=500
+WEEKLY_MAX_RECALLS=300
+WEEKLY_MAX_PROJECTS=50
+REDIS_URL=redis://redis:6379/0
 ```
 
 See [`docs/06-deployment.md`](docs/06-deployment.md) for the full setup guide,
@@ -84,6 +88,46 @@ docker compose up -d web
 ```bash
 docker compose --profile test run --rm api-test
 docker compose --profile test down -v
+```
+
+## Debugging / sanity checks
+
+```bash
+# API + worker/redis health probes
+curl -s http://127.0.0.1:8000/health
+curl -s http://127.0.0.1:8000/health/worker
+curl -s http://127.0.0.1:8000/health/redis
+
+# Session auth probe
+curl -i http://127.0.0.1:8000/auth/me
+```
+
+If the footer Docs link opens `http://localhost:8001` on a server deployment,
+set `NEXT_PUBLIC_DOCS_URL=https://docs.thecontextcache.com` in `.env` and rebuild web:
+
+```bash
+docker compose up -d --build web
+```
+
+## Worker profile
+
+```bash
+docker compose --profile worker up -d worker beat
+```
+
+When `WORKER_ENABLED=true`, background tasks run for:
+- embeddings/contextualization
+- magic link cleanup
+- session/invite/waitlist retention cleanup
+
+## Load test (optional)
+
+```bash
+python -m pip install locust
+export LOADTEST_API_KEY=cck_xxx
+export LOADTEST_ORG_ID=1
+export LOADTEST_PROJECT_ID=1
+locust -f scripts/load_test_locust.py --host http://127.0.0.1:8000
 ```
 
 ---

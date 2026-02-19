@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import socket
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -341,3 +343,27 @@ async def unhandled_exception_handler(_: Request, exc: Exception) -> JSONRespons
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/health/worker")
+def health_worker():
+    worker_enabled = os.getenv("WORKER_ENABLED", "false").strip().lower() == "true"
+    broker = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0")
+    return {
+        "status": "ok" if worker_enabled else "disabled",
+        "worker_enabled": worker_enabled,
+        "broker": broker,
+    }
+
+
+@app.get("/health/redis")
+def health_redis():
+    broker = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0")
+    parsed = urlparse(broker)
+    host = parsed.hostname or "redis"
+    port = parsed.port or 6379
+    try:
+        with socket.create_connection((host, port), timeout=1.5):
+            return {"status": "ok", "host": host, "port": port}
+    except OSError as exc:
+        return {"status": "unreachable", "host": host, "port": port, "detail": str(exc)}

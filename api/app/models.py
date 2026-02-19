@@ -19,6 +19,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import INET, JSONB, TSVECTOR
+from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -113,6 +114,10 @@ class Memory(Base):
     )
     # SHA-256 of content for deduplication
     content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # Embedding payload (JSON float array fallback until pgvector rollout).
+    search_vector: Mapped[list[float] | None] = mapped_column(JSONB, nullable=True)
+    # Native pgvector embedding for cosine similarity search.
+    embedding_vector: Mapped[list[float] | None] = mapped_column(Vector(1536), nullable=True)
     # FTS vector — maintained by trig_memories_tsv trigger in the DB
     search_tsv: Mapped[str | None] = mapped_column(TSVECTOR, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -178,7 +183,13 @@ class MemoryEmbedding(Base):
         ForeignKey("memories.id", ondelete="CASCADE"), nullable=False, unique=True, index=True
     )
     model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    model_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    model_version: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    confidence: Mapped[float | None] = mapped_column(nullable=True)
     dims: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

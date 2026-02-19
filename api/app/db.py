@@ -6,11 +6,19 @@ import secrets
 from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
+from sqlalchemy import event
 from sqlalchemy.orm import sessionmaker
+from pgvector.asyncpg import register_vector
 
 DATABASE_URL: str = os.environ["DATABASE_URL"]
 
 engine: AsyncEngine = create_async_engine(DATABASE_URL, echo=False, future=True)
+
+
+@event.listens_for(engine.sync_engine, "connect")
+def _pgvector_connect(dbapi_connection, _connection_record) -> None:
+    """Register pgvector codecs for asyncpg connections."""
+    dbapi_connection.run_async(register_vector)
 
 AsyncSessionLocal = sessionmaker(
     bind=engine,

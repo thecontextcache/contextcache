@@ -37,7 +37,9 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-__all__ = ["ContextCacheClient", "ContextCacheError"]
+__version__ = "0.2.0"
+
+__all__ = ["ContextCacheClient", "ContextCacheError", "__version__"]
 
 
 class ContextCacheError(Exception):
@@ -157,8 +159,17 @@ class _Invites:
     def __init__(self, t: _Transport) -> None:
         self._t = t
 
-    def list(self) -> list[dict]:
-        return self._t.request("GET", "/admin/invites")
+    def list(self, *, limit: int | None = None, offset: int | None = None, status: str | None = None, email_q: str | None = None) -> list[dict]:
+        params: dict[str, Any] = {}
+        if limit is not None:
+            params["limit"] = limit
+        if offset is not None:
+            params["offset"] = offset
+        if status:
+            params["status"] = status
+        if email_q:
+            params["email_q"] = email_q
+        return self._t.request("GET", "/admin/invites", params=params or None)
 
     def create(self, email: str, notes: str | None = None) -> dict:
         body: dict = {"email": email}
@@ -174,8 +185,17 @@ class _Waitlist:
     def __init__(self, t: _Transport) -> None:
         self._t = t
 
-    def list(self) -> list[dict]:
-        return self._t.request("GET", "/admin/waitlist")
+    def list(self, *, limit: int | None = None, offset: int | None = None, status: str | None = None, email_q: str | None = None) -> list[dict]:
+        params: dict[str, Any] = {}
+        if limit is not None:
+            params["limit"] = limit
+        if offset is not None:
+            params["offset"] = offset
+        if status:
+            params["status"] = status
+        if email_q:
+            params["email_q"] = email_q
+        return self._t.request("GET", "/admin/waitlist", params=params or None)
 
     def join(self, email: str, source: str | None = None) -> dict:
         """Public — join the waitlist."""
@@ -189,6 +209,80 @@ class _Waitlist:
 
     def reject(self, entry_id: int) -> dict:
         return self._t.request("POST", f"/admin/waitlist/{entry_id}/reject")
+
+
+class _Integrations:
+    def __init__(self, t: _Transport) -> None:
+        self._t = t
+
+    def upload_memory(
+        self,
+        *,
+        project_id: int,
+        type: str,
+        content: str,
+        source: str = "sdk",
+        title: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        tags: list[str] | None = None,
+    ) -> dict:
+        body: dict[str, Any] = {
+            "project_id": project_id,
+            "type": type,
+            "source": source,
+            "content": content,
+            "metadata": metadata or {},
+            "tags": tags or [],
+        }
+        if title:
+            body["title"] = title
+        return self._t.request("POST", "/integrations/memories", body=body)
+
+    def contextualize_memory(self, memory_id: int) -> dict:
+        return self._t.request("POST", f"/integrations/memories/{memory_id}/contextualize")
+
+
+class _AdminUsers:
+    def __init__(self, t: _Transport) -> None:
+        self._t = t
+
+    def list(
+        self,
+        *,
+        page: int = 1,
+        limit: int = 20,
+        email_q: str | None = None,
+        status: str | None = None,
+        is_admin: bool | None = None,
+    ) -> list[dict]:
+        params: dict[str, Any] = {"limit": limit, "offset": max(0, (page - 1) * limit)}
+        if email_q:
+            params["email_q"] = email_q
+        if status:
+            params["status"] = status
+        if is_admin is not None:
+            params["is_admin"] = str(is_admin).lower()
+        return self._t.request("GET", "/admin/users", params=params)
+
+    def set_unlimited(self, user_id: int, *, unlimited: bool = True) -> dict:
+        return self._t.request(
+            "POST",
+            f"/admin/users/{user_id}/set-unlimited",
+            params={"unlimited": str(unlimited).lower()},
+        )
+
+    def login_events(self, user_id: int) -> list[dict]:
+        return self._t.request("GET", f"/admin/users/{user_id}/login-events")
+
+    def stats(self, user_id: int) -> dict:
+        return self._t.request("GET", f"/admin/users/{user_id}/stats")
+
+
+class _Admin:
+    def __init__(self, t: _Transport) -> None:
+        self.users = _AdminUsers(t)
+        self.invites = _Invites(t)
+        self.waitlist = _Waitlist(t)
 
 
 # ---------------------------------------------------------------------------
@@ -218,6 +312,8 @@ class ContextCacheClient:
         self.memories = _Memories(self._t)
         self.invites  = _Invites(self._t)
         self.waitlist = _Waitlist(self._t)
+        self.integrations = _Integrations(self._t)
+        self.admin = _Admin(self._t)
 
     # Convenience top-level methods
     def health(self) -> dict:

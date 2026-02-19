@@ -83,7 +83,7 @@ cc usage
 #### Invites (admin)
 
 ```bash
-cc invites list
+cc invites list --status pending --email-q user --limit 20 --offset 0
 cc invites create user@example.com
 cc invites create user@example.com --notes "Beta tester from Bluesky"
 cc invites revoke 42
@@ -92,9 +92,21 @@ cc invites revoke 42
 #### Waitlist (admin)
 
 ```bash
-cc waitlist list
+cc waitlist list --status pending --email-q gmail --limit 20 --offset 0
 cc waitlist approve 7      # converts waitlist entry → active invite
 cc waitlist reject 7
+```
+
+#### Integrations + Admin helpers
+
+```bash
+cc integrations upload --project 1 --type note --text "Captured from CLI"
+cc integrations contextualize --memory-id 42
+
+cc admin users --status active --limit 20 --offset 0
+cc admin set-unlimited 5 --value true
+cc admin login-events 5
+cc admin stats 5
 ```
 
 ---
@@ -170,6 +182,21 @@ all_invites = client.invites.list()
 entries = client.waitlist.list()
 invite  = client.waitlist.approve(entries[0]["id"])
 client.waitlist.reject(entries[1]["id"])
+
+# Integrations
+client.integrations.upload_memory(
+    project_id=1,
+    type="note",
+    content="Captured from SDK",
+    tags=["sdk"],
+)
+client.integrations.contextualize_memory(42)
+
+# Admin namespace
+users = client.admin.users.list(page=1, limit=20, is_admin=True)
+client.admin.users.set_unlimited(users[0]["id"], unlimited=True)
+events = client.admin.users.login_events(users[0]["id"])
+stats = client.admin.users.stats(users[0]["id"])
 
 # Public waitlist join (no auth required)
 public = ContextCacheClient(api_key="", base_url="https://api.thecontextcache.com")

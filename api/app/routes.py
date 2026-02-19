@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 from dataclasses import dataclass
 from datetime import date as _today_date
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -13,13 +14,16 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import generate_api_key, get_db, hash_api_key
-from .models import ApiKey, AuditLog, AuthUser, Membership, Memory, MemoryTag, Organization, Project, Tag, UsageCounter, UsageEvent, User
+from .billing import emit_usage_event
+from .models import ApiKey, AuditLog, AuthUser, Membership, Memory, MemoryTag, Organization, Project, Tag, UsageCounter, UsageEvent, UsagePeriod, User
 from .recall import build_memory_pack
+from .rate_limit import check_recall_limits, get_counter, incr_counter
 from .schemas import (
     ApiKeyCreate,
     ApiKeyCreatedOut,
     ApiKeyOut,
     AuditLogOut,
+    MemoryCaptureIn,
     MemoryCreate,
     MemoryOut,
     MeOut,
@@ -46,6 +50,14 @@ def _env_int(primary: str, fallback: str, default: str) -> int:
 DAILY_MEMORY_LIMIT  = _env_int("DAILY_MAX_MEMORIES", "DAILY_MEMORY_LIMIT", "100")
 DAILY_RECALL_LIMIT  = _env_int("DAILY_MAX_RECALLS", "DAILY_RECALL_LIMIT", "50")
 DAILY_PROJECT_LIMIT = _env_int("DAILY_MAX_PROJECTS", "DAILY_PROJECT_LIMIT", "10")
+WEEKLY_MEMORY_LIMIT = int(os.getenv("WEEKLY_MAX_MEMORIES", "0"))
+WEEKLY_RECALL_LIMIT = int(os.getenv("WEEKLY_MAX_RECALLS", "0"))
+WEEKLY_PROJECT_LIMIT = int(os.getenv("WEEKLY_MAX_PROJECTS", "0"))
+RECALL_WEIGHT_FTS = float(os.getenv("FTS_WEIGHT", os.getenv("RECALL_WEIGHT_FTS", "0.65")))
+RECALL_WEIGHT_VECTOR = float(os.getenv("VECTOR_WEIGHT", os.getenv("RECALL_WEIGHT_VECTOR", "0.25")))
+RECALL_WEIGHT_RECENCY = float(os.getenv("RECENCY_WEIGHT", os.getenv("RECALL_WEIGHT_RECENCY", "0.10")))
+RECALL_VECTOR_MIN_SCORE = float(os.getenv("RECALL_VECTOR_MIN_SCORE", "0.20"))
+RECALL_VECTOR_CANDIDATES = int(os.getenv("RECALL_VECTOR_CANDIDATES", "200"))
 
 router = APIRouter()
 
@@ -123,8 +135,10 @@ async def write_audit(
 
 
 def _ip_prefix_from_request(request: Request) -> str | None:
-    xff = request.headers.get("x-forwarded-for", "").strip()
-    raw_ip = xff.split(",")[0].strip() if xff else (request.client.host if request.client else "")
+    # Trust Cloudflare's canonical client IP header when present.
+    raw_ip = request.headers.get("cf-connecting-ip", "").strip()
+    if not raw_ip:
+        raw_ip = request.client.host if request.client else ""
     if not raw_ip:
         return None
     if ":" in raw_ip:
@@ -167,6 +181,36 @@ async def _get_usage_counter(db: AsyncSession, auth_user_id: int) -> UsageCounte
     ).scalar_one_or_none()
 
 
+def _weekly_anchor(today: _today_date) -> _today_date:
+    return today - timedelta(days=today.weekday())
+
+
+def _redis_usage_key(auth_user_id: int, field: str, period: str, anchor: _today_date) -> str:
+    return f"usage:{period}:{anchor.isoformat()}:user:{auth_user_id}:{field}"
+
+
+def _period_ttl_seconds(period: str) -> int:
+    return 86400 * (8 if period == "week" else 2)
+
+
+def _period_limit_for_field(field: str, period: str) -> int:
+    if period == "week":
+        if field == "memories_created":
+            return WEEKLY_MEMORY_LIMIT
+        if field == "recall_queries":
+            return WEEKLY_RECALL_LIMIT
+        if field == "projects_created":
+            return WEEKLY_PROJECT_LIMIT
+        return 0
+    if field == "memories_created":
+        return DAILY_MEMORY_LIMIT
+    if field == "recall_queries":
+        return DAILY_RECALL_LIMIT
+    if field == "projects_created":
+        return DAILY_PROJECT_LIMIT
+    return 0
+
+
 async def _check_daily_limit(db: AsyncSession, auth_user_id: int | None, field: str, limit: int) -> None:
     """Raise HTTP 429 if the user has hit their daily limit for *field*.
 
@@ -189,6 +233,16 @@ async def _check_daily_limit(db: AsyncSession, auth_user_id: int | None, field: 
                 status_code=429,
                 detail=f"Daily limit reached ({limit}). Resets at midnight UTC.",
             )
+    # Redis-backed distributed counters (day + week).
+    today = _today_date.today()
+    for period, anchor in (("day", today), ("week", _weekly_anchor(today))):
+        period_limit = _period_limit_for_field(field, period)
+        if period_limit <= 0:
+            continue
+        current = get_counter(_redis_usage_key(auth_user_id, field, period, anchor))
+        if current >= period_limit:
+            period_label = "Daily" if period == "day" else "Weekly"
+            raise HTTPException(status_code=429, detail=f"{period_label} limit reached ({period_limit}).")
 
 
 async def _increment_daily_counter(db: AsyncSession, auth_user_id: int | None, field: str) -> None:
@@ -211,6 +265,52 @@ async def _increment_daily_counter(db: AsyncSession, auth_user_id: int | None, f
         )
     )
     await db.execute(stmt)
+
+    today = _today_date.today()
+    for period, anchor in (("day", today), ("week", _weekly_anchor(today))):
+        period_limit = _period_limit_for_field(field, period)
+        if period_limit <= 0:
+            continue
+        count = incr_counter(_redis_usage_key(auth_user_id, field, period, anchor), _period_ttl_seconds(period))
+        if count > period_limit:
+            period_label = "Daily" if period == "day" else "Weekly"
+            raise HTTPException(status_code=429, detail=f"{period_label} limit reached ({period_limit}).")
+
+
+async def _increment_usage_period(db: AsyncSession, auth_user_id: int | None, field: str, amount: int = 1) -> None:
+    if auth_user_id is None:
+        return
+    now = datetime.now(timezone.utc)
+    period_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+    next_month = datetime(now.year + (1 if now.month == 12 else 0), 1 if now.month == 12 else now.month + 1, 1, tzinfo=timezone.utc)
+    period_end = next_month - timedelta(seconds=1)
+    period = (
+        await db.execute(
+            select(UsagePeriod).where(
+                UsagePeriod.user_id == auth_user_id,
+                UsagePeriod.period_start == period_start,
+            ).limit(1)
+        )
+    ).scalar_one_or_none()
+    if period is None:
+        period = UsagePeriod(
+            user_id=auth_user_id,
+            period_start=period_start,
+            period_end=period_end,
+            memories_created=0,
+            search_queries=0,
+            bytes_ingested=0,
+        )
+        db.add(period)
+        await db.flush()
+    if field == "memories_created":
+        period.memories_created = int(period.memories_created or 0) + amount
+    elif field in {"recall_queries", "search_queries"}:
+        period.search_queries = int(period.search_queries or 0) + amount
+
+
+def _billing_hook(event_type: str, user_id: int | None) -> None:
+    emit_usage_event(event_type=event_type, user_id=user_id)
 
 
 async def get_org_or_404(db: AsyncSession, org_id: int) -> Organization:
@@ -258,15 +358,23 @@ async def get_my_usage(
 
     counter = await _get_usage_counter(db, auth_user_id)
     today = _today_date.today()
+    week_anchor = _weekly_anchor(today)
     return UsageOut(
         day=today.isoformat(),
         memories_created=counter.memories_created if counter else 0,
         recall_queries=counter.recall_queries if counter else 0,
         projects_created=counter.projects_created if counter else 0,
+        week_start=week_anchor.isoformat(),
+        weekly_memories_created=get_counter(_redis_usage_key(auth_user_id, "memories_created", "week", week_anchor)),
+        weekly_recall_queries=get_counter(_redis_usage_key(auth_user_id, "recall_queries", "week", week_anchor)),
+        weekly_projects_created=get_counter(_redis_usage_key(auth_user_id, "projects_created", "week", week_anchor)),
         limits=UsageLimitsOut(
             memories_per_day=DAILY_MEMORY_LIMIT,
             recalls_per_day=DAILY_RECALL_LIMIT,
             projects_per_day=DAILY_PROJECT_LIMIT,
+            memories_per_week=WEEKLY_MEMORY_LIMIT,
+            recalls_per_week=WEEKLY_RECALL_LIMIT,
+            projects_per_week=WEEKLY_PROJECT_LIMIT,
         ),
     )
 
@@ -491,6 +599,8 @@ async def create_org_project(
     )
     await write_usage(db, request=request, ctx=ctx, event_type="project_created", org_id=org_id, project_id=project.id)
     await _increment_daily_counter(db, auth_user_id, "projects_created")
+    await _increment_usage_period(db, auth_user_id, "projects_created")
+    _billing_hook("project_created", auth_user_id)
     await db.commit()
     await db.refresh(project)
     return ProjectOut(
@@ -738,6 +848,29 @@ def _recall_item_to_out(m: Memory, tag_names: list[str], rank_score: float | Non
     )
 
 
+def _extract_client_ip(request: Request) -> str:
+    return request.headers.get("cf-connecting-ip", "").strip() or (request.client.host if request.client else "unknown")
+
+
+def _recency_boost(created_at: datetime | None) -> float:
+    if created_at is None:
+        return 0.0
+    now = datetime.now(timezone.utc)
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    age_days = max(0.0, (now - created_at).total_seconds() / 86400.0)
+    return math.exp(-math.log(2) * age_days / 14.0)
+
+
+def _normalize_positive(values: dict[int, float]) -> dict[int, float]:
+    if not values:
+        return {}
+    max_val = max(values.values())
+    if max_val <= 0:
+        return {k: 0.0 for k in values}
+    return {k: max(0.0, v) / max_val for k, v in values.items()}
+
+
 @router.post("/projects/{project_id}/memories", response_model=MemoryOut, status_code=201)
 async def create_memory(
     project_id: int,
@@ -746,12 +879,17 @@ async def create_memory(
     db: AsyncSession = Depends(get_db),
     ctx: RequestContext = Depends(get_actor_context),
 ) -> MemoryOut:
+    from app.analyzer.core import compute_embedding
+
     require_role(ctx, "member")
     project = await get_project_or_404(db, project_id, ctx)
 
     auth_user_id: int | None = getattr(request.state, "auth_user_id", None)
     await _check_daily_limit(db, auth_user_id, "memories_created", DAILY_MEMORY_LIMIT)
 
+    embedding = compute_embedding(
+        " ".join(part for part in [payload.title or "", payload.content or ""] if part).strip()
+    )
     memory = Memory(
         project_id=project.id,
         created_by_user_id=ctx.actor_user_id,
@@ -761,6 +899,8 @@ async def create_memory(
         content=payload.content,
         metadata_json=payload.metadata or {},
         content_hash=_content_hash(payload.content),
+        search_vector=embedding,
+        embedding_vector=embedding,
     )
     db.add(memory)
     await db.flush()
@@ -791,6 +931,8 @@ async def create_memory(
         project_id=project.id,
     )
     await _increment_daily_counter(db, auth_user_id, "memories_created")
+    await _increment_usage_period(db, auth_user_id, "memories_created")
+    _billing_hook("memory_created", auth_user_id)
     await db.commit()
     await db.refresh(memory)
 
@@ -799,6 +941,50 @@ async def create_memory(
     _enqueue_if_enabled(compute_memory_embedding, memory.id)
 
     return _memory_to_out(memory, tag_names)
+
+
+@router.post("/integrations/memories", response_model=MemoryOut, status_code=201)
+async def capture_memory(
+    payload: MemoryCaptureIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    ctx: RequestContext = Depends(get_actor_context),
+) -> MemoryOut:
+    """Integration-friendly memory ingestion endpoint.
+
+    Same auth, RBAC, and usage limits as /projects/{project_id}/memories.
+    """
+    memory_payload = MemoryCreate(
+        type=payload.type,
+        source=payload.source,
+        title=payload.title,
+        content=payload.content,
+        metadata=payload.metadata,
+        tags=payload.tags,
+    )
+    return await create_memory(
+        project_id=payload.project_id,
+        payload=memory_payload,
+        request=request,
+        db=db,
+        ctx=ctx,
+    )
+
+
+@router.post("/integrations/memories/{memory_id}/contextualize")
+async def contextualize_memory(
+    memory_id: int,
+    db: AsyncSession = Depends(get_db),
+    ctx: RequestContext = Depends(get_actor_context),
+) -> dict[str, Any]:
+    require_role(ctx, "member")
+    memory = (await db.execute(select(Memory).where(Memory.id == memory_id).limit(1))).scalar_one_or_none()
+    if memory is None:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    project = await get_project_or_404(db, memory.project_id, ctx)
+    from app.worker.tasks import _enqueue_if_enabled, contextualize_memory_with_ollama
+    _enqueue_if_enabled(contextualize_memory_with_ollama, memory.id)
+    return {"status": "queued", "memory_id": memory.id, "project_id": project.id}
 
 
 @router.get("/projects/{project_id}/memories", response_model=List[MemoryOut])
@@ -903,8 +1089,16 @@ async def recall(
     db: AsyncSession = Depends(get_db),
     ctx: RequestContext = Depends(get_actor_context),
 ) -> RecallOut:
+    from app.analyzer.core import compute_embedding
+
     require_role(ctx, "viewer")
     project = await get_project_or_404(db, project_id, ctx)
+    client_ip = _extract_client_ip(request)
+    account_key = str(getattr(request.state, "auth_user_id", "") or getattr(request.state, "api_key_id", "") or "anon")
+    allowed, detail = check_recall_limits(client_ip, account_key)
+    if not allowed:
+        code = 503 if detail and detail.startswith("Service unavailable") else 429
+        raise HTTPException(status_code=code, detail=detail)
 
     auth_user_id: int | None = getattr(request.state, "auth_user_id", None)
     await _check_daily_limit(db, auth_user_id, "recall_queries", DAILY_RECALL_LIMIT)
@@ -919,9 +1113,56 @@ async def recall(
             .where(Memory.project_id == project.id)
             .where(Memory.search_tsv.op("@@")(tsquery))
             .order_by(desc(rank), Memory.created_at.desc(), Memory.id.desc())
-            .limit(limit)
+            .limit(max(limit * 3, 25))
         )
-        top_with_rank = [(row[0], float(row[1])) for row in fts_result.all()]
+        fts_rows = fts_result.all()
+        fts_scores = {row[0].id: float(row[1]) for row in fts_rows}
+        fts_norm = _normalize_positive(fts_scores)
+
+        vector_scores: dict[int, float] = {}
+        query_vector = compute_embedding(query_clean)
+        vector_rank_expr = (1 - Memory.embedding_vector.cosine_distance(query_vector)).label("vector_score")
+        vector_rows = (
+            await db.execute(
+                select(Memory, vector_rank_expr)
+                .where(Memory.project_id == project.id, Memory.embedding_vector.is_not(None))
+                .order_by(desc(vector_rank_expr), Memory.created_at.desc(), Memory.id.desc())
+                .limit(RECALL_VECTOR_CANDIDATES)
+            )
+        ).all()
+        vector_candidates: list[Memory] = []
+        for mem, raw_score in vector_rows:
+            score = float(raw_score) if raw_score is not None else 0.0
+            if score >= RECALL_VECTOR_MIN_SCORE:
+                vector_scores[mem.id] = score
+                vector_candidates.append(mem)
+        vector_norm = _normalize_positive(vector_scores)
+
+        # Hybrid: weighted FTS + embedding cosine + recency.
+        candidate_by_id: dict[int, Memory] = {}
+        for m, _ in fts_rows:
+            candidate_by_id[m.id] = m
+        for m in vector_candidates:
+            if m.id in vector_norm:
+                candidate_by_id[m.id] = m
+
+        scored: list[tuple[Memory, float]] = []
+        for mem in candidate_by_id.values():
+            score = (
+                RECALL_WEIGHT_FTS * fts_norm.get(mem.id, 0.0)
+                + RECALL_WEIGHT_VECTOR * vector_norm.get(mem.id, 0.0)
+                + RECALL_WEIGHT_RECENCY * _recency_boost(mem.created_at)
+            )
+            scored.append((mem, round(float(score), 6)))
+        scored.sort(
+            key=lambda x: (
+                -x[1],
+                -(x[0].created_at.timestamp() if x[0].created_at is not None else 0.0),
+                -x[0].id,
+            )
+        )
+        top_with_rank = scored[:limit]
+
         if not top_with_rank:
             fallback_result = await db.execute(
                 select(Memory)
@@ -949,6 +1190,8 @@ async def recall(
         project_id=project.id,
     )
     await _increment_daily_counter(db, auth_user_id, "recall_queries")
+    await _increment_usage_period(db, auth_user_id, "recall_queries")
+    _billing_hook("recall_called", auth_user_id)
     await db.commit()
 
     tag_map = await _load_tag_names(db, [m.id for m, _ in top_with_rank])
