@@ -47,7 +47,19 @@ def _client_ip(request: Request) -> str:
     return "unknown"
 
 
-async def _ensure_member_for_email(db: AsyncSession, email: str) -> tuple[int | None, int | None, str | None]:
+_ROLE_RANK = {"viewer": 1, "member": 2, "admin": 3, "owner": 4}
+
+
+async def _ensure_member_for_email(
+    db: AsyncSession,
+    email: str,
+    is_admin: bool = False,
+) -> tuple[int | None, int | None, str | None]:
+    """Create/fetch the domain User + Membership for a verified auth user.
+
+    is_admin=True → org role becomes "owner" (and existing lower roles are upgraded).
+    is_admin=False → org role is "member" (never downgraded if already higher).
+    """
     org = (
         await db.execute(select(Organization).where(Organization.name == "Demo Org").order_by(Organization.id.asc()).limit(1))
     ).scalar_one_or_none()
@@ -64,15 +76,20 @@ async def _ensure_member_for_email(db: AsyncSession, email: str) -> tuple[int | 
         db.add(user)
         await db.flush()
 
+    desired_role = "owner" if is_admin else "member"
+
     membership = (
         await db.execute(
             select(Membership).where(Membership.org_id == org.id, Membership.user_id == user.id).limit(1)
         )
     ).scalar_one_or_none()
     if membership is None:
-        membership = Membership(org_id=org.id, user_id=user.id, role="member")
+        membership = Membership(org_id=org.id, user_id=user.id, role=desired_role)
         db.add(membership)
         await db.flush()
+    elif _ROLE_RANK.get(desired_role, 0) > _ROLE_RANK.get(membership.role, 0):
+        # Upgrade role when the user deserves higher access (e.g. admin flag set after initial signup).
+        membership.role = desired_role
 
     return user.id, org.id, membership.role
 
@@ -114,7 +131,17 @@ async def request_link(
     ).scalar_one_or_none()
 
     if auth_user is None and active_invite is None:
-        raise HTTPException(status_code=403, detail="You're not invited yet. Request access from an admin.")
+        # Bootstrap exception: if no AuthUsers and no AuthInvites exist yet this is a
+        # fresh install. Let the very first person through so they become the admin.
+        # Once any user or invite record exists this path is permanently closed.
+        total_users = (await db.execute(select(func.count(AuthUser.id)))).scalar_one()
+        total_invites = (await db.execute(select(func.count(AuthInvite.id)))).scalar_one()
+        if total_users > 0 or total_invites > 0:
+            raise HTTPException(
+                status_code=403,
+                detail="You're not invited yet. Request access from an admin.",
+            )
+        # Fresh install — fall through and issue the first magic link freely.
 
     raw_token = os.urandom(32).hex()
     token_hash = hash_token(raw_token)
@@ -213,7 +240,7 @@ async def verify_link(
 
     magic.consumed_at = now
 
-    domain_user_id, org_id, role = await _ensure_member_for_email(db, email)
+    domain_user_id, org_id, role = await _ensure_member_for_email(db, email, is_admin=auth_user.is_admin)
 
     raw_session = os.urandom(32).hex()
     session_hash = hash_token(raw_session)

@@ -33,19 +33,29 @@ export default function AdminPage() {
     try {
       const me = await apiFetch("/auth/me");
       if (!me.is_admin) { router.replace("/app"); return; }
-      const [inviteRows, userRows, usageRows] = await Promise.all([
-        apiFetch("/admin/invites"),
-        apiFetch("/admin/users"),
-        apiFetch("/admin/usage"),
-      ]);
-      setInvites(inviteRows);
-      setUsers(userRows);
-      setUsage(usageRows);
     } catch (err) {
       handleErr(err);
-    } finally {
       setLoading(false);
+      return;
     }
+
+    // Fetch each section independently — one failure won't blank the others.
+    const [inviteRes, userRes, usageRes] = await Promise.allSettled([
+      apiFetch("/admin/invites"),
+      apiFetch("/admin/users"),
+      apiFetch("/admin/usage"),
+    ]);
+
+    if (inviteRes.status === "fulfilled") setInvites(inviteRes.value);
+    else toast.error(`Invites: ${inviteRes.reason?.message || "failed to load"}`);
+
+    if (userRes.status === "fulfilled") setUsers(userRes.value);
+    else toast.error(`Users: ${userRes.reason?.message || "failed to load"}`);
+
+    if (usageRes.status === "fulfilled") setUsage(usageRes.value);
+    else toast.error(`Usage: ${usageRes.reason?.message || "failed to load"}`);
+
+    setLoading(false);
   }
 
   useEffect(() => { load(); }, []);

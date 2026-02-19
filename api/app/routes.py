@@ -372,7 +372,7 @@ async def create_org_project(
     ctx: RequestContext = Depends(get_actor_context),
 ) -> ProjectOut:
     ensure_org_access(ctx, org_id)
-    require_role(ctx, "admin")
+    require_role(ctx, "member")
     await get_org_or_404(db, org_id)
 
     project = Project(name=payload.name, org_id=org_id, created_by_user_id=ctx.actor_user_id)
