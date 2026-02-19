@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "../lib/api";
 import { useToast } from "../components/toast";
@@ -9,63 +8,86 @@ import { SkeletonCard, Skeleton } from "../components/skeleton";
 
 const MEMORY_TYPES = ["decision", "finding", "definition", "note", "link", "todo"];
 
+// Dark-mode-aware type colors using the design system palette
 const TYPE_COLORS = {
-  decision:   { bg: "#ecfdf5", color: "#065f46" },
-  finding:    { bg: "#eff6ff", color: "#1e40af" },
-  definition: { bg: "#faf5ff", color: "#6b21a8" },
-  note:       { bg: "#fefce8", color: "#854d0e" },
-  link:       { bg: "#fff7ed", color: "#9a3412" },
-  todo:       { bg: "#fdf2f8", color: "#831843" },
+  decision:   { color: "#00D4FF", bg: "rgba(0,212,255,0.12)"   },
+  finding:    { color: "#A78BFA", bg: "rgba(167,139,250,0.12)" },
+  definition: { color: "#00E5A0", bg: "rgba(0,229,160,0.12)"   },
+  note:       { color: "#FFB800", bg: "rgba(255,184,0,0.12)"   },
+  link:       { color: "#FF6B6B", bg: "rgba(255,107,107,0.12)" },
+  todo:       { color: "#F472B6", bg: "rgba(244,114,182,0.12)" },
 };
 
 function fmtTime(iso) {
   try {
     const d = new Date(iso);
-    const now = Date.now();
-    const diff = now - d.getTime();
-    if (diff < 60_000) return "just now";
-    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-    if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+    const diff = Date.now() - d.getTime();
+    if (diff < 60_000)      return "just now";
+    if (diff < 3_600_000)   return `${Math.floor(diff / 60_000)}m ago`;
+    if (diff < 86_400_000)  return `${Math.floor(diff / 3_600_000)}h ago`;
+    if (diff < 604_800_000) return `${Math.floor(diff / 86_400_000)}d ago`;
     return d.toLocaleDateString();
   } catch { return ""; }
 }
 
-export default function AppPage() {
-  const router = useRouter();
-  const toast = useToast();
+function TypeBadge({ type, size = "sm" }) {
+  const c = TYPE_COLORS[type] || { color: "var(--muted)", bg: "var(--panel-2)" };
+  return (
+    <span style={{
+      color: c.color,
+      background: c.bg,
+      border: `1px solid ${c.color}30`,
+      padding: size === "sm" ? "1px 7px" : "2px 9px",
+      borderRadius: 999,
+      fontSize: size === "sm" ? "0.7rem" : "0.78rem",
+      fontWeight: 700,
+      letterSpacing: "0.04em",
+      fontFamily: "var(--mono)",
+      whiteSpace: "nowrap",
+      flexShrink: 0,
+    }}>
+      {type}
+    </span>
+  );
+}
 
-  const [loading, setLoading] = useState(true);
-  const [auth, setAuth] = useState(null);
-  const [projects, setProjects] = useState([]);
-  const [projectId, setProjectId] = useState("");
-  const [tab, setTab] = useState("compose"); // compose | memories | recall
+export default function AppPage() {
+  const router  = useRouter();
+  const toast   = useToast();
+
+  const [loading, setLoading]         = useState(true);
+  const [auth, setAuth]               = useState(null);
+  const [projects, setProjects]       = useState([]);
+  const [projectId, setProjectId]     = useState("");
+  const [tab, setTab]                 = useState("compose");
+  const [projectSearch, setProjectSearch] = useState("");
 
   // Create project
   const [newProjectName, setNewProjectName] = useState("");
   const [creatingProject, setCreatingProject] = useState(false);
-  const [showNewProject, setShowNewProject] = useState(false);
+  const [showNewProject, setShowNewProject]   = useState(false);
 
   // Memory composer
-  const [memoryType, setMemoryType] = useState("decision");
+  const [memoryType, setMemoryType]       = useState("decision");
   const [memoryContent, setMemoryContent] = useState("");
-  const [savingMemory, setSavingMemory] = useState(false);
+  const [savingMemory, setSavingMemory]   = useState(false);
 
   // Memories list
-  const [memories, setMemories] = useState([]);
+  const [memories, setMemories]           = useState([]);
   const [loadingMemories, setLoadingMemories] = useState(false);
 
   // Recall
-  const [recallQuery, setRecallQuery] = useState("");
-  const [recallItems, setRecallItems] = useState([]);
-  const [memoryPack, setMemoryPack] = useState("");
-  const [recalling, setRecalling] = useState(false);
+  const [recallQuery, setRecallQuery]   = useState("");
+  const [recallItems, setRecallItems]   = useState([]);
+  const [memoryPack, setMemoryPack]     = useState("");
+  const [recalling, setRecalling]       = useState(false);
 
   function handleApiError(err) {
     if (err instanceof ApiError) {
-      if (err.kind === "auth") { router.replace("/auth?reason=expired"); return; }
-      if (err.kind === "forbidden") { toast.error("You don't have permission for this action."); return; }
+      if (err.kind === "auth")       { router.replace("/auth?reason=expired"); return; }
+      if (err.kind === "forbidden")  { toast.error("You don't have permission for this action."); return; }
       if (err.kind === "rate_limit") { toast.warn("Too many requests. Please wait a moment."); return; }
-      if (err.kind === "network") { toast.error("Backend unreachable. Check server status."); return; }
+      if (err.kind === "network")    { toast.error("Backend unreachable. Check server status."); return; }
     }
     toast.error(err.message || "Something went wrong.");
   }
@@ -73,9 +95,11 @@ export default function AppPage() {
   async function loadInitial() {
     setLoading(true);
     try {
-      const me = await apiFetch("/auth/me");
+      const [me, list] = await Promise.all([
+        apiFetch("/auth/me"),
+        apiFetch("/projects"),
+      ]);
       setAuth(me);
-      const list = await apiFetch("/projects");
       setProjects(list);
       if (list.length) setProjectId(String(list[0].id));
     } catch (err) {
@@ -87,10 +111,16 @@ export default function AppPage() {
 
   useEffect(() => { loadInitial(); }, []);
 
+  // Load memories whenever project or tab changes
+  useEffect(() => {
+    if (!projectId) return;
+    loadMemories();
+  }, [projectId]);
+
   useEffect(() => {
     if (!projectId || tab !== "memories") return;
     loadMemories();
-  }, [projectId, tab]);
+  }, [tab]);
 
   async function loadMemories() {
     setLoadingMemories(true);
@@ -102,6 +132,16 @@ export default function AppPage() {
     } finally {
       setLoadingMemories(false);
     }
+  }
+
+  function selectProject(id) {
+    if (id === projectId) return; // already selected — no-op
+    setProjectId(id);
+    setTab("compose");        // reset to compose on project switch
+    setRecallItems([]);
+    setMemoryPack("");
+    setRecallQuery("");
+    setMemoryContent("");
   }
 
   async function createProject(e) {
@@ -118,7 +158,7 @@ export default function AppPage() {
       setShowNewProject(false);
       const list = await apiFetch("/projects");
       setProjects(list);
-      setProjectId(String(proj.id));
+      selectProject(String(proj.id));
     } catch (err) {
       handleApiError(err);
     } finally {
@@ -137,7 +177,7 @@ export default function AppPage() {
       });
       toast.success("Memory saved.");
       setMemoryContent("");
-      if (tab === "memories") await loadMemories();
+      await loadMemories(); // keep count fresh
     } catch (err) {
       handleApiError(err);
     } finally {
@@ -157,9 +197,7 @@ export default function AppPage() {
       );
       setRecallItems(data.items || []);
       setMemoryPack(data.memory_pack_text || "");
-      if ((data.items || []).length === 0) {
-        toast.info("No memories matched that query.");
-      }
+      if (!(data.items?.length)) toast.info("No memories matched — showing recent instead.");
     } catch (err) {
       handleApiError(err);
     } finally {
@@ -172,47 +210,46 @@ export default function AppPage() {
     try {
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(memoryPack);
-        toast.success("Memory pack copied to clipboard.");
-        return;
+      } else {
+        // HTTP fallback (execCommand)
+        const ta = Object.assign(document.createElement("textarea"), {
+          value: memoryPack,
+          style: "position:fixed;left:-9999px;top:-9999px",
+        });
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+        if (!ok) throw new Error();
       }
-      // HTTP fallback
-      const ta = document.createElement("textarea");
-      ta.value = memoryPack;
-      ta.style.cssText = "position:fixed;left:-9999px;top:-9999px";
-      document.body.appendChild(ta);
-      ta.select();
-      const ok = document.execCommand("copy");
-      document.body.removeChild(ta);
-      if (ok) toast.success("Memory pack copied.");
-      else throw new Error("copy failed");
+      toast.success("Memory pack copied to clipboard.");
     } catch {
-      toast.error("Copy failed. Use the Download button, or switch to HTTPS.");
+      toast.error("Copy failed — use Download instead, or switch to HTTPS.");
     }
   }
 
   function downloadPack() {
     if (!memoryPack) return;
-    const blob = new Blob([memoryPack], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = Object.assign(document.createElement("a"), {
-      href: url,
-      download: `memory-pack-${projectId}.txt`,
-    });
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    const url = URL.createObjectURL(new Blob([memoryPack], { type: "text/plain;charset=utf-8" }));
+    Object.assign(document.createElement("a"), {
+      href: url, download: `memory-pack-${projectId}.txt`,
+    }).click();
     URL.revokeObjectURL(url);
     toast.success("Memory pack downloaded.");
   }
 
-  const currentProject = projects.find((p) => String(p.id) === projectId);
+  const currentProject  = projects.find((p) => String(p.id) === projectId);
+  const filteredProjects = projects.filter((p) =>
+    !projectSearch || p.name.toLowerCase().includes(projectSearch.toLowerCase())
+  );
 
+  // ── Loading skeleton ──────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="app-layout">
         <aside className="sidebar">
-          <Skeleton height="1rem" width="80px" />
-          {[1, 2, 3].map((i) => <Skeleton key={i} height="32px" radius="8px" />)}
+          <Skeleton height="1rem" width="80px" style={{ marginBottom: 8 }} />
+          {[1, 2, 3].map((i) => <Skeleton key={i} height="36px" radius="8px" />)}
         </aside>
         <div className="main-content">
           <SkeletonCard rows={4} />
@@ -222,117 +259,140 @@ export default function AppPage() {
     );
   }
 
+  // ── App shell ─────────────────────────────────────────────────────────────
   return (
     <div className="app-layout">
-      {/* Sidebar — project list */}
+
+      {/* ── Sidebar ───────────────────────────────────────────────────────── */}
       <aside className="sidebar" aria-label="Projects">
-        <div className="row spread" style={{ paddingBottom: 4 }}>
-          <span className="sidebar-section-label">Projects</span>
-          <button
-            className="btn ghost sm"
-            onClick={() => setShowNewProject((v) => !v)}
-            aria-label={showNewProject ? "Cancel new project" : "New project"}
-            title="New project"
-            style={{ padding: "2px 8px", fontSize: "1rem", lineHeight: 1 }}
-          >
-            {showNewProject ? "×" : "+"}
-          </button>
-        </div>
 
-        {showNewProject && (
-          <form onSubmit={createProject} className="stack-sm" style={{ paddingBottom: 8 }}>
-            <input
-              autoFocus
-              value={newProjectName}
-              onChange={(e) => setNewProjectName(e.target.value)}
-              placeholder="Project name"
-              required
-              style={{ fontSize: "0.85rem", padding: "7px 10px" }}
-              disabled={creatingProject}
-            />
+        {/* Header row */}
+        <div className="sidebar-header">
+          <div className="row spread" style={{ paddingBottom: 6 }}>
+            <span className="sidebar-section-label">
+              Projects
+              {projects.length > 0 && (
+                <span style={{ color: "var(--muted)", fontWeight: 400, marginLeft: 5 }}>
+                  ({projects.length})
+                </span>
+              )}
+            </span>
             <button
-              type="submit"
-              className="btn primary sm"
-              disabled={!newProjectName.trim() || creatingProject}
-              aria-busy={creatingProject}
+              className="btn ghost sm"
+              onClick={() => setShowNewProject((v) => !v)}
+              aria-label={showNewProject ? "Cancel" : "New project"}
+              title="New project"
+              style={{ padding: "2px 10px", fontSize: "1.1rem", lineHeight: 1 }}
             >
-              {creatingProject ? <span className="spinner" /> : "Create"}
+              {showNewProject ? "×" : "+"}
             </button>
-          </form>
-        )}
+          </div>
 
-        {projects.length === 0 ? (
-          <p className="muted" style={{ fontSize: "0.82rem", padding: "8px 4px" }}>
-            No projects yet. Create one above.
-          </p>
-        ) : (
-          projects.map((p) => (
-            <button
-              key={p.id}
-              className={`project-item${String(p.id) === projectId ? " active" : ""}`}
-              onClick={() => setProjectId(String(p.id))}
-              title={p.name}
-            >
-              <span className="proj-dot" />
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {p.name}
-              </span>
-            </button>
-          ))
-        )}
-
-        <hr className="divider" style={{ margin: "8px 0" }} />
-
-        <div className="row-wrap" style={{ paddingTop: 4 }}>
-          {auth?.is_admin && (
-            <Link href="/admin" className="btn ghost sm">Admin</Link>
+          {/* Create form */}
+          {showNewProject && (
+            <form onSubmit={createProject} className="stack-sm" style={{ paddingBottom: 8 }}>
+              <input
+                autoFocus
+                value={newProjectName}
+                onChange={(e) => setNewProjectName(e.target.value)}
+                placeholder="Project name"
+                required
+                maxLength={200}
+                style={{ fontSize: "0.85rem", padding: "7px 10px" }}
+                disabled={creatingProject}
+              />
+              <div className="row" style={{ gap: 6 }}>
+                <button
+                  type="submit"
+                  className="btn primary sm"
+                  disabled={!newProjectName.trim() || creatingProject}
+                  aria-busy={creatingProject}
+                  style={{ flex: 1 }}
+                >
+                  {creatingProject ? <span className="spinner" /> : "Create"}
+                </button>
+                <button
+                  type="button"
+                  className="btn ghost sm"
+                  onClick={() => { setShowNewProject(false); setNewProjectName(""); }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
           )}
-          <button
-            className="btn ghost sm"
-            onClick={async () => {
-              try { await apiFetch("/auth/logout", { method: "POST" }); } catch {}
-              router.push("/auth");
-            }}
-          >
-            Sign out
-          </button>
+
+          {/* Search — only shown when there are enough projects */}
+          {projects.length > 6 && (
+            <div style={{ paddingBottom: 6 }}>
+              <input
+                value={projectSearch}
+                onChange={(e) => setProjectSearch(e.target.value)}
+                placeholder="Filter projects…"
+                style={{ fontSize: "0.82rem", padding: "6px 10px" }}
+                aria-label="Filter projects"
+              />
+            </div>
+          )}
         </div>
 
-        {auth && (
-          <p className="muted" style={{ fontSize: "0.75rem", paddingTop: 4 }}>
-            {auth.email}
-          </p>
-        )}
+        {/* Scrollable project list */}
+        <div className="sidebar-projects">
+          {projects.length === 0 ? (
+            <p className="muted" style={{ fontSize: "0.82rem", padding: "8px 4px" }}>
+              No projects yet. Hit + to create one.
+            </p>
+          ) : filteredProjects.length === 0 ? (
+            <p className="muted" style={{ fontSize: "0.82rem", padding: "8px 4px" }}>
+              No projects match &ldquo;{projectSearch}&rdquo;.
+            </p>
+          ) : (
+            filteredProjects.map((p) => (
+              <button
+                key={p.id}
+                className={`project-item${String(p.id) === projectId ? " active" : ""}`}
+                onClick={() => selectProject(String(p.id))}
+                title={p.name}
+              >
+                <span className="proj-dot" />
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, textAlign: "left" }}>
+                  {p.name}
+                </span>
+              </button>
+            ))
+          )}
+        </div>
       </aside>
 
-      {/* Main panel */}
-      <main>
+      {/* ── Main panel ────────────────────────────────────────────────────── */}
+      <main className="main-content">
         {!projectId ? (
           <div className="card">
             <div className="empty-state">
               <span className="empty-icon">📁</span>
-              <p>Create or select a project to get started.</p>
-              <button
-                className="btn primary sm"
-                onClick={() => setShowNewProject(true)}
-              >
+              <h2 style={{ marginBottom: 6 }}>No project selected</h2>
+              <p>Create your first project to start capturing memories.</p>
+              <button className="btn primary sm" onClick={() => setShowNewProject(true)} style={{ marginTop: 8 }}>
                 New project
               </button>
             </div>
           </div>
         ) : (
           <>
-            <div className="card" style={{ marginBottom: 16 }}>
+            {/* Project header */}
+            <div className="card" style={{ marginBottom: 14 }}>
               <div className="row spread">
                 <div>
-                  <h2 style={{ margin: 0 }}>{currentProject?.name || "Project"}</h2>
-                  <p className="muted" style={{ fontSize: "0.8rem", marginTop: 2 }}>
-                    {memories.length > 0 ? `${memories.length} memories` : ""}
+                  <h2 style={{ margin: 0, fontSize: "1.1rem" }}>{currentProject?.name || "Project"}</h2>
+                  <p className="muted" style={{ fontSize: "0.78rem", marginTop: 2 }}>
+                    {memories.length > 0
+                      ? `${memories.length} memor${memories.length === 1 ? "y" : "ies"}`
+                      : "No memories yet"}
                   </p>
                 </div>
-                <div className="row">
-                  <span className="badge badge-brand">Brain</span>
-                </div>
+                <span className="badge badge-brand" style={{ fontFamily: "var(--display)", letterSpacing: "0.06em" }}>
+                  Brain
+                </span>
               </div>
             </div>
 
@@ -340,7 +400,7 @@ export default function AppPage() {
             <div className="tab-bar" role="tablist">
               {[
                 { id: "compose",  label: "Compose" },
-                { id: "memories", label: "Memories" },
+                { id: "memories", label: `Memories${memories.length ? ` (${memories.length})` : ""}` },
                 { id: "recall",   label: "Recall" },
               ].map(({ id, label }) => (
                 <button
@@ -355,10 +415,10 @@ export default function AppPage() {
               ))}
             </div>
 
-            {/* Compose tab */}
+            {/* ── Compose ── */}
             {tab === "compose" && (
               <div className="card">
-                <h2 style={{ marginBottom: 14 }}>Add a memory</h2>
+                <h2 style={{ marginBottom: 14, fontSize: "1rem" }}>Add a memory</h2>
                 <form onSubmit={saveMemory} className="stack">
                   <div className="field">
                     <label>Memory type</label>
@@ -370,6 +430,11 @@ export default function AppPage() {
                           className={`type-chip${memoryType === t ? " selected" : ""}`}
                           onClick={() => setMemoryType(t)}
                           aria-pressed={memoryType === t}
+                          style={memoryType === t ? {
+                            background: TYPE_COLORS[t]?.bg,
+                            borderColor: TYPE_COLORS[t]?.color,
+                            color: TYPE_COLORS[t]?.color,
+                          } : {}}
                         >
                           {t}
                         </button>
@@ -390,11 +455,11 @@ export default function AppPage() {
                       style={{ minHeight: 120 }}
                     />
                     <span className="field-hint">
-                      {memoryContent.length > 0 && `${memoryContent.length} / 10,000 chars`}
+                      {memoryContent.length > 0 ? `${memoryContent.length.toLocaleString()} / 10,000` : "Up to 10,000 characters"}
                     </span>
                   </div>
 
-                  <div className="row">
+                  <div className="row" style={{ gap: 8 }}>
                     <button
                       type="submit"
                       className="btn primary"
@@ -405,11 +470,7 @@ export default function AppPage() {
                       {savingMemory ? "Saving…" : "Publish memory"}
                     </button>
                     {memoryContent && (
-                      <button
-                        type="button"
-                        className="btn ghost sm"
-                        onClick={() => setMemoryContent("")}
-                      >
+                      <button type="button" className="btn ghost sm" onClick={() => setMemoryContent("")}>
                         Clear
                       </button>
                     )}
@@ -418,13 +479,20 @@ export default function AppPage() {
               </div>
             )}
 
-            {/* Memories tab */}
+            {/* ── Memories ── */}
             {tab === "memories" && (
               <div className="card">
                 <div className="row spread" style={{ marginBottom: 14 }}>
-                  <h2 style={{ margin: 0 }}>Recent memories</h2>
+                  <h2 style={{ margin: 0, fontSize: "1rem" }}>
+                    All memories
+                    {memories.length > 0 && (
+                      <span className="badge badge-brand" style={{ marginLeft: 8, verticalAlign: "middle" }}>
+                        {memories.length}
+                      </span>
+                    )}
+                  </h2>
                   <button className="btn secondary sm" onClick={loadMemories} disabled={loadingMemories}>
-                    Refresh
+                    {loadingMemories ? <span className="spinner" /> : "Refresh"}
                   </button>
                 </div>
 
@@ -435,38 +503,32 @@ export default function AppPage() {
                 ) : memories.length === 0 ? (
                   <div className="empty-state">
                     <span className="empty-icon">💭</span>
-                    <p>No memories yet. Switch to Compose to add the first one.</p>
-                    <button className="btn primary sm" onClick={() => setTab("compose")}>
+                    <p>No memories yet. Go to Compose to add the first one.</p>
+                    <button className="btn primary sm" onClick={() => setTab("compose")} style={{ marginTop: 8 }}>
                       Add memory
                     </button>
                   </div>
                 ) : (
                   <div className="memory-list" role="list">
-                    {memories.map((m) => {
-                      const style = TYPE_COLORS[m.type] || {};
-                      return (
-                        <div key={m.id} className="memory-row" role="listitem">
-                          <span
-                            className="memory-row-type"
-                            style={{ color: style.color, backgroundColor: style.bg, padding: "2px 6px", borderRadius: 4 }}
-                          >
-                            {m.type}
-                          </span>
-                          <span className="memory-row-content">{m.content}</span>
-                          <span className="memory-row-time">{fmtTime(m.created_at)}</span>
-                        </div>
-                      );
-                    })}
+                    {memories.map((m) => (
+                      <div key={m.id} className="memory-row" role="listitem">
+                        <TypeBadge type={m.type} />
+                        <span className="memory-row-content">{m.content}</span>
+                        <span className="memory-row-time" title={new Date(m.created_at).toLocaleString()}>
+                          {fmtTime(m.created_at)}
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
             )}
 
-            {/* Recall tab */}
+            {/* ── Recall ── */}
             {tab === "recall" && (
               <div className="stack">
                 <div className="card">
-                  <h2 style={{ marginBottom: 12 }}>Recall context</h2>
+                  <h2 style={{ marginBottom: 12, fontSize: "1rem" }}>Recall context</h2>
                   <form onSubmit={runRecall} className="stack">
                     <div className="field">
                       <label htmlFor="recall-q">What do you need context on?</label>
@@ -474,23 +536,22 @@ export default function AppPage() {
                         id="recall-q"
                         value={recallQuery}
                         onChange={(e) => setRecallQuery(e.target.value)}
-                        placeholder="e.g. database migrations, auth model, performance issues…"
+                        placeholder="e.g. database migrations, auth model, performance…"
                         disabled={recalling}
+                        autoComplete="off"
                       />
-                      <span className="field-hint">
-                        Leave blank to get the most recent memories.
-                      </span>
+                      <span className="field-hint">Leave blank to get the most recent memories.</span>
                     </div>
                     <div className="row">
-                      <button
-                        type="submit"
-                        className="btn primary"
-                        disabled={recalling}
-                        aria-busy={recalling}
-                      >
+                      <button type="submit" className="btn primary" disabled={recalling} aria-busy={recalling}>
                         {recalling && <span className="spinner" />}
                         {recalling ? "Recalling…" : "Run recall"}
                       </button>
+                      {recallQuery && (
+                        <button type="button" className="btn ghost sm" onClick={() => setRecallQuery("")}>
+                          Clear
+                        </button>
+                      )}
                     </div>
                   </form>
                 </div>
@@ -498,7 +559,7 @@ export default function AppPage() {
                 {(recallItems.length > 0 || memoryPack) && (
                   <div className="card">
                     <div className="row spread" style={{ marginBottom: 12 }}>
-                      <h2 style={{ margin: 0 }}>
+                      <h2 style={{ margin: 0, fontSize: "1rem" }}>
                         Results
                         {recallItems.length > 0 && (
                           <span className="badge badge-brand" style={{ marginLeft: 8, verticalAlign: "middle" }}>
@@ -506,57 +567,39 @@ export default function AppPage() {
                           </span>
                         )}
                       </h2>
-                      <div className="row">
-                        <button
-                          className="btn secondary sm"
-                          onClick={copyPack}
-                          disabled={!memoryPack}
-                          title="Copy memory pack"
-                        >
+                      <div className="row" style={{ gap: 6 }}>
+                        <button className="btn secondary sm" onClick={copyPack} disabled={!memoryPack}>
                           Copy
                         </button>
-                        <button
-                          className="btn secondary sm"
-                          onClick={downloadPack}
-                          disabled={!memoryPack}
-                          title="Download as .txt"
-                        >
+                        <button className="btn secondary sm" onClick={downloadPack} disabled={!memoryPack}>
                           Download .txt
                         </button>
                       </div>
                     </div>
 
-                    {/* Ranked result list */}
                     <div className="recall-result" style={{ marginBottom: 16 }}>
-                      {recallItems.map((item) => {
-                        const style = TYPE_COLORS[item.type] || {};
-                        return (
-                          <div key={item.id} className="recall-item">
-                            <div className="recall-item-header">
-                              <span
-                                className="memory-row-type"
-                                style={{ color: style.color, backgroundColor: style.bg, padding: "2px 6px", borderRadius: 4, fontSize: "0.72rem" }}
-                              >
-                                {item.type}
+                      {recallItems.map((item) => (
+                        <div key={item.id} className="recall-item">
+                          <div className="recall-item-header">
+                            <TypeBadge type={item.type} size="xs" />
+                            {item.rank_score != null && (
+                              <span className="recall-rank" title="FTS relevance score">
+                                ★ {item.rank_score.toFixed(3)}
                               </span>
-                              {item.rank_score != null && (
-                                <span className="recall-rank" title="FTS relevance score">
-                                  ★ {item.rank_score.toFixed(3)}
-                                </span>
-                              )}
-                              <span className="memory-row-time">{fmtTime(item.created_at)}</span>
-                            </div>
-                            <p style={{ fontSize: "0.88rem", color: "var(--ink-2)", lineHeight: 1.5, margin: 0 }}>
-                              {item.content}
-                            </p>
+                            )}
+                            <span className="memory-row-time" title={new Date(item.created_at).toLocaleString()}>
+                              {fmtTime(item.created_at)}
+                            </span>
                           </div>
-                        );
-                      })}
+                          <p style={{ fontSize: "0.88rem", color: "var(--ink-2)", lineHeight: 1.55, margin: 0 }}>
+                            {item.content}
+                          </p>
+                        </div>
+                      ))}
                     </div>
 
-                    {/* Memory pack */}
                     <label className="label" style={{ marginBottom: 6 }}>Memory pack (paste-ready)</label>
-                    <pre className="pre">{memoryPack || "Memory pack will appear here."}</pre>
+                    <pre className="pre">{memoryPack}</pre>
                   </div>
                 )}
               </div>

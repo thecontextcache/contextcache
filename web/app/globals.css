@@ -481,21 +481,54 @@ tr:hover td { background: rgba(0,212,255,0.03); }
 /* ═══════════════════════════════════════════════════════════════════════════
    APP PAGE
    ═══════════════════════════════════════════════════════════════════════════ */
+/* ── App layout (two-column: sidebar + main) ── */
 .app-layout {
   display: grid;
-  grid-template-columns: 220px 1fr;
+  grid-template-columns: 230px 1fr;
   gap: 20px;
   align-items: start;
+  min-height: calc(100vh - var(--topbar-h) - 40px);
 }
+
+/* ── Sidebar ── */
 .sidebar {
-  display: flex; flex-direction: column; gap: 6px;
   position: sticky;
   top: calc(var(--topbar-h) + 20px);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  /* clamp so it never taller than viewport */
+  max-height: calc(100vh - var(--topbar-h) - 40px);
 }
+.sidebar-header {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+/* Scrollable project list */
+.sidebar-projects {
+  flex: 1;
+  min-height: 0;            /* required for flex overflow to work */
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-right: 2px;       /* breathing room next to scrollbar */
+  padding-bottom: 8px;
+  overscroll-behavior: contain;
+}
+/* Thin scrollbar — Webkit */
+.sidebar-projects::-webkit-scrollbar        { width: 4px; }
+.sidebar-projects::-webkit-scrollbar-track  { background: transparent; }
+.sidebar-projects::-webkit-scrollbar-thumb  { background: var(--muted-2); border-radius: 2px; }
+/* Firefox */
+.sidebar-projects { scrollbar-width: thin; scrollbar-color: var(--muted-2) transparent; }
+
 .sidebar-section-label {
   font-size: 0.7rem; font-weight: 700; color: var(--muted);
   text-transform: uppercase; letter-spacing: 0.1em;
-  padding: 6px 4px 4px;
+  padding: 6px 4px 2px;
 }
 .project-item {
   display: flex; align-items: center; gap: 8px;
@@ -507,6 +540,7 @@ tr:hover td { background: rgba(0,212,255,0.03); }
   color: var(--ink-2);
   font: inherit; font-size: 0.86rem;
   text-align: left; width: 100%;
+  flex-shrink: 0;
   transition: background var(--transition), border-color var(--transition), color var(--transition);
 }
 .project-item:hover { background: var(--line); color: var(--ink); }
@@ -522,7 +556,7 @@ tr:hover td { background: rgba(0,212,255,0.03); }
 }
 .project-item.active .proj-dot { background: var(--brand); box-shadow: 0 0 6px var(--brand); }
 
-.main-content { display: flex; flex-direction: column; gap: 20px; }
+.main-content { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 
 .tab-bar {
   display: flex; gap: 2px;
@@ -561,7 +595,7 @@ tr:hover td { background: rgba(0,212,255,0.03); }
   transition: border-color var(--transition), box-shadow var(--transition);
 }
 .memory-row:hover { border-color: rgba(0,212,255,0.3); box-shadow: 0 0 12px rgba(0,212,255,0.05); }
-.memory-row-type { flex-shrink: 0; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; min-width: 64px; padding-top: 2px; }
+.memory-row-type { flex-shrink: 0; }
 .memory-row-content { flex: 1; font-size: 0.87rem; color: var(--ink-2); line-height: 1.5; word-break: break-word; }
 .memory-row-time { flex-shrink: 0; font-size: 0.74rem; color: var(--muted); }
 
@@ -1113,10 +1147,37 @@ tr:hover td { background: rgba(0,212,255,0.03); }
 /* ═══════════════════════════════════════════════════════════════════════════
    RESPONSIVE
    ═══════════════════════════════════════════════════════════════════════════ */
-@media (max-width: 800px) {
-  .app-layout { grid-template-columns: 1fr; }
-  .sidebar { position: static; flex-direction: row; flex-wrap: wrap; gap: 6px; }
-  .sidebar-section-label { width: 100%; }
+@media (max-width: 860px) {
+  .app-layout {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .sidebar {
+    position: static;
+    max-height: none;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .sidebar-header { gap: 4px; }
+  .sidebar-projects {
+    /* Horizontal scrolling chip row on small screens */
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-height: none;
+    padding-bottom: 4px;
+    gap: 6px;
+  }
+  .sidebar-projects::-webkit-scrollbar { height: 3px; }
+  .project-item {
+    flex-shrink: 0;
+    width: auto;
+    padding: 6px 12px;
+    white-space: nowrap;
+  }
+  .project-item .proj-dot { display: none; }
+  .sidebar-section-label { padding: 4px 4px 0; }
   .l-steps::before { display: none; }
   .l-features-grid { grid-template-columns: 1fr; }
 }
