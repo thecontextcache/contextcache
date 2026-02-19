@@ -99,12 +99,6 @@ export default function Shell({ children }) {
           <Link href="/pricing" className={nav("/pricing")}>Pricing</Link>
           <Link href="/app" className={nav("/app")}>App</Link>
           {isAdmin && <Link href="/admin" className={nav("/admin")}>Admin</Link>}
-          <Link href="/legal" className={nav("/legal")}>Legal</Link>
-          {docsBase && (
-            <a href={docsBase} target="_blank" rel="noreferrer" className="nav-link">
-              Docs
-            </a>
-          )}
           {isLoggedIn ? (
             <button type="button" className="nav-btn" onClick={logout}>
               Sign out

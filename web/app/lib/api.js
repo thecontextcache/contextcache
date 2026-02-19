@@ -95,11 +95,22 @@ export async function apiFetch(path, init = {}) {
   return body;
 }
 
+// AbortSignal.timeout is not available in Firefox ESR, Tor Browser, or Safari < 15.4.
+// Fall back to a manual AbortController + setTimeout when unavailable.
+function makeTimeoutSignal(ms) {
+  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+    return AbortSignal.timeout(ms);
+  }
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), ms);
+  return controller.signal;
+}
+
 export async function checkHealth(signal) {
   try {
     const res = await fetch(`${buildApiBase()}/health`, {
       credentials: "include",
-      signal: signal ?? AbortSignal.timeout(5000),
+      signal: signal ?? makeTimeoutSignal(5000),
     });
     return res.ok;
   } catch {

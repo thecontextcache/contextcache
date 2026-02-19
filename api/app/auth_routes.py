@@ -502,24 +502,33 @@ async def usage_stats(request: Request, db: AsyncSession = Depends(get_db)) -> l
     if not is_admin:
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    rows = (
-        await db.execute(
-            select(
-                func.date_trunc("day", UsageEvent.created_at).label("bucket"),
-                UsageEvent.event_type,
-                func.count(UsageEvent.id).label("event_count"),
+    try:
+        rows = (
+            await db.execute(
+                select(
+                    func.date_trunc("day", UsageEvent.created_at).label("bucket"),
+                    UsageEvent.event_type,
+                    func.count(UsageEvent.id).label("event_count"),
+                )
+                .where(UsageEvent.created_at.isnot(None))
+                .group_by(func.date_trunc("day", UsageEvent.created_at), UsageEvent.event_type)
+                .order_by(func.date_trunc("day", UsageEvent.created_at).desc())
+                .limit(200)
             )
-            .group_by(func.date_trunc("day", UsageEvent.created_at), UsageEvent.event_type)
-            .order_by(func.date_trunc("day", UsageEvent.created_at).desc())
-            .limit(200)
-        )
-    ).all()
+        ).all()
 
-    return [
-        AdminUsageOut(
-            date=str(row.bucket.date()) if row.bucket else "unknown",
-            event_type=row.event_type,
-            count=int(row.event_count),
-        )
-        for row in rows
-    ]
+        return [
+            AdminUsageOut(
+                date=str(row.bucket.date()) if row.bucket else "unknown",
+                event_type=str(row.event_type),
+                count=int(row.event_count),
+            )
+            for row in rows
+        ]
+    except Exception as exc:
+        # Never 500 the admin panel for a stats query.
+        # Logs will show the real error: docker compose logs api
+        import traceback
+        print(f"[WARN] usage_stats failed: {exc}")
+        traceback.print_exc()
+        return []

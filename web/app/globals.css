@@ -113,12 +113,15 @@ img, svg { display: block; max-width: 100%; }
   padding: 0 24px;
   border-bottom: 1px solid var(--line);
   background: rgba(6, 12, 24, 0.88);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   position: sticky;
   top: 0;
   z-index: 100;
   gap: 16px;
+}
+html[data-theme="light"] .topbar {
+  background: rgba(255, 255, 255, 0.9);
 }
 
 .brand {
@@ -194,7 +197,8 @@ img, svg { display: block; max-width: 100%; }
   gap: 12px;
   color: var(--muted);
   font-size: 0.82rem;
-  background: rgba(6, 12, 24, 0.6);
+  background: var(--panel);
+  flex-wrap: wrap;
 }
 .footer-links { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
 .footer-links a { color: var(--muted); transition: color var(--transition); }
@@ -721,6 +725,7 @@ tr:hover td { background: rgba(0,212,255,0.03); }
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  color: transparent; /* Firefox fallback */
   animation: grad-shift 6s ease-in-out infinite;
 }
 @keyframes grad-shift { 0%,100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
@@ -1020,7 +1025,10 @@ tr:hover td { background: rgba(0,212,255,0.03); }
   font-size: clamp(1.8rem, 4vw, 2.8rem);
   font-weight: 900;
   background: linear-gradient(135deg, var(--brand), var(--violet));
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
   line-height: 1;
   margin-bottom: 6px;
 }
@@ -1102,18 +1110,84 @@ tr:hover td { background: rgba(0,212,255,0.03); }
 /* ═══════════════════════════════════════════════════════════════════════════
    RESPONSIVE
    ═══════════════════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════════════════
+   RESPONSIVE
+   ═══════════════════════════════════════════════════════════════════════════ */
 @media (max-width: 800px) {
   .app-layout { grid-template-columns: 1fr; }
   .sidebar { position: static; flex-direction: row; flex-wrap: wrap; gap: 6px; }
   .sidebar-section-label { width: 100%; }
   .l-steps::before { display: none; }
+  .l-features-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 600px) {
-  .topbar { padding: 0 14px; }
+  .topbar { padding: 0 14px; gap: 8px; }
   .page   { padding: 16px 14px; }
-  .footer { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .footer { flex-direction: column; align-items: flex-start; gap: 10px; padding: 16px 14px; }
+  .footer-links { flex-wrap: wrap; gap: 10px; }
   .toast-stack { bottom: 12px; right: 12px; width: calc(100vw - 24px); }
-  .l-hero { padding: 70px 16px 56px; }
-  .l-section { padding: 56px 16px; }
-  .l-cta-box { padding: 40px 20px; }
+  .l-hero { padding: 70px 16px 56px; min-height: 80vh; }
+  .l-section { padding: 48px 16px; }
+  .l-cta-box { padding: 32px 16px; }
+  .l-actions { flex-direction: column; align-items: center; gap: 10px; }
+  .l-stats { grid-template-columns: repeat(2, 1fr); }
+  .nav { gap: 0; }
+  .nav-link { padding: 6px 8px; font-size: 0.8rem; }
+  .brand { font-size: 0.72rem; }
+  .btn-glow, .btn-outline-glow { padding: 12px 24px; font-size: 0.7rem; }
+}
+@media (max-width: 380px) {
+  .l-stats { grid-template-columns: 1fr; }
+  .l-types-grid { justify-content: flex-start; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CROSS-BROWSER COMPATIBILITY
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Ensure smooth scrolling respects user preference */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  html { scroll-behavior: auto; }
+}
+
+/* Firefox: backdrop-filter needs no prefix in modern Firefox but
+   the blur value must be set; older Firefox ignores it gracefully */
+@supports not (backdrop-filter: blur(1px)) {
+  .topbar {
+    background: var(--panel) !important;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* Safari: ensure -webkit-fill-available for full-height layouts */
+.shell { min-height: 100vh; min-height: -webkit-fill-available; }
+
+/* Touch: larger tap targets on mobile */
+@media (pointer: coarse) {
+  .btn, .nav-link, .nav-btn, .tab, .type-chip, .project-item {
+    min-height: 44px;
+  }
+  .theme-toggle { width: 44px; height: 44px; }
+}
+
+/* High-contrast / forced-colors (Windows HC mode, Edge) */
+@media (forced-colors: active) {
+  .btn.primary { forced-color-adjust: none; background: Highlight; color: HighlightText; }
+  .brand, .l-title-grad { -webkit-text-fill-color: unset; background: none; color: CanvasText; }
+  .l-stat-value { -webkit-text-fill-color: unset; background: none; color: CanvasText; }
+  .badge { border: 1px solid ButtonText; }
+}
+
+/* Print */
+@media print {
+  .topbar, .footer, .theme-toggle, .debug-panel { display: none !important; }
+  .page { padding: 0; max-width: 100%; }
+  body { background: white; color: black; }
+  a { color: black; text-decoration: underline; }
 }
