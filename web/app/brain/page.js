@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiFetch, ApiError } from "../lib/api";
@@ -20,65 +20,68 @@ const TYPE_COLORS = {
 };
 
 export default function BrainPage() {
-  const router  = useRouter();
-  const toast   = useToast();
+  const router = useRouter();
+  const toast  = useToast();
 
-  const [loading, setLoading]       = useState(true);
-  const [projects, setProjects]     = useState([]);
+  // Stable refs — used inside the one-shot useEffect so we never need to re-run it
+  const routerRef = useRef(router);
+  const toastRef  = useRef(toast);
+  useEffect(() => { routerRef.current = router; }, [router]);
+  useEffect(() => { toastRef.current  = toast;  }, [toast]);
+
+  const [loading,   setLoading]   = useState(true);
+  const [projects,  setProjects]  = useState([]);
   const [memoriesByProject, setMemoriesByProject] = useState({});
-  const [selectedNode, setSelectedNode]   = useState(null);
-  const [highlightIds, setHighlightIds]   = useState([]);
-  const [recallQuery, setRecallQuery]     = useState("");
-  const [recalling, setRecalling]         = useState(false);
-  const [stats, setStats]                 = useState({ projects: 0, memories: 0, edges: 0 });
+  const [selectedNode,  setSelectedNode]  = useState(null);
+  const [highlightIds,  setHighlightIds]  = useState([]);
+  const [recallQuery,   setRecallQuery]   = useState("");
+  const [recalling,     setRecalling]     = useState(false);
+  const [stats, setStats] = useState({ projects: 0, memories: 0, edges: 0 });
 
-  // ── Load all data ──────────────────────────────────────────────────────────
+  // ── One-shot data load — no unstable deps ────────────────────────────────
   useEffect(() => {
+    let cancelled = false;
+
     async function load() {
-      setLoading(true);
       try {
-        await apiFetch("/auth/me"); // redirect if not logged in
+        await apiFetch("/auth/me");
         const projs = await apiFetch("/projects");
+        if (cancelled) return;
         setProjects(projs);
 
-        // Load memories for all projects in parallel (cap at 8 projects for perf)
         const slice = projs.slice(0, 8);
         const results = await Promise.allSettled(
-          slice.map((p) => apiFetch(`/projects/${p.id}/memories`))
+          slice.map((p) => apiFetch(`/projects/${p.id}/memories`)),
         );
+        if (cancelled) return;
 
         const byProject = {};
         let totalMem = 0;
         slice.forEach((p, i) => {
           const r = results[i];
-          if (r.status === "fulfilled") {
-            byProject[p.id] = r.value;
-            totalMem += r.value.length;
-          } else {
-            byProject[p.id] = [];
-          }
+          byProject[p.id] = r.status === "fulfilled" ? r.value : [];
+          totalMem += byProject[p.id].length;
         });
 
         setMemoriesByProject(byProject);
-        setStats({
-          projects: projs.length,
-          memories: totalMem,
-          edges: totalMem, // one edge per memory → project
-        });
+        setStats({ projects: projs.length, memories: totalMem, edges: totalMem });
       } catch (err) {
+        if (cancelled) return;
         if (err instanceof ApiError && err.kind === "auth") {
-          router.replace("/auth?reason=expired");
+          routerRef.current.replace("/auth?reason=expired");
           return;
         }
-        toast.error(err.message || "Failed to load brain data.");
+        toastRef.current.error(err.message || "Failed to load brain data.");
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
-    load();
-  }, [router, toast]);
 
-  // ── Recall — highlight matching memory nodes ───────────────────────────────
+    load();
+    return () => { cancelled = true; };
+  }, []); // intentionally empty — refs keep router/toast current
+
+  // ── Cross-project recall → highlight nodes ────────────────────────────────
   async function runRecall(e) {
     e?.preventDefault();
     if (!recallQuery.trim() || recalling) return;
@@ -86,24 +89,22 @@ export default function BrainPage() {
     setHighlightIds([]);
 
     try {
-      // Find the project with the most memories — or recall across first project
       const projectIds = Object.keys(memoriesByProject).filter(
-        (id) => memoriesByProject[id]?.length > 0
+        (id) => (memoriesByProject[id]?.length ?? 0) > 0,
       );
       if (!projectIds.length) {
-        toast.warn("No memories found to search.");
+        toast.warn("No memories to search.");
         return;
       }
 
-      // Run recall on the first project (or all if multiple)
-      const recallResults = await Promise.allSettled(
-        projectIds.slice(0, 3).map((id) =>
-          apiFetch(`/projects/${id}/recall?query=${encodeURIComponent(recallQuery)}&limit=10`)
-        )
+      const recalls = await Promise.allSettled(
+        projectIds.slice(0, 4).map((id) =>
+          apiFetch(`/projects/${id}/recall?query=${encodeURIComponent(recallQuery)}&limit=10`),
+        ),
       );
 
       const ids = [];
-      recallResults.forEach((r) => {
+      recalls.forEach((r) => {
         if (r.status === "fulfilled") {
           (r.value.items || []).forEach((item) => ids.push(String(item.id)));
         }
@@ -111,7 +112,7 @@ export default function BrainPage() {
 
       setHighlightIds(ids);
       if (ids.length) {
-        toast.success(`${ids.length} memor${ids.length === 1 ? "y" : "ies"} lit up.`);
+        toast.success(`${ids.length} memor${ids.length === 1 ? "y" : "ies"} highlighted.`);
       } else {
         toast.info("No matching memories found.");
       }
@@ -122,126 +123,141 @@ export default function BrainPage() {
     }
   }
 
-  function clearHighlights() {
-    setHighlightIds([]);
-    setRecallQuery("");
-  }
+  const handleNodeClick = useCallback((node) => setSelectedNode(node), []);
 
-  const handleNodeClick = useCallback((node) => {
-    setSelectedNode(node);
-  }, []);
-
-  // ── Legend data ───────────────────────────────────────────────────────────
-  const usedTypes = new Set(
-    Object.values(memoriesByProject).flat().map((m) => m.type).filter(Boolean)
-  );
+  const usedTypes = [...new Set(
+    Object.values(memoriesByProject).flat().map((m) => m.type).filter(Boolean),
+  )];
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 64px)", gap: 0 }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "calc(100vh - 60px)",
+        background: "#060C18",
+        overflow: "hidden",
+      }}
+    >
 
-      {/* ── Top bar ── */}
+      {/* ── Command bar ──────────────────────────────────────────────────── */}
       <div
         style={{
-          display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
-          padding: "12px 20px",
-          background: "var(--panel)",
-          borderBottom: "1px solid var(--line)",
+          display: "flex",
+          alignItems: "center",
+          gap: 14,
+          flexWrap: "wrap",
+          padding: "10px 18px",
+          background: "rgba(13,27,46,0.95)",
+          borderBottom: "1px solid rgba(0,212,255,0.1)",
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
+          zIndex: 2,
         }}
       >
-        <div>
-          <h1
+        {/* Title */}
+        <div style={{ userSelect: "none", flexShrink: 0 }}>
+          <span
             style={{
-              fontFamily: "var(--display)", fontSize: "1.1rem",
-              letterSpacing: "0.06em", margin: 0, color: "var(--brand)",
+              fontFamily: "var(--display, 'Orbitron', monospace)",
+              fontSize: "0.95rem",
+              fontWeight: 700,
+              letterSpacing: "0.14em",
+              color: "#00D4FF",
+              textShadow: "0 0 18px rgba(0,212,255,0.5)",
             }}
           >
             BRAIN
-          </h1>
-          <p className="muted" style={{ fontSize: "0.75rem", margin: 0 }}>
-            {stats.projects} project{stats.projects !== 1 ? "s" : ""} ·{" "}
-            {stats.memories} memor{stats.memories !== 1 ? "ies" : "y"} ·{" "}
-            {stats.edges} edge{stats.edges !== 1 ? "s" : ""}
-          </p>
+          </span>
+          <span
+            style={{
+              marginLeft: 10,
+              fontSize: "0.73rem",
+              color: "rgba(100,140,180,0.6)",
+              fontFamily: "var(--mono, monospace)",
+            }}
+          >
+            {stats.projects}P · {stats.memories}M · {stats.edges}E
+          </span>
         </div>
 
-        {/* Recall query */}
+        {/* Recall search */}
         <form
           onSubmit={runRecall}
-          style={{ display: "flex", gap: 8, flexGrow: 1, maxWidth: 420 }}
+          style={{ display: "flex", gap: 6, flexGrow: 1, maxWidth: 400 }}
         >
           <input
             value={recallQuery}
             onChange={(e) => setRecallQuery(e.target.value)}
-            placeholder="Recall query — lights up matching nodes…"
-            style={{ flexGrow: 1, fontSize: "0.85rem" }}
+            placeholder="Search memories — matching nodes will glow…"
+            style={{
+              flexGrow: 1,
+              fontSize: "0.82rem",
+              background: "rgba(6,12,24,0.7)",
+              border: "1px solid rgba(0,212,255,0.18)",
+              borderRadius: "var(--radius, 12px)",
+              color: "rgba(226,238,249,0.9)",
+              padding: "7px 12px",
+              outline: "none",
+            }}
             disabled={recalling}
-            aria-label="Recall query"
           />
           <button
             type="submit"
             className="btn secondary sm"
             disabled={!recallQuery.trim() || recalling}
+            style={{ flexShrink: 0 }}
           >
             {recalling ? "…" : "Search"}
           </button>
           {highlightIds.length > 0 && (
-            <button type="button" className="btn ghost sm" onClick={clearHighlights}>
+            <button
+              type="button"
+              className="btn ghost sm"
+              onClick={() => { setHighlightIds([]); setRecallQuery(""); }}
+              style={{ flexShrink: 0 }}
+            >
               Clear
             </button>
           )}
         </form>
 
-        {/* Stats chips */}
+        {/* Highlight badge */}
         {highlightIds.length > 0 && (
           <span
             style={{
-              padding: "2px 10px", borderRadius: 999,
-              background: "rgba(0,212,255,0.12)",
+              padding: "3px 10px",
+              borderRadius: 999,
+              background: "rgba(0,212,255,0.1)",
               border: "1px solid rgba(0,212,255,0.3)",
-              color: "var(--brand)", fontSize: "0.78rem",
-              fontFamily: "var(--mono)",
+              color: "#00D4FF",
+              fontSize: "0.75rem",
+              fontFamily: "var(--mono, monospace)",
+              letterSpacing: "0.04em",
+              flexShrink: 0,
             }}
           >
-            {highlightIds.length} highlighted
+            {highlightIds.length} lit
           </span>
         )}
 
-        <Link href="/app" className="btn ghost sm" style={{ marginLeft: "auto" }}>
+        <Link
+          href="/app"
+          className="btn ghost sm"
+          style={{ marginLeft: "auto", flexShrink: 0, fontSize: "0.78rem" }}
+        >
           ← App
         </Link>
       </div>
 
-      {/* ── Canvas area + right panel ── */}
-      <div style={{ display: "flex", flexGrow: 1, overflow: "hidden" }}>
+      {/* ── Main area ────────────────────────────────────────────────────────── */}
+      <div style={{ display: "flex", flexGrow: 1, overflow: "hidden", position: "relative" }}>
 
-        {/* Graph canvas */}
-        <div
-          style={{
-            flexGrow: 1,
-            background: "#060C18",
-            position: "relative",
-            overflow: "hidden",
-          }}
-        >
+        {/* Canvas */}
+        <div style={{ flexGrow: 1, position: "relative", overflow: "hidden" }}>
           {loading ? (
-            <div
-              style={{
-                position: "absolute", inset: 0,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                color: "var(--muted)", fontSize: "0.9rem", flexDirection: "column", gap: 12,
-              }}
-            >
-              <span
-                style={{
-                  width: 32, height: 32, border: "2px solid var(--brand)",
-                  borderTopColor: "transparent", borderRadius: "50%",
-                  animation: "spin 0.8s linear infinite",
-                  display: "inline-block",
-                }}
-              />
-              Loading brain…
-            </div>
+            <LoadingBrain />
           ) : (
             <BrainGraph
               projects={projects}
@@ -252,132 +268,225 @@ export default function BrainPage() {
           )}
         </div>
 
-        {/* Right panel: legend + selected node info */}
+        {/* Sidebar */}
         <aside
           style={{
-            width: 220, flexShrink: 0,
-            background: "var(--panel)",
-            borderLeft: "1px solid var(--line)",
-            padding: "16px 14px",
+            width: 200,
+            flexShrink: 0,
+            background: "rgba(10,20,36,0.92)",
+            borderLeft: "1px solid rgba(0,212,255,0.09)",
+            backdropFilter: "blur(16px)",
+            WebkitBackdropFilter: "blur(16px)",
+            padding: "16px 12px",
             overflowY: "auto",
-            display: "flex", flexDirection: "column", gap: 20,
+            display: "flex",
+            flexDirection: "column",
+            gap: 18,
+            zIndex: 1,
           }}
         >
           {/* Legend */}
           <div>
             <p
-              className="label"
-              style={{ marginBottom: 10, fontSize: "0.7rem", letterSpacing: "0.08em" }}
+              style={{
+                fontSize: "0.65rem",
+                letterSpacing: "0.1em",
+                color: "rgba(100,140,180,0.55)",
+                fontFamily: "var(--mono, monospace)",
+                fontWeight: 700,
+                marginBottom: 10,
+              }}
             >
               NODE TYPES
             </p>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <div
-                  style={{
-                    width: 16, height: 16, borderRadius: "50%",
-                    background: "#00D4FF",
-                    border: "2px solid rgba(255,255,255,0.25)",
-                    flexShrink: 0,
-                  }}
-                />
-                <span style={{ fontSize: "0.78rem", color: "var(--ink-2)" }}>Project hub</span>
-              </div>
-
-              {Object.entries(TYPE_COLORS).map(([type, color]) => {
-                if (!usedTypes.has(type)) return null;
-                return (
-                  <div key={type} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div
-                      style={{
-                        width: 10, height: 10, borderRadius: "50%",
-                        background: color, flexShrink: 0,
-                      }}
-                    />
-                    <span style={{ fontSize: "0.78rem", color: "var(--ink-2)", fontFamily: "var(--mono)" }}>
-                      {type}
-                    </span>
-                  </div>
-                );
-              })}
-
-              {usedTypes.size === 0 && !loading && (
-                <span className="muted" style={{ fontSize: "0.75rem" }}>No memories yet</span>
+            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+              {/* Project hub row */}
+              <LegendItem color="#00D4FF" label="project hub" ring />
+              {usedTypes.map((type) => (
+                <LegendItem key={type} color={TYPE_COLORS[type] || "#4A6685"} label={type} />
+              ))}
+              {!usedTypes.length && !loading && (
+                <span style={{ fontSize: "0.72rem", color: "rgba(100,140,180,0.45)" }}>
+                  No memories yet
+                </span>
               )}
             </div>
           </div>
 
-          {/* Instructions */}
+          {/* Controls */}
           <div>
-            <p className="label" style={{ marginBottom: 8, fontSize: "0.7rem", letterSpacing: "0.08em" }}>
+            <p
+              style={{
+                fontSize: "0.65rem",
+                letterSpacing: "0.1em",
+                color: "rgba(100,140,180,0.55)",
+                fontFamily: "var(--mono, monospace)",
+                fontWeight: 700,
+                marginBottom: 8,
+              }}
+            >
               CONTROLS
             </p>
             <ul
               style={{
-                fontSize: "0.75rem", color: "var(--muted)", lineHeight: 1.8,
-                paddingLeft: 14, margin: 0,
+                fontSize: "0.72rem",
+                color: "rgba(100,140,180,0.6)",
+                lineHeight: 1.9,
+                paddingLeft: 12,
+                margin: 0,
               }}
             >
-              <li>Hover a node — see label &amp; tooltip</li>
-              <li>Click a node — view details below</li>
-              <li>Use Recall — highlight matches</li>
-              <li>Nodes drift apart &amp; reconnect live</li>
+              <li>Hover — tooltip</li>
+              <li>Click — select node</li>
+              <li>Search — light up matches</li>
+              <li>Nodes drift &amp; spring live</li>
             </ul>
           </div>
 
-          {/* Selected node detail */}
+          {/* Selected node */}
           {selectedNode && (
-            <div>
-              <p
-                className="label"
-                style={{ marginBottom: 8, fontSize: "0.7rem", letterSpacing: "0.08em" }}
-              >
-                SELECTED
-              </p>
-              <div
-                style={{
-                  background: "var(--panel-2)",
-                  border: "1px solid var(--line)",
-                  borderRadius: "var(--radius-sm, 8px)",
-                  padding: "10px 12px",
-                  fontSize: "0.8rem",
-                }}
-              >
-                <p style={{ margin: "0 0 4px", fontWeight: 600, color: selectedNode.color || "var(--ink)" }}>
-                  {selectedNode.kind === "project" ? "📁" : "🧠"}{" "}
-                  {selectedNode.label.length > 40
-                    ? selectedNode.label.slice(0, 39) + "…"
-                    : selectedNode.label}
-                </p>
-                <p className="muted" style={{ margin: "0 0 4px", fontSize: "0.73rem", fontFamily: "var(--mono)" }}>
-                  {selectedNode.kind} · id {selectedNode.rawId}
-                </p>
-                {selectedNode.type && (
-                  <p style={{ margin: 0, fontSize: "0.73rem", color: TYPE_COLORS[selectedNode.type] || "var(--muted)" }}>
-                    {selectedNode.type}
-                  </p>
-                )}
-                {selectedNode.created && (
-                  <p className="muted" style={{ margin: "4px 0 0", fontSize: "0.72rem" }}>
-                    {new Date(selectedNode.created).toLocaleString()}
-                  </p>
-                )}
-                <button
-                  className="btn ghost sm"
-                  style={{ marginTop: 8, fontSize: "0.72rem" }}
-                  onClick={() => setSelectedNode(null)}
-                >
-                  Dismiss
-                </button>
-              </div>
-            </div>
+            <SelectedCard node={selectedNode} onDismiss={() => setSelectedNode(null)} />
           )}
         </aside>
       </div>
+    </div>
+  );
+}
 
-      {/* Keyframe for the loading spinner */}
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function LegendItem({ color, label, ring }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div
+        style={{
+          width: ring ? 14 : 10,
+          height: ring ? 14 : 10,
+          borderRadius: "50%",
+          background: ring ? `radial-gradient(circle, ${color}cc 0%, ${color}44 100%)` : color + "bb",
+          border: ring ? `1.5px solid ${color}88` : "none",
+          boxShadow: `0 0 6px ${color}44`,
+          flexShrink: 0,
+        }}
+      />
+      <span
+        style={{
+          fontSize: "0.73rem",
+          color: "rgba(100,140,180,0.75)",
+          fontFamily: "var(--mono, monospace)",
+        }}
+      >
+        {label}
+      </span>
+    </div>
+  );
+}
+
+function SelectedCard({ node, onDismiss }) {
+  const TYPE_COLORS_MAP = {
+    decision: "#00D4FF", finding: "#A78BFA", definition: "#00E5A0",
+    note: "#FFB800", link: "#FF6B6B", todo: "#F472B6",
+    chat: "#38BDF8", doc: "#6EE7B7", code: "#FCD34D",
+  };
+  const accent = TYPE_COLORS_MAP[node.type] || node.color || "#00D4FF";
+
+  return (
+    <div>
+      <p
+        style={{
+          fontSize: "0.65rem",
+          letterSpacing: "0.1em",
+          color: "rgba(100,140,180,0.55)",
+          fontFamily: "var(--mono, monospace)",
+          fontWeight: 700,
+          marginBottom: 8,
+        }}
+      >
+        SELECTED
+      </p>
+      <div
+        style={{
+          background: "rgba(6,12,24,0.6)",
+          border: `1px solid ${accent}33`,
+          borderRadius: 10,
+          padding: "10px 11px",
+          fontSize: "0.78rem",
+        }}
+      >
+        <p
+          style={{
+            margin: "0 0 4px",
+            fontWeight: 600,
+            color: accent,
+            lineHeight: 1.4,
+          }}
+        >
+          {node.kind === "project" ? "📁 " : "🧠 "}
+          {node.label.length > 32 ? node.label.slice(0, 31) + "…" : node.label}
+        </p>
+        <p
+          style={{
+            margin: "0 0 3px",
+            fontSize: "0.7rem",
+            color: "rgba(100,140,180,0.6)",
+            fontFamily: "var(--mono, monospace)",
+          }}
+        >
+          {node.kind} · #{node.rawId}
+        </p>
+        {node.type && (
+          <p style={{ margin: 0, fontSize: "0.7rem", color: accent }}>
+            {node.type}
+          </p>
+        )}
+        {node.created && (
+          <p style={{ margin: "4px 0 0", fontSize: "0.7rem", color: "rgba(100,140,180,0.45)" }}>
+            {new Date(node.created).toLocaleString()}
+          </p>
+        )}
+        <button
+          className="btn ghost sm"
+          style={{ marginTop: 8, fontSize: "0.7rem", padding: "2px 8px" }}
+          onClick={onDismiss}
+        >
+          ✕
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function LoadingBrain() {
+  return (
+    <div
+      style={{
+        position: "absolute", inset: 0,
+        display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center",
+        gap: 14, background: "#060C18",
+      }}
+    >
+      {/* Animated ring */}
+      <div
+        style={{
+          width: 44, height: 44,
+          border: "2px solid rgba(0,212,255,0.15)",
+          borderTopColor: "#00D4FF",
+          borderRadius: "50%",
+          animation: "brain-spin 0.85s linear infinite",
+        }}
+      />
+      <span
+        style={{
+          color: "rgba(100,140,180,0.55)",
+          fontSize: "0.82rem",
+          fontFamily: "var(--mono, monospace)",
+          letterSpacing: "0.06em",
+        }}
+      >
+        LOADING BRAIN
+      </span>
+      <style>{`@keyframes brain-spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
