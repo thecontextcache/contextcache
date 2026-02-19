@@ -2,26 +2,23 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 
-const ThemeContext = createContext({ theme: "system", resolvedTheme: "light", toggleTheme: () => {} });
+const ThemeContext = createContext({ theme: "dark", resolvedTheme: "dark", toggleTheme: () => {} });
 
 function getInitialTheme() {
-  if (typeof window === "undefined") return "system";
-  return window.localStorage.getItem("contextcache_theme") || "system";
+  if (typeof window === "undefined") return "dark";
+  return window.localStorage.getItem("contextcache_theme") || "dark";
 }
 
 function resolveTheme(theme) {
   if (theme === "system") {
-    if (typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches) {
-      return "dark";
-    }
-    return "light";
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   }
   return theme;
 }
 
 export function ThemeProvider({ children }) {
   const [theme, setTheme] = useState(getInitialTheme);
-  const [resolvedTheme, setResolvedTheme] = useState("light");
+  const [resolvedTheme, setResolvedTheme] = useState("dark"); // dark is the default
 
   useEffect(() => {
     const resolved = resolveTheme(theme);

@@ -1,27 +1,35 @@
 import { NextResponse } from "next/server";
 
-const PROTECTED_PATHS = ["/app", "/admin"];
-const SESSION_COOKIE_NAME = "contextcache_session";
+const SESSION_COOKIE = "contextcache_session";
+
+// Routes that require an authenticated session
+const AUTH_REQUIRED = ["/app", "/admin", "/brain"];
+// Routes where logged-in users should be redirected to /app
+const AUTHED_REDIRECT = ["/", "/auth"];
 
 export function middleware(request) {
   const { pathname } = request.nextUrl;
-  const requiresAuth = PROTECTED_PATHS.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  const hasSession = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
 
-  if (!requiresAuth) {
-    return NextResponse.next();
+  // Authenticated users on landing/auth pages → send to /app
+  if (AUTHED_REDIRECT.includes(pathname) && hasSession) {
+    return NextResponse.redirect(new URL("/app", request.url));
   }
 
-  const sessionCookie = request.cookies.get(SESSION_COOKIE_NAME)?.value;
-  if (sessionCookie) {
-    return NextResponse.next();
+  // Protected routes without a session → send to /auth
+  const needsAuth = AUTH_REQUIRED.some(
+    (p) => pathname === p || pathname.startsWith(`${p}/`),
+  );
+  if (needsAuth && !hasSession) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/auth";
+    url.search   = "";
+    return NextResponse.redirect(url);
   }
 
-  const redirectUrl = request.nextUrl.clone();
-  redirectUrl.pathname = "/auth";
-  redirectUrl.search = "";
-  return NextResponse.redirect(redirectUrl);
+  return NextResponse.next();
 }
 
 export const config = {
-  matcher: ["/app/:path*", "/admin/:path*"],
+  matcher: ["/", "/auth", "/app/:path*", "/admin/:path*", "/brain/:path*"],
 };
