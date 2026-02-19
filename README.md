@@ -28,6 +28,13 @@ The migration runner handles both fresh DBs and legacy pre-Alembic DBs safely.
 For stable local auth, set `BOOTSTRAP_API_KEY` in `.env` (dev only). If no active keys exist,
 startup will ensure that exact key (hashed in DB) under `BOOTSTRAP_ORG_NAME` / `BOOTSTRAP_KEY_NAME`.
 
+Invite-only auth flow:
+- `POST /auth/request-link` checks invite/user eligibility
+- `GET /auth/verify?token=...` consumes single-use token and creates session cookie
+- `GET /auth/me` resolves signed-in user
+- Admin endpoints: `/admin/invites`, `/admin/users`, `/admin/usage`
+- Email send uses SES when configured; on SES failures/sandbox, magic link is logged to API console.
+
 ### 2) Verify API
 
 ```bash
@@ -105,11 +112,12 @@ Use a different API base URL if needed:
 
 ### 5) Open docs
 
-- Web UI: `http://localhost:3000`
+- Web UI: `http://localhost:3000` (public landing + `/auth`, `/app`, `/admin`, `/legal`)
 - Swagger: `http://localhost:8000/docs`
 - MkDocs site: `http://localhost:8001`
 
 In the web UI, paste API key and click `Connect` to auto-detect org id from `/me`.
+For product auth flow, use `/auth` and magic-link login.
 
 ### 6) Run tests
 

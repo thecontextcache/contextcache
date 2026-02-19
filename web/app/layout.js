@@ -1,14 +1,20 @@
 import "./globals.css";
+import { ThemeProvider } from "./theme-provider";
+import Shell from "./shell";
 
 export const metadata = {
-  title: "ContextCache",
-  description: "Tiny UI for ContextCache MVP",
+  title: "TheContextCache™",
+  description: "Project Brain for LLM Systems",
 };
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
-      <body>{children}</body>
+    <html lang="en" suppressHydrationWarning>
+      <body>
+        <ThemeProvider>
+          <Shell>{children}</Shell>
+        </ThemeProvider>
+      </body>
     </html>
   );
 }

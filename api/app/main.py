@@ -9,12 +9,15 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from .auth_utils import SESSION_COOKIE_NAME, hash_token, now_utc
 from .db import AsyncSessionLocal, hash_api_key
-from .models import ApiKey, Membership, Organization, User
+from .models import ApiKey, AuthSession, AuthUser, Membership, Organization, User
+from .auth_routes import router as auth_router
 from .routes import router
 
 app = FastAPI(title="ContextCache API", version="0.1.0")
 PUBLIC_PATH_PREFIXES = ("/health", "/docs", "/openapi.json")
+PUBLIC_AUTH_PATHS = ("/auth/request-link", "/auth/verify")
 WARNED_NO_KEYS = False
 APP_ENV = os.getenv("APP_ENV", "").strip().lower()
 BOOTSTRAP_API_KEY = os.getenv("BOOTSTRAP_API_KEY", "").strip()
@@ -119,7 +122,7 @@ async def api_key_middleware(request: Request, call_next):
     if request.method == "OPTIONS":
         return await call_next(request)
 
-    if path.startswith(PUBLIC_PATH_PREFIXES):
+    if path.startswith(PUBLIC_PATH_PREFIXES) or path in PUBLIC_AUTH_PATHS:
         return await call_next(request)
 
     provided_key = request.headers.get("x-api-key", "").strip()
@@ -134,6 +137,71 @@ async def api_key_middleware(request: Request, call_next):
         return JSONResponse(status_code=400, content={"detail": "Invalid X-Org-Id header"})
 
     async with AsyncSessionLocal() as session:
+        session_token = request.cookies.get(SESSION_COOKIE_NAME, "").strip()
+        if session_token:
+            session_hash = hash_token(session_token)
+            auth_session = (
+                await session.execute(
+                    select(AuthSession).where(
+                        AuthSession.session_token_hash == session_hash,
+                        AuthSession.revoked_at.is_(None),
+                        AuthSession.expires_at > now_utc(),
+                    ).limit(1)
+                )
+            ).scalar_one_or_none()
+            if auth_session is not None:
+                auth_user = (
+                    await session.execute(select(AuthUser).where(AuthUser.id == auth_session.user_id).limit(1))
+                ).scalar_one_or_none()
+                if auth_user is not None and not auth_user.is_disabled:
+                    auth_session.last_seen_at = now_utc()
+                    domain_user = (
+                        await session.execute(
+                            select(User).where(func.lower(User.email) == auth_user.email.lower()).limit(1)
+                        )
+                    ).scalar_one_or_none()
+                    provided_user_email = ""
+                    resolved_org_id = None
+                    resolved_role = None
+                    resolved_user_id = None
+                    if domain_user is not None:
+                        membership_query = (
+                            select(Membership.org_id, Membership.role, Membership.user_id)
+                            .where(Membership.user_id == domain_user.id)
+                            .order_by(Membership.id.asc())
+                        )
+                        memberships = (await session.execute(membership_query)).all()
+                        if memberships:
+                            resolved_org_id = memberships[0][0]
+                            resolved_role = memberships[0][1]
+                            resolved_user_id = memberships[0][2]
+                            if provided_org_id:
+                                try:
+                                    header_org_id = int(provided_org_id)
+                                except ValueError:
+                                    return JSONResponse(status_code=400, content={"detail": "Invalid X-Org-Id header"})
+                                for org_id, role, user_id in memberships:
+                                    if org_id == header_org_id:
+                                        resolved_org_id = org_id
+                                        resolved_role = role
+                                        resolved_user_id = user_id
+                                        break
+                                else:
+                                    return JSONResponse(status_code=403, content={"detail": "Forbidden"})
+
+                    request.state.api_key_id = None
+                    request.state.org_id = resolved_org_id
+                    request.state.role = resolved_role
+                    request.state.actor_user_id = resolved_user_id
+                    request.state.actor_email = auth_user.email
+                    request.state.api_key_prefix = None
+                    request.state.bootstrap_mode = False
+                    request.state.auth_user_id = auth_user.id
+                    request.state.auth_is_admin = bool(auth_user.is_admin)
+                    request.state.auth_session_id = auth_session.id
+                    await session.commit()
+                    return await call_next(request)
+
         active_key_count = (
             await session.execute(select(func.count(ApiKey.id)).where(ApiKey.revoked_at.is_(None)))
         ).scalar_one()
@@ -215,6 +283,9 @@ async def api_key_middleware(request: Request, call_next):
         request.state.actor_email = provided_user_email or None
         request.state.api_key_prefix = resolved_key_prefix
         request.state.bootstrap_mode = bootstrap_mode
+        request.state.auth_user_id = None
+        request.state.auth_is_admin = False
+        request.state.auth_session_id = None
 
     return await call_next(request)
 
@@ -235,6 +306,7 @@ async def startup() -> None:
 
 
 app.include_router(router)
+app.include_router(auth_router)
 
 
 @app.exception_handler(StarletteHTTPException)

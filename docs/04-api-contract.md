@@ -11,6 +11,8 @@ Public routes:
 - `GET /health`
 - `GET /docs`
 - `GET /openapi.json`
+- `POST /auth/request-link`
+- `GET /auth/verify?token=...`
 
 Protected routes use:
 
@@ -25,6 +27,7 @@ Optional dev header for role simulation:
 Notes:
 
 - API keys are DB-backed (`api_keys` table), hashed at rest.
+- Web UI uses session cookie auth via magic links (`auth_sessions`), API key remains for programmatic/dev use.
 - If no active API keys exist yet, protected requests are allowed in bootstrap mode.
 - `GET /me` works with only `X-API-Key`; org is inferred from the key record.
 - If `X-Org-Id` is omitted on other routes, the server uses key-org context (or single-org default in dev).

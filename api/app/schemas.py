@@ -104,3 +104,50 @@ class AuditLogOut(BaseModel):
     entity_id: int
     metadata: dict
     created_at: datetime
+
+
+class AuthRequestLinkIn(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+
+
+class AuthRequestLinkOut(BaseModel):
+    status: str
+    detail: str
+
+
+class AuthMeOut(BaseModel):
+    email: str
+    is_admin: bool
+    created_at: datetime
+    last_login_at: datetime | None = None
+
+
+class AdminInviteCreateIn(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class AdminInviteOut(BaseModel):
+    id: int
+    email: str
+    invited_by_user_id: int | None = None
+    created_at: datetime
+    expires_at: datetime
+    accepted_at: datetime | None = None
+    revoked_at: datetime | None = None
+    notes: str | None = None
+
+
+class AdminUserOut(BaseModel):
+    id: int
+    email: str
+    created_at: datetime
+    last_login_at: datetime | None = None
+    is_admin: bool
+    is_disabled: bool
+
+
+class AdminUsageOut(BaseModel):
+    date: str
+    event_type: str
+    count: int

@@ -9,7 +9,7 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import generate_api_key, get_db, hash_api_key
-from .models import ApiKey, AuditLog, Membership, Organization, Project, Memory, User
+from .models import ApiKey, AuditLog, Membership, Organization, Project, Memory, UsageEvent, User
 from .recall import build_memory_pack
 from .schemas import (
     ApiKeyCreate,
@@ -101,6 +101,40 @@ async def write_audit(
             entity_type=entity_type,
             entity_id=entity_id,
             metadata_json=metadata or {},
+        )
+    )
+
+
+def _ip_prefix_from_request(request: Request) -> str | None:
+    xff = request.headers.get("x-forwarded-for", "").strip()
+    raw_ip = xff.split(",")[0].strip() if xff else (request.client.host if request.client else "")
+    if not raw_ip:
+        return None
+    if ":" in raw_ip:
+        parts = raw_ip.split(":")
+        return ":".join(parts[:4]) + "::/64"
+    parts = raw_ip.split(".")
+    if len(parts) == 4:
+        return ".".join(parts[:3]) + ".0/24"
+    return raw_ip
+
+
+async def write_usage(
+    db: AsyncSession,
+    *,
+    request: Request,
+    ctx: RequestContext,
+    event_type: str,
+    org_id: int | None = None,
+    project_id: int | None = None,
+) -> None:
+    db.add(
+        UsageEvent(
+            user_id=getattr(request.state, "auth_user_id", None),
+            event_type=event_type,
+            ip_prefix=_ip_prefix_from_request(request),
+            project_id=project_id,
+            org_id=org_id,
         )
     )
 
@@ -333,6 +367,7 @@ async def list_audit_logs(
 async def create_org_project(
     org_id: int,
     payload: ProjectCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     ctx: RequestContext = Depends(get_actor_context),
 ) -> ProjectOut:
@@ -352,6 +387,7 @@ async def create_org_project(
         entity_id=project.id,
         metadata={"name": project.name},
     )
+    await write_usage(db, request=request, ctx=ctx, event_type="project_created", org_id=org_id, project_id=project.id)
     await db.commit()
     await db.refresh(project)
     return ProjectOut(
@@ -505,12 +541,13 @@ async def revoke_org_api_key(
 @router.post("/projects", response_model=ProjectOut, status_code=201)
 async def create_project(
     payload: ProjectCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     ctx: RequestContext = Depends(get_actor_context),
 ) -> ProjectOut:
     if ctx.org_id is None:
         raise HTTPException(status_code=400, detail="X-Org-Id required")
-    return await create_org_project(org_id=ctx.org_id, payload=payload, db=db, ctx=ctx)
+    return await create_org_project(org_id=ctx.org_id, payload=payload, request=request, db=db, ctx=ctx)
 
 
 @router.get("/projects", response_model=List[ProjectOut])
@@ -527,6 +564,7 @@ async def list_projects(
 async def create_memory(
     project_id: int,
     payload: MemoryCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     ctx: RequestContext = Depends(get_actor_context),
 ) -> MemoryOut:
@@ -544,6 +582,14 @@ async def create_memory(
         entity_type="memory",
         entity_id=memory.id,
         metadata={"type": memory.type},
+    )
+    await write_usage(
+        db,
+        request=request,
+        ctx=ctx,
+        event_type="memory_created",
+        org_id=project.org_id,
+        project_id=project.id,
     )
     await db.commit()
     await db.refresh(memory)
@@ -586,6 +632,7 @@ async def list_memories(
 @router.get("/projects/{project_id}/recall", response_model=RecallOut)
 async def recall(
     project_id: int,
+    request: Request,
     query: str = "",
     limit: int = Query(default=10, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
@@ -625,6 +672,15 @@ async def recall(
         top_with_rank = [(m, None) for m in recent_result.scalars().all()]
 
     pack = build_memory_pack(query_clean, [(m.type, m.content) for m, _ in top_with_rank])
+    await write_usage(
+        db,
+        request=request,
+        ctx=ctx,
+        event_type="recall_called",
+        org_id=project.org_id,
+        project_id=project.id,
+    )
+    await db.commit()
     out_items = [
         RecallItemOut(
             id=m.id,

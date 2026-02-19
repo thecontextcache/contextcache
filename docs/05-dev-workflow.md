@@ -81,6 +81,12 @@ API container startup runs migrations automatically:
 python -m app.migrate
 ```
 
+Auth/env knobs (new):
+- `APP_PUBLIC_BASE_URL` for magic-link redirect destination
+- `MAGIC_LINK_TTL_MINUTES`, `SESSION_TTL_DAYS`, `MAX_SESSIONS_PER_USER`
+- `AUTH_RATE_LIMIT_PER_IP_PER_HOUR`, `AUTH_RATE_LIMIT_PER_EMAIL_PER_HOUR`
+- SES: `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `SES_FROM_EMAIL`
+
 Dev bootstrap key (optional, recommended):
 - Set `BOOTSTRAP_API_KEY` in `.env`
 - On `APP_ENV=dev` startup, if there are zero active API keys, API will ensure this exact key
