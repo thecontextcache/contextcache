@@ -1,30 +1,70 @@
-# Architecture (MVP)
-
-<!--
-  This document describes how ContextCache components fit together.
-  Keep it simple—MVP has only 4 components.
-  
-  Principle: Boring technology. Postgres, FastAPI, Docker. No exotic tools.
--->
+# Architecture
 
 ## System Overview
 
+```mermaid
+graph TB
+    subgraph Server ["Ubuntu Server (Tailscale / private network)"]
+        WEB["Next.js UI<br/>:3000"]
+        API["FastAPI<br/>:8000"]
+        DB["Postgres 16<br/>:5432 (internal)"]
+        DOCS["MkDocs<br/>:8001"]
+    end
+
+    Browser["Browser / curl"] -->|"HTTP (CORS)"| WEB
+    Browser -->|"HTTP + X-API-Key"| API
+    Browser -->|"HTTP"| DOCS
+    WEB -->|"fetch + credentials:include"| API
+    API -->|"asyncpg"| DB
+    API -->|"alembic migrations on startup"| DB
+
+    style Server fill:#f0fdf4,stroke:#14b8a6,stroke-width:2px
+    style API fill:#ecfdf5,stroke:#0d9488
+    style DB fill:#eff6ff,stroke:#2563eb
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         Ubuntu Server (Tailscale)                   │
-│                                                                     │
-│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐  │
-│  │                 │    │                 │    │   MkDocs        │  │
-│  │   Next.js UI    │───▶│   FastAPI       │◄───│   (Docs)        │  │
-│  │   Port 3000     │    │   (API)         │    │   Port 8001     │  │
-│  │                 │    │   Port 8000     │    │                 │  │
-│  └─────────────────┘    └────────┬────────┘    └─────────────────┘  │
-│                                   │                                   │
-│                            ┌──────▼──────┐                            │
-│                            │   Postgres  │                            │
-│                            │   Port 5432 │                            │
-│                            └─────────────┘                            │
-└───────────────────────────────────────────────────────────────────────┘
+
+---
+
+## Auth Flow — Magic Link
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Web as Next.js UI
+    participant API as FastAPI
+    participant DB as Postgres
+    participant Email as Email (SES / dev log)
+
+    User->>Web: Enter invited email
+    Web->>API: POST /auth/request-link {email}
+    API->>DB: Lookup invite, create magic token
+    API->>Email: Send link (dev: log debug_link)
+    Email-->>User: Email with ?token=...
+
+    User->>Web: Click link → /auth/verify?token=...
+    Web->>API: GET /auth/verify?token=...
+    API->>DB: Validate token (expire + mark used)
+    API-->>Web: Set-Cookie: session=... (HttpOnly)
+    Web->>User: Redirect to /app
+```
+
+---
+
+## Request Lifecycle
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant API as FastAPI Middleware
+    participant DB as Postgres
+
+    Browser->>API: Request + Cookie (session) or X-API-Key
+    API->>DB: Validate session or API key hash
+    DB-->>API: AuthSession / ApiKey row
+    API->>API: Resolve org_id, role, actor_user_id
+    API->>DB: Execute business query
+    DB-->>API: Result rows
+    API-->>Browser: JSON response
 ```
 
 ---

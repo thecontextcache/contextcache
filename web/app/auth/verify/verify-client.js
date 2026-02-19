@@ -2,35 +2,43 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-
-function buildDefaultApiBase() {
-  if (typeof window === "undefined") return "http://localhost:8000";
-  return `${window.location.protocol}//${window.location.hostname}:8000`;
-}
+import Link from "next/link";
+import { buildApiBase } from "../../lib/api";
 
 export default function VerifyClient({ token }) {
-  const apiBase = useMemo(() => process.env.NEXT_PUBLIC_API_BASE_URL || buildDefaultApiBase(), []);
+  const apiBase = useMemo(() => buildApiBase(), []);
   const router = useRouter();
-  const [message, setMessage] = useState("Verifying sign-in link...");
+  const [phase, setPhase] = useState("verifying"); // verifying | success | error
+  const [errorMsg, setErrorMsg] = useState("");
 
   useEffect(() => {
     if (!token) {
-      setMessage("Missing token.");
+      setPhase("error");
+      setErrorMsg("Missing or invalid token. Request a new sign-in link.");
       return;
     }
 
     async function verify() {
       try {
-        const response = await fetch(`${apiBase}/auth/verify?token=${encodeURIComponent(token)}`, {
-          method: "GET",
-          credentials: "include",
-        });
-        const body = await response.json();
-        if (!response.ok) throw new Error(body.detail || "Verification failed");
-        setMessage("Success. Redirecting...");
-        router.replace("/app");
-      } catch (error) {
-        setMessage(error.message || "Verification failed");
+        const res = await fetch(
+          `${apiBase}/auth/verify?token=${encodeURIComponent(token)}`,
+          { method: "GET", credentials: "include" }
+        );
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setPhase("error");
+          setErrorMsg(
+            res.status === 410
+              ? "This link has expired or already been used. Request a new one."
+              : body.detail || "Verification failed. Request a new sign-in link."
+          );
+          return;
+        }
+        setPhase("success");
+        setTimeout(() => router.replace("/app"), 1200);
+      } catch {
+        setPhase("error");
+        setErrorMsg("Cannot reach the backend. Make sure the API is running.");
       }
     }
 
@@ -38,9 +46,38 @@ export default function VerifyClient({ token }) {
   }, [apiBase, token, router]);
 
   return (
-    <main className="auth-wrap card">
-      <h1>Verify sign in</h1>
-      <p>{message}</p>
-    </main>
+    <div className="auth-wrap card">
+      {phase === "verifying" && (
+        <div className="verify-state">
+          <div className="verify-spinner" aria-hidden="true" />
+          <h1>Verifying…</h1>
+          <p className="muted">Checking your sign-in link, one moment.</p>
+        </div>
+      )}
+
+      {phase === "success" && (
+        <div className="verify-state">
+          <span style={{ fontSize: "2.5rem" }}>✓</span>
+          <h1>Signed in!</h1>
+          <p className="muted">Redirecting to your workspace…</p>
+        </div>
+      )}
+
+      {phase === "error" && (
+        <div className="verify-state">
+          <span style={{ fontSize: "2.5rem" }}>✕</span>
+          <h1>Verification failed</h1>
+          <div className="alert err" role="alert">{errorMsg}</div>
+          <div className="row-wrap" style={{ justifyContent: "center", marginTop: 8 }}>
+            <Link href="/auth" className="btn primary">
+              Request a new link
+            </Link>
+            <Link href="/" className="btn secondary">
+              Home
+            </Link>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

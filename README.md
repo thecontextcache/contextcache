@@ -1,13 +1,44 @@
-# ContextCache
+# TheContextCache™
 
-ContextCache is an invite-only alpha for capturing high-signal project memories and recalling ranked memory packs.
+[![CI](https://github.com/YOUR_ORG/contextcache/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_ORG/contextcache/actions/workflows/ci.yml)
+
+> Invite-only alpha · Project Brain for AI-assisted teams
+
+Capture high-signal decisions and findings, then recall paste-ready context packs — right when your LLM needs them.
 
 ## Stack
 
-- API: FastAPI + SQLAlchemy async + Postgres
-- Web: Next.js App Router
-- Docs: MkDocs
-- Auth: Magic-link sessions (web) + API keys (programmatic)
+| Layer | Technology |
+|-------|-----------|
+| API | FastAPI + SQLAlchemy (async) + Postgres 16 |
+| Web | Next.js 14 App Router |
+| Auth | Magic-link sessions (HttpOnly cookie) + API keys |
+| Docs | MkDocs Material |
+| Infra | Docker Compose |
+
+## API Connectivity (server deployment)
+
+The frontend derives the API base URL from:
+1. `NEXT_PUBLIC_API_BASE_URL` env var (set in `.env` before building)
+2. Fallback: `window.location.protocol + hostname + :8000`
+
+**CORS must include your web origin.** In `.env` on the server:
+
+```env
+CORS_ORIGINS=http://localhost:3000,http://YOUR_SERVER_IP:3000
+NEXT_PUBLIC_API_BASE_URL=http://YOUR_SERVER_IP:8000
+```
+
+Then rebuild: `docker compose up -d --build`
+
+To verify CORS is working:
+
+```bash
+curl -i -X OPTIONS "http://YOUR_SERVER_IP:8000/health" \
+  -H "Origin: http://YOUR_SERVER_IP:3000" \
+  -H "Access-Control-Request-Method: GET"
+# Expect: 200 + Access-Control-Allow-Origin header
+```
 
 ## Quickstart
 

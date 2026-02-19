@@ -2,24 +2,143 @@ name: CI
 
 on:
   push:
+    branches: ["main", "dev"]
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # ── API tests ────────────────────────────────────────────────────────────────
   api-tests:
+    name: API — tests
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Prepare .env
+      - name: Prepare .env from example
         run: cp .env.example .env
 
-      - name: Start database
-        run: docker compose up -d db
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: buildx-api-${{ hashFiles('api/pyproject.toml', 'api/uv.lock', 'api/Dockerfile') }}
+          restore-keys: buildx-api-
+
+      - name: Build API images
+        run: |
+          docker compose build api api-test
+        env:
+          BUILDX_CACHE_FROM: type=local,src=/tmp/.buildx-cache
+          BUILDX_CACHE_TO: type=local,dest=/tmp/.buildx-cache-new,mode=max
+
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+      - name: Start test database
+        run: docker compose --profile test up -d db-test
+
+      - name: Wait for db-test to be healthy
+        run: |
+          for i in $(seq 1 20); do
+            STATUS=$(docker compose --profile test ps db-test --format '{{.Health}}' 2>/dev/null || echo "unknown")
+            echo "db-test health: $STATUS (attempt $i)"
+            [ "$STATUS" = "healthy" ] && exit 0
+            sleep 3
+          done
+          echo "db-test did not become healthy in time"
+          docker compose --profile test logs db-test
+          exit 1
 
       - name: Run API tests
         run: docker compose --profile test run --rm api-test
+        env:
+          APP_ENV: test
+
+      - name: Check schema drift (alembic check)
+        run: |
+          docker compose --profile test run --rm \
+            -e DATABASE_URL=postgresql+asyncpg://contextcache:contextcache@db-test:5432/contextcache_test \
+            -e APP_ENV=test \
+            api-test sh -c "uv run python -m app.migrate && uv run alembic check"
+
+      - name: Tear down
+        if: always()
+        run: docker compose --profile test down -v
+
+  # ── Web build ────────────────────────────────────────────────────────────────
+  web-build:
+    name: Web — Next.js build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        working-directory: web
+        run: npm install
+
+      - name: Build Next.js app
+        working-directory: web
+        run: npm run build
+        env:
+          NEXT_PUBLIC_API_BASE_URL: ""
+          NEXT_PUBLIC_DOCS_URL: ""
+
+  # ── Docker smoke test ────────────────────────────────────────────────────────
+  docker-smoke:
+    name: Docker — compose build
+    runs-on: ubuntu-latest
+    needs: [api-tests, web-build]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare .env from example
+        run: cp .env.example .env
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build all runtime images
+        run: docker compose build api web
+
+      - name: Start services
+        run: docker compose up -d db api
+
+      - name: Wait for API to be healthy
+        run: |
+          for i in $(seq 1 30); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health || echo "000")
+            echo "Health check attempt $i: HTTP $CODE"
+            [ "$CODE" = "200" ] && exit 0
+            sleep 3
+          done
+          echo "API did not become healthy"
+          docker compose logs api
+          exit 1
+
+      - name: Verify /health
+        run: |
+          BODY=$(curl -sf http://localhost:8000/health)
+          echo "Response: $BODY"
+          echo "$BODY" | grep -q '"ok"'
 
       - name: Tear down
         if: always()

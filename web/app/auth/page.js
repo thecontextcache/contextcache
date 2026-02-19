@@ -2,66 +2,148 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-
-function buildDefaultApiBase() {
-  if (typeof window === "undefined") return "http://localhost:8000";
-  return `${window.location.protocol}//${window.location.hostname}:8000`;
-}
+import { buildApiBase } from "../lib/api";
 
 export default function AuthPage() {
-  const apiBase = useMemo(() => process.env.NEXT_PUBLIC_API_BASE_URL || buildDefaultApiBase(), []);
+  const apiBase = useMemo(() => buildApiBase(), []);
   const [email, setEmail] = useState("");
-  const [status, setStatus] = useState("");
-  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [sent, setSent] = useState(false);
   const [debugLink, setDebugLink] = useState("");
+  const [error, setError] = useState("");
+  const [errorKind, setErrorKind] = useState("");
 
   async function submit(event) {
     event.preventDefault();
-    setStatus("");
+    if (submitting) return;
     setError("");
+    setErrorKind("");
     setDebugLink("");
+    setSubmitting(true);
+
     try {
-      const response = await fetch(`${apiBase}/auth/request-link`, {
+      const res = await fetch(`${apiBase}/auth/request-link`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email: email.trim() }),
       });
-      const body = await response.json();
-      if (!response.ok) {
-        if (response.status === 403) {
-          throw new Error("You're not invited yet. Request access from an admin.");
+      const body = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        if (res.status === 403) {
+          setError("You don't have an invitation yet. Contact your admin to request access.");
+          setErrorKind("forbidden");
+          return;
         }
-        throw new Error("We could not send a sign-in link right now. Please try again.");
+        if (res.status === 429) {
+          setError("Too many requests. Wait a minute, then try again.");
+          setErrorKind("rate_limit");
+          return;
+        }
+        setError(body.detail || "Could not send a sign-in link. Please try again.");
+        return;
       }
-      setStatus("Check your email for a sign-in link.");
-      if (body.debug_link) {
-        setDebugLink(body.debug_link);
-      }
-    } catch (err) {
-      if (process.env.NODE_ENV !== "production") console.error(err);
-      setError(err.message || "Failed to send sign-in link");
+
+      setSent(true);
+      if (body.debug_link) setDebugLink(body.debug_link);
+    } catch {
+      setError("Cannot reach the backend. Check that the API is running.");
+      setErrorKind("network");
+    } finally {
+      setSubmitting(false);
     }
   }
 
+  if (sent) {
+    return (
+      <div className="auth-wrap card">
+        <div className="verify-state">
+          <span style={{ fontSize: "2.5rem" }}>✉</span>
+          <h1>Check your email</h1>
+          <p className="sub">
+            We sent a magic sign-in link to <strong>{email}</strong>.
+            <br />
+            Check your inbox (and spam folder).
+          </p>
+          <button
+            className="btn ghost sm"
+            onClick={() => { setSent(false); setDebugLink(""); }}
+          >
+            ← Try a different address
+          </button>
+        </div>
+
+        {debugLink && (
+          <div className="debug-link-box">
+            <p>⚠ Dev mode — email not sent</p>
+            <a href={debugLink} className="btn secondary sm">
+              Continue with debug link →
+            </a>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
-    <main className="auth-wrap card">
+    <div className="auth-wrap card">
+      <p className="alpha-banner" style={{ marginBottom: 16, display: "inline-flex" }}>
+        Invite-only alpha
+      </p>
       <h1>Sign in</h1>
-      <p>Enter your email and we will send a magic sign-in link.</p>
-      <form onSubmit={submit} className="stack">
-        <label htmlFor="email">Email</label>
-        <input
-          id="email"
-          type="email"
-          required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="you@company.com"
-        />
-        <button type="submit" className="btn primary">Send me a sign-in link</button>
+      <p className="sub">
+        Enter your invited email and we&apos;ll send a magic sign-in link. No password needed.
+      </p>
+
+      <form onSubmit={submit} className="stack" noValidate>
+        <div className="field">
+          <label htmlFor="email">Email address</label>
+          <input
+            id="email"
+            type="email"
+            required
+            autoComplete="email"
+            autoFocus
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@company.com"
+            aria-describedby="email-hint"
+            disabled={submitting}
+          />
+          <span id="email-hint" className="field-hint">
+            Must match your invitation address.
+          </span>
+        </div>
+
+        <button
+          type="submit"
+          className={`btn primary${submitting ? " loading" : ""}`}
+          disabled={submitting || !email.trim()}
+          aria-busy={submitting}
+        >
+          {submitting && <span className="spinner" aria-hidden="true" />}
+          {submitting ? "Sending…" : "Send me a sign-in link"}
+        </button>
       </form>
-      {status ? <p className="ok">{status}</p> : null}
-      {debugLink ? <Link className="btn secondary" href={debugLink}>Continue (Dev Debug Link)</Link> : null}
-      {error ? <p className="err">{error}</p> : null}
-    </main>
+
+      {error && (
+        <div
+          className={`alert ${errorKind === "forbidden" ? "warn" : errorKind === "network" ? "err" : "err"}`}
+          role="alert"
+          style={{ marginTop: 12 }}
+        >
+          {errorKind === "forbidden" && <span>🔒</span>}
+          {errorKind === "network" && <span>📡</span>}
+          {errorKind === "rate_limit" && <span>⏱</span>}
+          {error}
+        </div>
+      )}
+
+      <hr className="divider" style={{ margin: "20px 0" }} />
+      <p className="muted" style={{ textAlign: "center" }}>
+        Access is invite-only.{" "}
+        <a href="mailto:support@thecontextcache.com">Contact support</a> to request an invitation.
+      </p>
+    </div>
   );
 }

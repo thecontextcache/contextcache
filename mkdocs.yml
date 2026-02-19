@@ -1,25 +1,69 @@
-# MkDocs configuration for ContextCache documentation
-# 
-# This is the single source of truth for documentation navigation.
-# All docs follow a numbered naming convention for clear ordering.
-#
-# To serve locally: mkdocs serve
-# To build: mkdocs build
+site_name: TheContextCache™
+site_description: Project Brain for AI-assisted teams — capture decisions, recall context packs.
+site_url: ""
 
-site_name: ContextCache
 theme:
   name: material
+  palette:
+    - scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - content.code.annotate
+    - search.highlight
+    - search.suggest
+  icon:
+    repo: fontawesome/brands/github
 
-# Navigation structure - numbered docs for clear ordering
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.tabbed:
+      alternate_style: true
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+
 nav:
   - Home: index.md
-  - Overview: 00-overview.md
-  - MVP Scope: 01-mvp-scope.md
-  - Architecture: 02-architecture.md
-  - Data Model: 03-data-model.md
-  - API Contract: 04-api-contract.md
-  - Dev Workflow: 05-dev-workflow.md
-  - Deployment: 06-deployment.md
-  - Security: 07-security.md
+  - Getting Started:
+    - Overview: 00-overview.md
+    - MVP Scope: 01-mvp-scope.md
+    - Dev Workflow: 05-dev-workflow.md
+  - Architecture:
+    - System Architecture: 02-architecture.md
+    - Data Model: 03-data-model.md
+    - API Contract: 04-api-contract.md
+  - Operations:
+    - Deployment: 06-deployment.md
+    - Security Model: 07-security.md
   - Roadmap: 08-roadmap.md
   - Legal: legal.md
+
+extra:
+  social:
+    - icon: fontawesome/solid/envelope
+      link: mailto:support@thecontextcache.com

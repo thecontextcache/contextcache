@@ -34,9 +34,10 @@ if APP_ENV == "dev":
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    allow_credentials=False,
-    allow_methods=["*"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=cors_allow_headers,
+    expose_headers=["content-type"],
 )
 
 

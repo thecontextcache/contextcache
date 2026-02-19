@@ -37,7 +37,8 @@ services:
       context: ./api
       target: runtime
     env_file:
-      - .env
+      - path: .env
+        required: false
     ports:
       - "8000:8000"
     environment:
