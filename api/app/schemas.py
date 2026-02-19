@@ -178,6 +178,7 @@ class AuthRequestLinkOut(BaseModel):
 class AuthMeOut(BaseModel):
     email: str
     is_admin: bool
+    is_unlimited: bool = False
     created_at: datetime
     last_login_at: datetime | None = None
 

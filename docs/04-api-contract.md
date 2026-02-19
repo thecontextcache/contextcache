@@ -44,6 +44,8 @@ Response `200`:
 {"status":"ok","detail":"Check your email for a sign-in link.","debug_link":null}
 ```
 `debug_link` is only returned in dev when SES fallback logging is used.
+If the email already belongs to an existing user, `detail` is a friendly
+"already registered" sign-in message.
 
 ### `GET /auth/verify?token=...`
 - validates single-use token
@@ -64,33 +66,37 @@ Session-only endpoint.
 
 Response:
 ```json
-{"email":"user@example.com","is_admin":true,"created_at":"...","last_login_at":"..."}
+{"email":"user@example.com","is_admin":true,"is_unlimited":false,"created_at":"...","last_login_at":"..."}
 ```
 
-## Admin endpoints (session + `is_admin=true`)
+## Admin endpoints
+
+Admin routes allow either:
+- session auth with `is_admin=true`
+- API key auth where resolved org role is `admin` or `owner`
 
 Non-admin returns `403`.
 
 ### Invite management
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/admin/invites` | Create invite — body: `{"email":"...","notes":"..."}` |
-| `GET`  | `/admin/invites` | List all invites |
+| `POST` | `/admin/invites` | Create invite — body: `{"email":"...","notes":"..."}` (returns `409` when user already exists or active invite exists) |
+| `GET`  | `/admin/invites` | List invites (`limit`, `offset`, `email_q`, `status`) |
 | `POST` | `/admin/invites/{id}/revoke` | Revoke a pending invite |
 
 ### Waitlist management
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/waitlist` | Public — join waitlist; body: `{"email":"...","source":"..."}` |
+| `POST` | `/waitlist` | Public — join waitlist; body: `{"email":"..."}` (`409` if already waitlisted) |
 | `POST` | `/waitlist/join` | Alias for the above |
-| `GET`  | `/admin/waitlist` | List waitlist entries (admin only) |
-| `POST` | `/admin/waitlist/{id}/approve` | Approve → creates invite |
+| `GET`  | `/admin/waitlist` | List waitlist entries (admin only), supports `limit`, `offset`, `status`, `email_q` |
+| `POST` | `/admin/waitlist/{id}/approve` | Approve → creates invite (`409` when user already exists or active invite exists) |
 | `POST` | `/admin/waitlist/{id}/reject` | Reject waitlist entry |
 
 ### User management
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET`  | `/admin/users` | List all auth users |
+| `GET`  | `/admin/users` | List users (`limit`, `offset`, `email_q`, `status=active|disabled`, `is_admin`, `is_disabled`) |
 | `POST` | `/admin/users/{id}/disable` | Disable user account |
 | `POST` | `/admin/users/{id}/enable` | Re-enable user account |
 | `POST` | `/admin/users/{id}/revoke-sessions` | Revoke all active sessions |
@@ -132,7 +138,7 @@ Response for `GET /me/usage`:
 }
 ```
 
-Daily limits are configured via environment variables (`DAILY_MEMORY_LIMIT`, `DAILY_RECALL_LIMIT`, `DAILY_PROJECT_LIMIT`). Set to `0` to disable. Users with `is_unlimited=true` bypass all limits regardless of the global values.
+Daily limits are configured via environment variables (`DAILY_MAX_MEMORIES`, `DAILY_MAX_RECALLS`, `DAILY_MAX_PROJECTS`; legacy aliases still supported). Set to `0` to disable. Users with `is_unlimited=true` bypass all limits regardless of the global values.
 
 ## Core org/project endpoints
 

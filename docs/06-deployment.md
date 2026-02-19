@@ -75,9 +75,9 @@ POSTGRES_USER=contextcache
 POSTGRES_PASSWORD=<strong-random-password>
 POSTGRES_DB=contextcache
 
-DAILY_MEMORY_LIMIT=100
-DAILY_RECALL_LIMIT=50
-DAILY_PROJECT_LIMIT=10
+DAILY_MAX_MEMORIES=100
+DAILY_MAX_RECALLS=50
+DAILY_MAX_PROJECTS=10
 ```
 
 ### 6. Start
@@ -86,6 +86,31 @@ DAILY_PROJECT_LIMIT=10
 docker compose up -d --build
 sudo systemctl start cloudflared
 ```
+
+### 7. Stale code/cache troubleshooting (root vs `/app`)
+
+If `/` shows an old layout or redirects don’t apply:
+
+1. Rebuild web image without cache:
+
+```bash
+docker compose build --no-cache web
+docker compose up -d web
+```
+
+2. Verify middleware is included in the built image:
+
+```bash
+docker compose exec web ls -la /app/middleware.js
+```
+
+3. Purge Cloudflare cache (dashboard):
+- Caching → Purge cache → Purge everything
+- then hard-refresh browser (`Cmd/Ctrl+Shift+R`)
+
+4. Validate route behavior:
+- authenticated cookie + `GET /` → redirects to `/app`
+- no cookie + `GET /app` → redirects to `/auth`
 
 ### Verification checklist
 

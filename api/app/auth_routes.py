@@ -120,6 +120,23 @@ def _require_session_auth(request: Request) -> tuple[int, bool]:
     return auth_user_id, auth_is_admin
 
 
+def _require_admin_auth(request: Request) -> int | None:
+    """Allow admin access via session-admin OR API-key org role (owner/admin)."""
+    auth_user_id = getattr(request.state, "auth_user_id", None)
+    auth_is_admin = bool(getattr(request.state, "auth_is_admin", False))
+    if auth_user_id is not None:
+        if not auth_is_admin:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        return auth_user_id
+
+    role = getattr(request.state, "role", None)
+    if role in {"owner", "admin"}:
+        return getattr(request.state, "actor_user_id", None)
+    if role is None:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    raise HTTPException(status_code=403, detail="Forbidden")
+
+
 @router.post("/auth/request-link", response_model=AuthRequestLinkOut)
 async def request_link(
     payload: AuthRequestLinkIn,
@@ -199,7 +216,12 @@ async def request_link(
     # debug_link is a relative path so it works on any host (Tailscale, localhost, etc.)
     # The browser resolves it against its current origin — no wrong-domain issues.
     debug_link = f"/auth/verify?token={raw_token}" if APP_ENV == "dev" and send_status == "logged" else None
-    return AuthRequestLinkOut(status="ok", detail="Check your email for a sign-in link.", debug_link=debug_link)
+    detail_text = (
+        "You're already registered. Check your email for a sign-in link."
+        if auth_user is not None
+        else "Check your email for a sign-in link."
+    )
+    return AuthRequestLinkOut(status="ok", detail=detail_text, debug_link=debug_link)
 
 
 @router.get("/auth/verify")
@@ -366,6 +388,7 @@ async def auth_me(request: Request, db: AsyncSession = Depends(get_db)) -> AuthM
     return AuthMeOut(
         email=user.email,
         is_admin=bool(user.is_admin),
+        is_unlimited=bool(user.is_unlimited),
         created_at=user.created_at,
         last_login_at=user.last_login_at,
     )
@@ -377,11 +400,29 @@ async def create_invite(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> AdminInviteOut:
-    auth_user_id, is_admin = _require_session_auth(request)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    auth_user_id = _require_admin_auth(request)
 
     email = normalize_email(payload.email)
+    existing_user = (
+        await db.execute(select(AuthUser).where(func.lower(AuthUser.email) == email).limit(1))
+    ).scalar_one_or_none()
+    if existing_user is not None:
+        raise HTTPException(status_code=409, detail="User already registered; no invite needed")
+
+    existing_active_invite = (
+        await db.execute(
+            select(AuthInvite)
+            .where(func.lower(AuthInvite.email) == email)
+            .where(AuthInvite.revoked_at.is_(None))
+            .where(AuthInvite.accepted_at.is_(None))
+            .where(AuthInvite.expires_at > now_utc())
+            .order_by(AuthInvite.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if existing_active_invite is not None:
+        raise HTTPException(status_code=409, detail="Active invite already exists for this email")
+
     invite = AuthInvite(
         email=email,
         invited_by_user_id=auth_user_id,
@@ -404,13 +445,38 @@ async def create_invite(
 
 
 @router.get("/admin/invites", response_model=list[AdminInviteOut])
-async def list_invites(request: Request, db: AsyncSession = Depends(get_db)) -> list[AdminInviteOut]:
-    _, is_admin = _require_session_auth(request)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Forbidden")
+async def list_invites(
+    request: Request,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    email_q: str | None = Query(default=None, min_length=1, max_length=255),
+    status: str | None = Query(default=None, pattern="^(pending|accepted|revoked)$"),
+    db: AsyncSession = Depends(get_db),
+) -> list[AdminInviteOut]:
+    _require_admin_auth(request)
+
+    now = now_utc()
+    stmt = select(AuthInvite)
+    if email_q:
+        stmt = stmt.where(func.lower(AuthInvite.email).like(f"%{email_q.strip().lower()}%"))
+    if status == "pending":
+        stmt = stmt.where(
+            AuthInvite.revoked_at.is_(None),
+            AuthInvite.accepted_at.is_(None),
+            AuthInvite.expires_at > now,
+        )
+    elif status == "accepted":
+        stmt = stmt.where(AuthInvite.accepted_at.is_not(None))
+    elif status == "revoked":
+        stmt = stmt.where(AuthInvite.revoked_at.is_not(None))
 
     rows = (
-        await db.execute(select(AuthInvite).order_by(AuthInvite.created_at.desc(), AuthInvite.id.desc()))
+        await db.execute(
+            stmt
+            .order_by(AuthInvite.created_at.desc(), AuthInvite.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
     ).scalars().all()
     return [
         AdminInviteOut(
@@ -429,9 +495,7 @@ async def list_invites(request: Request, db: AsyncSession = Depends(get_db)) -> 
 
 @router.post("/admin/invites/{invite_id}/revoke")
 async def revoke_invite(invite_id: int, request: Request, db: AsyncSession = Depends(get_db)):
-    _, is_admin = _require_session_auth(request)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    _require_admin_auth(request)
 
     invite = (await db.execute(select(AuthInvite).where(AuthInvite.id == invite_id).limit(1))).scalar_one_or_none()
     if invite is None:
@@ -442,12 +506,38 @@ async def revoke_invite(invite_id: int, request: Request, db: AsyncSession = Dep
 
 
 @router.get("/admin/users", response_model=list[AdminUserOut])
-async def list_users(request: Request, db: AsyncSession = Depends(get_db)) -> list[AdminUserOut]:
-    _, is_admin = _require_session_auth(request)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Forbidden")
+async def list_users(
+    request: Request,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    email_q: str | None = Query(default=None, min_length=1, max_length=255),
+    status: str | None = Query(default=None, pattern="^(active|disabled)$"),
+    is_admin: bool | None = Query(default=None),
+    is_disabled: bool | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> list[AdminUserOut]:
+    _require_admin_auth(request)
 
-    rows = (await db.execute(select(AuthUser).order_by(AuthUser.created_at.desc(), AuthUser.id.desc()))).scalars().all()
+    stmt = select(AuthUser)
+    if email_q:
+        stmt = stmt.where(func.lower(AuthUser.email).like(f"%{email_q.strip().lower()}%"))
+    if is_admin is not None:
+        stmt = stmt.where(AuthUser.is_admin.is_(is_admin))
+    if status == "active":
+        stmt = stmt.where(AuthUser.is_disabled.is_(False))
+    elif status == "disabled":
+        stmt = stmt.where(AuthUser.is_disabled.is_(True))
+    if is_disabled is not None:
+        stmt = stmt.where(AuthUser.is_disabled.is_(is_disabled))
+
+    rows = (
+        await db.execute(
+            stmt
+            .order_by(AuthUser.created_at.desc(), AuthUser.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+    ).scalars().all()
     return [
         AdminUserOut(
             id=u.id,
@@ -464,9 +554,7 @@ async def list_users(request: Request, db: AsyncSession = Depends(get_db)) -> li
 
 @router.post("/admin/users/{user_id}/disable")
 async def disable_user(user_id: int, request: Request, db: AsyncSession = Depends(get_db)):
-    _, is_admin = _require_session_auth(request)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    _require_admin_auth(request)
     user = (await db.execute(select(AuthUser).where(AuthUser.id == user_id).limit(1))).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -477,9 +565,7 @@ async def disable_user(user_id: int, request: Request, db: AsyncSession = Depend
 
 @router.post("/admin/users/{user_id}/enable")
 async def enable_user(user_id: int, request: Request, db: AsyncSession = Depends(get_db)):
-    _, is_admin = _require_session_auth(request)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    _require_admin_auth(request)
     user = (await db.execute(select(AuthUser).where(AuthUser.id == user_id).limit(1))).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -490,9 +576,7 @@ async def enable_user(user_id: int, request: Request, db: AsyncSession = Depends
 
 @router.post("/admin/users/{user_id}/grant-admin")
 async def grant_admin(user_id: int, request: Request, db: AsyncSession = Depends(get_db)):
-    auth_user_id, is_admin = _require_session_auth(request)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    _require_admin_auth(request)
     user = (await db.execute(select(AuthUser).where(AuthUser.id == user_id).limit(1))).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -503,8 +587,8 @@ async def grant_admin(user_id: int, request: Request, db: AsyncSession = Depends
 
 @router.post("/admin/users/{user_id}/revoke-admin")
 async def revoke_admin(user_id: int, request: Request, db: AsyncSession = Depends(get_db)):
-    auth_user_id, is_admin = _require_session_auth(request)
-    if not is_admin:
+    auth_user_id, _ = _require_session_auth(request)
+    if not bool(getattr(request.state, "auth_is_admin", False)):
         raise HTTPException(status_code=403, detail="Forbidden")
     if user_id == auth_user_id:
         raise HTTPException(status_code=400, detail="You cannot revoke your own admin status.")
@@ -518,9 +602,7 @@ async def revoke_admin(user_id: int, request: Request, db: AsyncSession = Depend
 
 @router.post("/admin/users/{user_id}/revoke-sessions")
 async def revoke_sessions(user_id: int, request: Request, db: AsyncSession = Depends(get_db)):
-    _, is_admin = _require_session_auth(request)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    _require_admin_auth(request)
     user = (await db.execute(select(AuthUser).where(AuthUser.id == user_id).limit(1))).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -547,9 +629,7 @@ async def set_unlimited(
 
     Query param: unlimited=true|false
     """
-    _, is_admin = _require_session_auth(request)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    _require_admin_auth(request)
     user = (await db.execute(select(AuthUser).where(AuthUser.id == user_id).limit(1))).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -569,9 +649,7 @@ async def get_user_stats(
     from sqlalchemy import func as sqla_func
     from .models import Memory, UsageCounter
 
-    _, is_admin = _require_session_auth(request)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    _require_admin_auth(request)
 
     user = (await db.execute(select(AuthUser).where(AuthUser.id == user_id).limit(1))).scalar_one_or_none()
     if user is None:
@@ -608,9 +686,7 @@ async def get_user_login_events(
     db: AsyncSession = Depends(get_db),
 ) -> list[LoginEventOut]:
     """Return the last 10 login IPs for a given user (admin-only)."""
-    _, is_admin = _require_session_auth(request)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    _require_admin_auth(request)
 
     user = (await db.execute(select(AuthUser).where(AuthUser.id == user_id).limit(1))).scalar_one_or_none()
     if user is None:
@@ -639,9 +715,7 @@ async def get_user_login_events(
 
 @router.get("/admin/usage", response_model=list[AdminUsageOut])
 async def usage_stats(request: Request, db: AsyncSession = Depends(get_db)) -> list[AdminUsageOut]:
-    _, is_admin = _require_session_auth(request)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    _require_admin_auth(request)
 
     try:
         rows = (
@@ -703,15 +777,15 @@ async def waitlist_join(
         await db.execute(select(Waitlist).where(func.lower(Waitlist.email) == email).limit(1))
     ).scalar_one_or_none()
 
-    if existing is None:
-        db.add(Waitlist(email=email))
-        await db.commit()
+    if existing is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="You're already on the waitlist. We'll email you when your spot is ready.",
+        )
 
-    # Identical response for new and existing — do not reveal status
-    return WaitlistJoinOut(
-        status="ok",
-        detail="You're on the list — we'll reach out when your spot is ready.",
-    )
+    db.add(Waitlist(email=email))
+    await db.commit()
+    return WaitlistJoinOut(status="ok", detail="You're on the list — we'll reach out when your spot is ready.")
 
 
 # ---------------------------------------------------------------------------
@@ -721,15 +795,25 @@ async def waitlist_join(
 @router.get("/admin/waitlist", response_model=list[AdminWaitlistOut])
 async def list_waitlist(
     request: Request,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    status: str | None = Query(default=None, pattern="^(pending|approved|rejected)$"),
+    email_q: str | None = Query(default=None, min_length=1, max_length=255),
     db: AsyncSession = Depends(get_db),
 ) -> list[AdminWaitlistOut]:
-    _, is_admin = _require_session_auth(request)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    _require_admin_auth(request)
 
+    stmt = select(Waitlist)
+    if status:
+        stmt = stmt.where(Waitlist.status == status)
+    if email_q:
+        stmt = stmt.where(func.lower(Waitlist.email).like(f"%{email_q.strip().lower()}%"))
     rows = (
         await db.execute(
-            select(Waitlist).order_by(Waitlist.created_at.desc(), Waitlist.id.desc())
+            stmt
+            .order_by(Waitlist.created_at.desc(), Waitlist.id.desc())
+            .offset(offset)
+            .limit(limit)
         )
     ).scalars().all()
     return [
@@ -753,9 +837,7 @@ async def approve_waitlist(
     db: AsyncSession = Depends(get_db),
 ) -> AdminInviteOut:
     """Approve a waitlist entry → creates an AuthInvite so the user can request a magic link."""
-    auth_user_id, is_admin = _require_session_auth(request)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    auth_user_id = _require_admin_auth(request)
 
     entry = (
         await db.execute(select(Waitlist).where(Waitlist.id == entry_id).limit(1))
@@ -769,6 +851,26 @@ async def approve_waitlist(
     entry.status = "approved"
     entry.reviewed_at = now
     entry.reviewed_by_admin_id = auth_user_id
+
+    existing_user = (
+        await db.execute(select(AuthUser).where(func.lower(AuthUser.email) == entry.email).limit(1))
+    ).scalar_one_or_none()
+    if existing_user is not None:
+        raise HTTPException(status_code=409, detail="User already registered; no invite needed")
+
+    existing_active_invite = (
+        await db.execute(
+            select(AuthInvite)
+            .where(func.lower(AuthInvite.email) == entry.email)
+            .where(AuthInvite.revoked_at.is_(None))
+            .where(AuthInvite.accepted_at.is_(None))
+            .where(AuthInvite.expires_at > now)
+            .order_by(AuthInvite.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if existing_active_invite is not None:
+        raise HTTPException(status_code=409, detail="Active invite already exists for this email")
 
     # Create invite
     invite = AuthInvite(
@@ -799,9 +901,7 @@ async def reject_waitlist(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    auth_user_id, is_admin = _require_session_auth(request)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    auth_user_id = _require_admin_auth(request)
 
     entry = (
         await db.execute(select(Waitlist).where(Waitlist.id == entry_id).limit(1))

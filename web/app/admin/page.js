@@ -43,8 +43,11 @@ export default function AdminPage() {
   const [creating, setCreating] = useState(false);
 
   const [waitlistFilter, setWaitlistFilter] = useState("");
+  const [waitlistStatus, setWaitlistStatus] = useState("all");
   const [inviteFilter,   setInviteFilter]   = useState("");
+  const [inviteStatus,   setInviteStatus]   = useState("all");
   const [userFilter,     setUserFilter]     = useState("");
+  const [userStatus,     setUserStatus]     = useState("all");
 
   // Login IPs tab state
   const [selectedUserId,   setSelectedUserId]   = useState(null);
@@ -215,16 +218,33 @@ export default function AdminPage() {
 
   // ── Filtered views ────────────────────────────────────────────────────────
   const filteredWaitlist = useMemo(
-    () => waitlist.filter((w) => !waitlistFilter || w.email.toLowerCase().includes(waitlistFilter.toLowerCase())),
-    [waitlist, waitlistFilter]
+    () => waitlist.filter((w) => {
+      const emailOk = !waitlistFilter || w.email.toLowerCase().includes(waitlistFilter.toLowerCase());
+      const statusOk = waitlistStatus === "all" || w.status === waitlistStatus;
+      return emailOk && statusOk;
+    }),
+    [waitlist, waitlistFilter, waitlistStatus]
   );
   const filteredInvites = useMemo(
-    () => invites.filter((i) => !inviteFilter || i.email.toLowerCase().includes(inviteFilter.toLowerCase())),
-    [invites, inviteFilter]
+    () => invites.filter((i) => {
+      const emailOk = !inviteFilter || i.email.toLowerCase().includes(inviteFilter.toLowerCase());
+      const computedStatus = i.revoked_at ? "revoked" : i.accepted_at ? "accepted" : "pending";
+      const statusOk = inviteStatus === "all" || computedStatus === inviteStatus;
+      return emailOk && statusOk;
+    }),
+    [invites, inviteFilter, inviteStatus]
   );
   const filteredUsers = useMemo(
-    () => users.filter((u) => !userFilter || u.email.toLowerCase().includes(userFilter.toLowerCase())),
-    [users, userFilter]
+    () => users.filter((u) => {
+      const emailOk = !userFilter || u.email.toLowerCase().includes(userFilter.toLowerCase());
+      if (userStatus === "all") return emailOk;
+      if (userStatus === "disabled") return emailOk && u.is_disabled;
+      if (userStatus === "active") return emailOk && !u.is_disabled;
+      if (userStatus === "admin") return emailOk && u.is_admin;
+      if (userStatus === "unlimited") return emailOk && u.is_unlimited;
+      return emailOk;
+    }),
+    [users, userFilter, userStatus]
   );
 
   // ── Paginated slices ──────────────────────────────────────────────────────
@@ -308,13 +328,26 @@ export default function AdminPage() {
                 {filteredWaitlist.length}
               </span>
             </h2>
-            <input
-              placeholder="Filter by email…"
-              value={waitlistFilter}
-              onChange={(e) => handleWlFilter(e.target.value)}
-              style={{ maxWidth: 220 }}
-              aria-label="Filter waitlist by email"
-            />
+            <div className="row" style={{ gap: 8 }}>
+              <input
+                placeholder="Filter by email…"
+                value={waitlistFilter}
+                onChange={(e) => handleWlFilter(e.target.value)}
+                style={{ maxWidth: 220 }}
+                aria-label="Filter waitlist by email"
+              />
+              <select
+                value={waitlistStatus}
+                onChange={(e) => { setWaitlistStatus(e.target.value); setWlPage(1); }}
+                style={{ width: 140 }}
+                aria-label="Filter waitlist by status"
+              >
+                <option value="all">all</option>
+                <option value="pending">pending</option>
+                <option value="approved">approved</option>
+                <option value="rejected">rejected</option>
+              </select>
+            </div>
           </div>
           <div className="table-wrap">
             <table>
@@ -414,13 +447,26 @@ export default function AdminPage() {
                   {filteredInvites.length}
                 </span>
               </h2>
-              <input
-                placeholder="Filter by email…"
-                value={inviteFilter}
-                onChange={(e) => handleInvFilter(e.target.value)}
-                style={{ maxWidth: 220 }}
-                aria-label="Filter invitations by email"
-              />
+              <div className="row" style={{ gap: 8 }}>
+                <input
+                  placeholder="Filter by email…"
+                  value={inviteFilter}
+                  onChange={(e) => handleInvFilter(e.target.value)}
+                  style={{ maxWidth: 220 }}
+                  aria-label="Filter invitations by email"
+                />
+                <select
+                  value={inviteStatus}
+                  onChange={(e) => { setInviteStatus(e.target.value); setInvPage(1); }}
+                  style={{ width: 140 }}
+                  aria-label="Filter invitations by status"
+                >
+                  <option value="all">all</option>
+                  <option value="pending">pending</option>
+                  <option value="accepted">accepted</option>
+                  <option value="revoked">revoked</option>
+                </select>
+              </div>
             </div>
             <div className="table-wrap">
               <table>
@@ -474,13 +520,27 @@ export default function AdminPage() {
                 {filteredUsers.length}
               </span>
             </h2>
-            <input
-              placeholder="Filter by email…"
-              value={userFilter}
-              onChange={(e) => handleUserFilter(e.target.value)}
-              style={{ maxWidth: 220 }}
-              aria-label="Filter users by email"
-            />
+            <div className="row" style={{ gap: 8 }}>
+              <input
+                placeholder="Filter by email…"
+                value={userFilter}
+                onChange={(e) => handleUserFilter(e.target.value)}
+                style={{ maxWidth: 220 }}
+                aria-label="Filter users by email"
+              />
+              <select
+                value={userStatus}
+                onChange={(e) => { setUserStatus(e.target.value); setUserPage(1); }}
+                style={{ width: 140 }}
+                aria-label="Filter users by status"
+              >
+                <option value="all">all</option>
+                <option value="active">active</option>
+                <option value="disabled">disabled</option>
+                <option value="admin">admin</option>
+                <option value="unlimited">unlimited</option>
+              </select>
+            </div>
           </div>
           <div className="table-wrap">
             <table>

@@ -32,7 +32,7 @@
 
 ### Usage Limits
 - Daily per-user counters (projects, memories, recall queries)
-- Configurable via `DAILY_PROJECT_LIMIT`, `DAILY_MEMORIES_LIMIT`, `DAILY_RECALL_LIMIT`
+- Configurable via `DAILY_MAX_PROJECTS`, `DAILY_MAX_MEMORIES`, `DAILY_MAX_RECALLS`
 - Per-user override via admin toggle
 - `/me/usage` endpoint
 
@@ -72,9 +72,8 @@
 - Export graph as PNG / SVG.
 
 ### Admin UX Polish
-- Paginated user/invite/waitlist lists (currently loads all).
-- Search/filter by date range.
-- Bulk actions (e.g. batch approve waitlist).
+- Server/query pagination + status/email filters are now available for admin lists.
+- Remaining: date-range filters and bulk actions.
 
 ### Background Worker Expansion
 - Embedding generation: Celery task to compute and store OpenAI / sentence-transformer

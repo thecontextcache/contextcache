@@ -4,8 +4,9 @@ const SESSION_COOKIE = "contextcache_session";
 
 // Routes that require an authenticated session
 const AUTH_REQUIRED = ["/app", "/admin", "/brain"];
-// Routes where logged-in users should be redirected to /app
-const AUTHED_REDIRECT = ["/", "/auth"];
+// Only root redirects when a session cookie exists.
+// Keep /auth accessible to avoid redirect loops when a stale cookie exists.
+const AUTHED_REDIRECT = ["/"];
 
 export function middleware(request) {
   const { pathname } = request.nextUrl;

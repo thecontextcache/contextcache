@@ -34,6 +34,13 @@ docker compose --profile test down -v
 4. In dev, if SES fails/sandbox blocks, use `debug_link` returned by `/auth/request-link`.
 5. `/auth/verify` sets session cookie and redirects to `/app`.
 
+Admin guidance:
+- `POST /admin/invites` is for direct access grants (known email).
+- Waitlist flow is for inbound requests:
+  1. user joins via `POST /waitlist`
+  2. admin reviews in `/admin/waitlist`
+  3. approve creates an invite automatically.
+
 ## Programmatic API flow (API keys)
 
 Use `X-API-Key` (and optional `X-Org-Id`) for scripts/CLI.

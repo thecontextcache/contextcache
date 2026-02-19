@@ -92,8 +92,14 @@ function UsageMeter({ usage, isUnlimited }) {
           const pct = max > 0 && !isUnlimited ? Math.min(100, (used / max) * 100) : 0;
           const near = pct >= 80;
           const full = pct >= 100;
+          const fill = full ? "#ef4444" : near ? "#f59e0b" : "#00D4FF";
+          const tip = isUnlimited
+            ? `${label}: ${used} / unlimited`
+            : max > 0
+              ? `${label}: ${used} / ${max}`
+              : `${label}: ${used} (no configured limit)`;
           return (
-            <div key={label}>
+            <div key={label} title={tip}>
               <div style={{
                 display: "flex", justifyContent: "space-between",
                 fontSize: "0.68rem", color: "var(--ink-2)",
@@ -111,7 +117,7 @@ function UsageMeter({ usage, isUnlimited }) {
                 }}>
                   <div style={{
                     height: "100%", borderRadius: 99, width: `${pct}%`,
-                    background: full ? "var(--danger)" : near ? "var(--warn)" : color,
+                    background: fill,
                     transition: "width 0.4s ease",
                   }} />
                 </div>

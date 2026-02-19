@@ -41,6 +41,13 @@ def _enqueue_if_enabled(task_fn, *args, **kwargs):
     return task_fn.delay(*args, **kwargs)
 
 
+def _skip_if_disabled(task_name: str) -> dict | None:
+    if WORKER_ENABLED:
+        return None
+    logger.info("[worker] %s skipped (WORKER_ENABLED=false)", task_name)
+    return {"status": "skipped", "reason": "WORKER_ENABLED=false"}
+
+
 # ---------------------------------------------------------------------------
 # DB helper — async session within a sync Celery task
 # ---------------------------------------------------------------------------
@@ -77,6 +84,9 @@ def reindex_project(self, project_id: int) -> dict:
     Currently logs a safe message and returns.
     When embeddings are ready, replace the body with actual indexing logic.
     """
+    skipped = _skip_if_disabled("reindex_project")
+    if skipped is not None:
+        return skipped
     logger.info("[worker] reindex_project started project_id=%s", project_id)
     # Future: query DB, compute embeddings, upsert memory_embeddings rows
     logger.info("[worker] reindex_project complete project_id=%s (placeholder)", project_id)
@@ -97,6 +107,9 @@ def cleanup_expired_magic_links(self) -> dict:
 
     Safe to run via Celery Beat (e.g. every hour).
     """
+    skipped = _skip_if_disabled("cleanup_expired_magic_links")
+    if skipped is not None:
+        return skipped
     logger.info("[worker] cleanup_expired_magic_links started")
 
     from sqlalchemy import delete as sa_delete
@@ -133,6 +146,9 @@ def cleanup_old_usage_counters(self, retain_days: int = 90) -> dict:
     This task prevents unbounded table growth.
     Safe to run nightly via Celery Beat.
     """
+    skipped = _skip_if_disabled("cleanup_old_usage_counters")
+    if skipped is not None:
+        return skipped
     logger.info("[worker] cleanup_old_usage_counters started retain_days=%s", retain_days)
 
     from sqlalchemy import delete as sa_delete
@@ -165,6 +181,9 @@ def cleanup_old_login_events(self, retain_days: int = 90) -> dict:
     The per-user retention (last 10) is enforced at write time; this task
     handles the time-based cleanup for compliance / storage hygiene.
     """
+    skipped = _skip_if_disabled("cleanup_old_login_events")
+    if skipped is not None:
+        return skipped
     logger.info("[worker] cleanup_old_login_events started retain_days=%s", retain_days)
 
     from sqlalchemy import delete as sa_delete
@@ -208,22 +227,37 @@ def compute_memory_embedding(self, memory_id: int, model: str = "text-embedding-
 
     Safe: only receives an integer memory_id, no raw content in task args.
     """
-    logger.info(
-        "[worker] compute_memory_embedding memory_id=%s model=%s (placeholder — no-op)",
-        memory_id, model,
-    )
-    # Future implementation sketch:
-    #   async def _upsert(session):
-    #       mem = await session.get(Memory, memory_id)
-    #       if not mem:
-    #           return
-    #       text = f"{mem.title or ''} {mem.content or ''}".strip()
-    #       vector = await embedding_provider.embed(text, model=model)
-    #       row = await session.get(MemoryEmbedding, mem.id) or MemoryEmbedding(memory_id=mem.id)
-    #       row.embedding = vector
-    #       row.model = model
-    #       row.dims = len(vector)
-    #       row.updated_at = datetime.now(timezone.utc)
-    #       session.add(row)
-    #   asyncio.run(_run_in_db(_upsert))
-    return {"status": "placeholder", "memory_id": memory_id}
+    skipped = _skip_if_disabled("compute_memory_embedding")
+    if skipped is not None:
+        return skipped
+
+    logger.info("[worker] compute_memory_embedding started memory_id=%s model=%s", memory_id, model)
+
+    from app.analyzer.core import compute_embedding
+    from app.models import Memory, MemoryEmbedding
+
+    async def _upsert(session):
+        mem = await session.get(Memory, memory_id)
+        if not mem:
+            return {"status": "not_found", "memory_id": memory_id}
+
+        text = " ".join(
+            part for part in [mem.title or "", mem.content or ""] if part
+        ).strip()
+        vector = compute_embedding(text, model=model)
+
+        from sqlalchemy import select
+        row = (
+            await session.execute(
+                select(MemoryEmbedding).where(MemoryEmbedding.memory_id == memory_id).limit(1)
+            )
+        ).scalar_one_or_none() or MemoryEmbedding(memory_id=memory_id)
+        row.model = model
+        row.dims = len(vector)
+        row.updated_at = datetime.now(timezone.utc)
+        session.add(row)
+        return {"status": "ok", "memory_id": memory_id, "dims": len(vector)}
+
+    result = asyncio.run(_run_in_db(_upsert))
+    logger.info("[worker] compute_memory_embedding complete memory_id=%s result=%s", memory_id, result)
+    return result

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import math
 import re
+import hashlib
 from datetime import datetime, timezone
 from typing import Any
 
@@ -153,3 +154,31 @@ def _build_pack(query: str, items: list[tuple[str, str]]) -> str:
         lines.append("")
 
     return "\n".join(lines).strip()
+
+
+def compute_embedding(text: str, *, model: str = "local-hash-128", dims: int = 128) -> list[float]:
+    """Deterministic local embedding stub (server-only).
+
+    This is intentionally simple for alpha:
+    - no external model dependency
+    - stable output for same input
+    - suitable for background pipeline wiring tests
+    """
+    text = (text or "").strip()
+    if not text:
+        return [0.0] * dims
+
+    seed = hashlib.sha256(f"{model}:{text}".encode("utf-8")).digest()
+    vec: list[float] = []
+    cur = seed
+    while len(vec) < dims:
+        cur = hashlib.sha256(cur).digest()
+        for i in range(0, len(cur), 2):
+            if len(vec) >= dims:
+                break
+            n = (cur[i] << 8) | cur[i + 1]
+            vec.append((n / 32767.5) - 1.0)  # [-1, 1]
+
+    # L2 normalize for consistent cosine behavior in future pgvector search.
+    norm = math.sqrt(sum(v * v for v in vec)) or 1.0
+    return [v / norm for v in vec]

@@ -125,6 +125,33 @@ immediately. The warranty disclaimer, liability limitation, and IP sections surv
 
 These terms are governed by the laws of **England and Wales**.
 
+## Dispute Resolution, Arbitration & Class Action Waiver
+
+To the fullest extent permitted by law:
+
+- Any dispute, claim, or controversy arising out of or relating to these terms
+  or your use of the Service will be resolved by binding individual arbitration.
+- You and thecontextcache™ waive any right to a jury trial.
+- You and thecontextcache™ waive any right to bring or participate in class,
+  collective, representative, or private-attorney-general actions.
+- Arbitration must proceed only on an individual basis.
+
+If a court determines the class-action waiver is unenforceable for a specific
+claim, that claim must be severed and litigated only in the courts of England
+and Wales; all remaining claims continue in arbitration.
+
+## Trademark Use Guidelines
+
+The mark **thecontextcache™** is an unregistered/pending trademark claim.
+Third parties may reference the product name only in a nominative, non-confusing
+manner. You may not:
+
+- imply endorsement, affiliation, or sponsorship by thecontextcache™
+- use confusingly similar names, domains, logos, or branding
+- register social handles or domains likely to cause confusion with the mark
+
+Use of the mark must not dilute or misrepresent the brand.
+
 ---
 
 ## Contact

@@ -7,7 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth_utils import hash_token, now_utc
-from app.models import AuthInvite, AuthMagicLink, AuthSession, AuthUser
+from app.models import AuthInvite, AuthMagicLink, AuthSession, AuthUser, Waitlist
+from .conftest import Ctx, auth_headers
 
 pytestmark = pytest.mark.asyncio
 
@@ -54,6 +55,24 @@ async def test_request_link_allowed_when_invited(client, db_session: AsyncSessio
         await db_session.execute(select(AuthMagicLink).where(AuthMagicLink.email == "invited@example.com").limit(1))
     ).scalar_one_or_none()
     assert link is not None
+
+
+async def test_request_link_existing_user_shows_registered_message(client, db_session: AsyncSession) -> None:
+    db_session.add(AuthUser(email="existing@example.com", is_admin=False))
+    await db_session.commit()
+
+    response = await client.post("/auth/request-link", json={"email": "existing@example.com"})
+    assert response.status_code == 200
+    body = response.json()
+    assert "already registered" in body["detail"].lower()
+
+
+async def test_waitlist_duplicate_returns_409(client, db_session: AsyncSession) -> None:
+    db_session.add(Waitlist(email="dup-waitlist@example.com"))
+    await db_session.commit()
+
+    response = await client.post("/waitlist", json={"email": "dup-waitlist@example.com"})
+    assert response.status_code == 409
 
 
 async def test_verify_consumes_token_and_creates_session(client, db_session: AsyncSession) -> None:
@@ -134,6 +153,8 @@ async def test_admin_invite_endpoints_require_admin(client, db_session: AsyncSes
 
     create = await client.post("/admin/invites", json={"email": "another@example.com"})
     assert create.status_code == 201
+    duplicate = await client.post("/admin/invites", json={"email": "another@example.com"})
+    assert duplicate.status_code == 409
 
     non_admin = AuthUser(email="member@example.com", is_admin=False)
     db_session.add(non_admin)
@@ -154,6 +175,42 @@ async def test_admin_invite_endpoints_require_admin(client, db_session: AsyncSes
 
     blocked = await client.post("/admin/invites", json={"email": "nope@example.com"})
     assert blocked.status_code == 403
+
+
+async def test_admin_waitlist_supports_pagination_and_filters(client, db_session: AsyncSession) -> None:
+    raw = "tok_waitlist_admin_123"
+    db_session.add(
+        AuthMagicLink(
+            email="waitlist-admin@example.com",
+            token_hash=hash_token(raw),
+            expires_at=now_utc() + timedelta(minutes=10),
+            purpose="login",
+            send_status="logged",
+        )
+    )
+    await db_session.commit()
+    verify = await client.get(f"/auth/verify?token={raw}")
+    assert verify.status_code == 200
+
+    db_session.add_all(
+        [
+            Waitlist(email="alpha1@example.com", status="pending"),
+            Waitlist(email="alpha2@example.com", status="approved"),
+            Waitlist(email="beta1@example.com", status="pending"),
+        ]
+    )
+    await db_session.commit()
+
+    filtered = await client.get("/admin/waitlist?status=pending&email_q=alpha&limit=5&offset=0")
+    assert filtered.status_code == 200
+    rows = filtered.json()
+    assert len(rows) == 1
+    assert rows[0]["email"] == "alpha1@example.com"
+
+
+async def test_admin_waitlist_allows_admin_api_key(client, app_ctx: Ctx) -> None:
+    response = await client.get("/admin/waitlist", headers=auth_headers(app_ctx))
+    assert response.status_code == 200
 
 
 async def test_admin_requires_auth(client) -> None:

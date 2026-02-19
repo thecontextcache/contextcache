@@ -331,6 +331,16 @@ export default function LegalPage() {
           jurisdiction of the courts of England and Wales.
         </p>
         <p>
+          To the fullest extent permitted by law, disputes shall be resolved by binding
+          individual arbitration, and both parties waive any right to a jury trial or to
+          participate in class, collective, or representative actions.
+        </p>
+        <p>
+          If the class-action waiver is found unenforceable for a particular claim, only
+          that claim may proceed in court, and all remaining claims remain subject to
+          individual arbitration.
+        </p>
+        <p>
           If any provision of these Terms is found to be unenforceable, the remaining
           provisions will remain in full force and effect.
         </p>

@@ -60,6 +60,10 @@ export default function VerifyClient({ token }) {
           <span style={{ fontSize: "2.5rem" }}>✓</span>
           <h1>Signed in!</h1>
           <p className="muted">Redirecting to your workspace…</p>
+          <p className="muted" style={{ fontSize: "0.82rem" }}>
+            Continuing means you accept the{" "}
+            <Link href="/legal#data-privacy">Terms &amp; Privacy</Link>.
+          </p>
         </div>
       )}
 

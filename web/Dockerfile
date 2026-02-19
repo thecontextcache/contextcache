@@ -7,6 +7,7 @@ RUN npm install
 
 COPY app /app/app
 COPY next.config.js /app/next.config.js
+COPY middleware.js /app/middleware.js
 
 RUN npm run build
 

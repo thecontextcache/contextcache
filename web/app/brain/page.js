@@ -296,6 +296,8 @@ export default function BrainPage() {
         <div style={{ flexGrow: 1, position: "relative", overflow: "hidden" }}>
           {loading ? (
             <LoadingBrain />
+          ) : projects.length === 0 ? (
+            <EmptyBrain />
           ) : (
             <BrainGraph
               projects={projects}
@@ -573,6 +575,40 @@ function LoadingBrain() {
         LOADING BRAIN
       </span>
       <style>{`@keyframes brain-spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
+
+function EmptyBrain() {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "#060C18",
+        padding: 24,
+      }}
+    >
+      <div
+        style={{
+          maxWidth: 460,
+          textAlign: "center",
+          border: "1px solid rgba(0,212,255,0.2)",
+          background: "rgba(12,22,40,0.8)",
+          borderRadius: 18,
+          padding: "28px 24px",
+          boxShadow: "0 16px 40px rgba(0,0,0,0.35)",
+        }}
+      >
+        <div style={{ fontSize: "2.1rem", marginBottom: 8 }}>🧠</div>
+        <h2 style={{ margin: "0 0 6px", color: "#E2EEF9", fontSize: "1.2rem" }}>Your graph is empty</h2>
+        <p style={{ margin: 0, color: "rgba(148,173,200,0.9)", lineHeight: 1.6 }}>
+          Create a project and publish a few memories to light up your team brain.
+        </p>
+      </div>
     </div>
   );
 }

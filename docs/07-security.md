@@ -66,6 +66,7 @@ This is sufficient for single-instance alpha. For multi-instance prod, move limi
 
 - Writes produce `audit_logs` with actor context and key prefix where available
 - `usage_events` tracks coarse telemetry with `ip_prefix` (not raw long-term IP)
+- No third-party analytics beacons or advertising trackers are embedded in the web UI.
 
 ## Operational hardening notes
 

@@ -61,10 +61,21 @@ APP_ENV=prod
 APP_PUBLIC_BASE_URL=https://thecontextcache.com
 CORS_ORIGINS=https://thecontextcache.com
 NEXT_PUBLIC_DOCS_URL=https://docs.thecontextcache.com
+DAILY_MAX_MEMORIES=100
+DAILY_MAX_RECALLS=50
+DAILY_MAX_PROJECTS=10
 ```
 
 See [`docs/06-deployment.md`](docs/06-deployment.md) for the full setup guide,
 including the `cloudflared` config at `docs/examples/cloudflared-config.yml`.
+
+If `/` serves stale content after deploy:
+
+```bash
+docker compose build --no-cache web
+docker compose up -d web
+# then purge Cloudflare cache and hard-refresh browser
+```
 
 ---
 
@@ -84,6 +95,11 @@ docker compose --profile test down -v
 3. In dev mode, if SES is not configured, the link is printed to API logs and returned as `debug_link` in the response.
 4. User follows the link to `/auth/verify?token=...`.
 5. API sets a secure `HttpOnly` session cookie; user lands in `/app`.
+
+SES production note:
+- Keep SES in sandbox/dev mode until Amazon production access is approved.
+- After approval, set `APP_ENV=prod` and configure:
+  `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `SES_FROM_EMAIL`.
 
 ---
 

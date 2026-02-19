@@ -38,9 +38,14 @@ from .schemas import (
 )
 
 # ── Daily usage limits (env-configurable, 0 = no limit) ─────────────────────
-DAILY_MEMORY_LIMIT  = int(os.getenv("DAILY_MEMORY_LIMIT",  "100"))
-DAILY_RECALL_LIMIT  = int(os.getenv("DAILY_RECALL_LIMIT",  "50"))
-DAILY_PROJECT_LIMIT = int(os.getenv("DAILY_PROJECT_LIMIT", "10"))
+def _env_int(primary: str, fallback: str, default: str) -> int:
+    raw = os.getenv(primary, "").strip() or os.getenv(fallback, "").strip() or default
+    return int(raw)
+
+
+DAILY_MEMORY_LIMIT  = _env_int("DAILY_MAX_MEMORIES", "DAILY_MEMORY_LIMIT", "100")
+DAILY_RECALL_LIMIT  = _env_int("DAILY_MAX_RECALLS", "DAILY_RECALL_LIMIT", "50")
+DAILY_PROJECT_LIMIT = _env_int("DAILY_MAX_PROJECTS", "DAILY_PROJECT_LIMIT", "10")
 
 router = APIRouter()
 
