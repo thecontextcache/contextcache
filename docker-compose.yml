@@ -91,6 +91,77 @@ services:
       - "8001:8001"
     restart: unless-stopped
 
+  # ── Optional: background worker stack ────────────────────────────────────
+  # Start with:  docker compose --profile worker up -d
+  # Requires:    WORKER_ENABLED=true  CELERY_BROKER_URL=redis://redis:6379/0
+  # ─────────────────────────────────────────────────────────────────────────
+
+  redis:
+    image: redis:7-alpine
+    profiles: ["worker"]
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./api
+      target: runtime
+    command: uv run celery -A app.worker.celery_app worker --loglevel=info --concurrency=2
+    profiles: ["worker"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - APP_ENV=${APP_ENV:-dev}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD:-change-me}@db:5432/${POSTGRES_DB:-contextcache}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - WORKER_ENABLED=true
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Optional: Celery Beat scheduler (periodic tasks) ─────────────────────
+  # Uncomment when you have scheduled tasks defined in celery_app.conf.beat_schedule
+  # beat:
+  #   build:
+  #     context: ./api
+  #     target: runtime
+  #   command: uv run celery -A app.worker.celery_app beat --loglevel=info
+  #   profiles: ["worker"]
+  #   env_file:
+  #     - path: .env
+  #       required: false
+  #   environment:
+  #     - CELERY_BROKER_URL=redis://redis:6379/0
+  #   depends_on:
+  #     - redis
+  #   restart: unless-stopped
+
+  # ── Future: internal analyzer service (NOT publicly exposed) ─────────────
+  # Uncomment when you build a standalone analyzer service.
+  # Set ANALYZER_MODE=service + ANALYZER_SERVICE_URL=http://analyzer:9000 in .env
+  # This service has NO ports: block — it is only reachable inside the Docker network.
+  # analyzer:
+  #   build:
+  #     context: ./analyzer          # separate service repo/folder
+  #   environment:
+  #     - ANALYZER_PORT=9000
+  #   networks:
+  #     - default                    # internal network only — never expose to host
+  #   restart: unless-stopped
+
 volumes:
   pgdata:
   pgdata_test:
+  redis_data:

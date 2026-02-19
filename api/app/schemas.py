@@ -246,3 +246,15 @@ class AdminWaitlistOut(BaseModel):
     created_at: datetime
     reviewed_at: datetime | None = None
     reviewed_by_admin_id: int | None = None
+
+
+# ---------------------------------------------------------------------------
+# Admin — login events
+# ---------------------------------------------------------------------------
+
+class LoginEventOut(BaseModel):
+    id: int
+    user_id: int
+    ip: str
+    user_agent: str | None = None
+    created_at: datetime

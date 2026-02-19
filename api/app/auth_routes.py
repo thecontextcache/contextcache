@@ -4,7 +4,7 @@ from datetime import timedelta
 import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .auth_utils import (
@@ -20,7 +20,7 @@ from .auth_utils import (
 )
 from .db import get_db
 from .emailer import send_magic_link
-from .models import AuthInvite, AuthMagicLink, AuthSession, AuthUser, Membership, Organization, UsageEvent, User, Waitlist
+from .models import AuthInvite, AuthLoginEvent, AuthMagicLink, AuthSession, AuthUser, Membership, Organization, UsageEvent, User, Waitlist
 from .rate_limit import check_request_link_limits, check_verify_limits
 from .schemas import (
     AdminInviteCreateIn,
@@ -31,6 +31,7 @@ from .schemas import (
     AuthMeOut,
     AuthRequestLinkIn,
     AuthRequestLinkOut,
+    LoginEventOut,
     WaitlistJoinIn,
     WaitlistJoinOut,
 )
@@ -41,7 +42,20 @@ APP_ENV = os.getenv("APP_ENV", "dev").strip().lower()
 INVITE_TTL_DAYS = int(os.getenv("INVITE_TTL_DAYS", "7"))
 
 
+_LOGIN_EVENT_RETENTION = 10  # keep only last N login events per user
+
+
 def _client_ip(request: Request) -> str:
+    """Extract the real client IP with Cloudflare Tunnel precedence.
+
+    Priority:
+    1. CF-Connecting-IP  — set by Cloudflare to the actual visitor IP
+    2. X-Forwarded-For   — first (leftmost) entry, set by proxies/LBs
+    3. request.client.host — direct connection fallback
+    """
+    cf_ip = request.headers.get("cf-connecting-ip", "").strip()
+    if cf_ip:
+        return cf_ip
     xff = request.headers.get("x-forwarded-for", "").strip()
     if xff:
         return xff.split(",")[0].strip()
@@ -282,6 +296,27 @@ async def verify_link(
             project_id=None,
         )
     )
+
+    # Record login IP — store raw user agent (capped to 512 chars, never store tokens)
+    raw_ua = (request.headers.get("user-agent") or "")[:512] or None
+    db.add(AuthLoginEvent(user_id=auth_user.id, ip=ip, user_agent=raw_ua))
+    await db.flush()
+
+    # Transactional retention: keep only the last _LOGIN_EVENT_RETENTION rows per user.
+    # Done in the same transaction so concurrent logins cannot leave stale rows.
+    keep_ids_subq = (
+        select(AuthLoginEvent.id)
+        .where(AuthLoginEvent.user_id == auth_user.id)
+        .order_by(AuthLoginEvent.created_at.desc(), AuthLoginEvent.id.desc())
+        .limit(_LOGIN_EVENT_RETENTION)
+        .scalar_subquery()
+    )
+    await db.execute(
+        delete(AuthLoginEvent)
+        .where(AuthLoginEvent.user_id == auth_user.id)
+        .where(AuthLoginEvent.id.not_in(keep_ids_subq))
+    )
+
     await db.commit()
 
     response.set_cookie(
@@ -497,6 +532,42 @@ async def revoke_sessions(user_id: int, request: Request, db: AsyncSession = Dep
         session.revoked_at = now
     await db.commit()
     return {"status": "ok", "revoked": len(sessions)}
+
+
+@router.get("/admin/users/{user_id}/login-events", response_model=list[LoginEventOut])
+async def get_user_login_events(
+    user_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> list[LoginEventOut]:
+    """Return the last 10 login IPs for a given user (admin-only)."""
+    _, is_admin = _require_session_auth(request)
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    user = (await db.execute(select(AuthUser).where(AuthUser.id == user_id).limit(1))).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    events = (
+        await db.execute(
+            select(AuthLoginEvent)
+            .where(AuthLoginEvent.user_id == user_id)
+            .order_by(AuthLoginEvent.created_at.desc())
+            .limit(_LOGIN_EVENT_RETENTION)
+        )
+    ).scalars().all()
+
+    return [
+        LoginEventOut(
+            id=e.id,
+            user_id=e.user_id,
+            ip=str(e.ip),
+            user_agent=e.user_agent,
+            created_at=e.created_at,
+        )
+        for e in events
+    ]
 
 
 @router.get("/admin/usage", response_model=list[AdminUsageOut])

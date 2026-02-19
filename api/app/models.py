@@ -8,6 +8,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -15,7 +16,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
+from sqlalchemy.dialects.postgresql import INET, JSONB, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -273,6 +274,35 @@ class AuthInvite(Base):
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+# ---------------------------------------------------------------------------
+# Login event tracking (last 10 per user, retention enforced at insert time)
+# ---------------------------------------------------------------------------
+
+class AuthLoginEvent(Base):
+    """Stores the last 10 successful login IPs per user.
+
+    Retention is enforced transactionally inside the verify_link endpoint:
+    after each insert the oldest rows beyond the 10-entry window are deleted
+    in the same DB transaction, so concurrency is safe without a cron job.
+    """
+    __tablename__ = "auth_login_events"
+    __table_args__ = (
+        Index("ix_auth_login_events_user_created", "user_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("auth_users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # Stored as PostgreSQL INET for proper IP semantics; asyncpg returns it as a string
+    ip: Mapped[str] = mapped_column(INET, nullable=False)
+    # Store a short UA string (first 512 chars) — never store raw tokens or secrets
+    user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
 
 
 # ---------------------------------------------------------------------------

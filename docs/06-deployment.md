@@ -211,3 +211,112 @@ docker compose down
 docker volume rm contextcache_pgdata
 docker compose up -d --build
 ```
+
+---
+
+## Background Workers (optional)
+
+The worker stack is **off by default** — the app runs fine without it.
+Enable it when you need async heavy tasks (future: embedding indexing,
+batch recall, scheduled cleanup).
+
+### Stack components
+
+| Service | Image | Role |
+|---------|-------|------|
+| `redis` | `redis:7-alpine` | Broker + result backend |
+| `worker` | same as `api` | Celery worker process |
+| `beat` _(commented)_ | same as `api` | Celery Beat scheduler |
+
+### Enable worker mode
+
+1. Add to your `.env`:
+
+```env
+WORKER_ENABLED=true
+CELERY_BROKER_URL=redis://redis:6379/0
+CELERY_RESULT_BACKEND=redis://redis:6379/0
+```
+
+2. Start the worker profile:
+
+```bash
+docker compose --profile worker up -d
+```
+
+3. Verify the worker is connected:
+
+```bash
+docker compose logs worker | tail -20
+# Should show: "celery@... ready."
+```
+
+### Disable worker mode
+
+```bash
+docker compose --profile worker down
+# or simply don't set WORKER_ENABLED=true — tasks are silently skipped
+```
+
+### Periodic tasks (Celery Beat)
+
+Uncomment the `beat:` service block in `docker-compose.yml` and add a
+schedule to `api/app/worker/celery_app.py`:
+
+```python
+celery_app.conf.beat_schedule = {
+    "cleanup-magic-links-daily": {
+        "task": "contextcache.cleanup_expired_magic_links",
+        "schedule": crontab(hour=3, minute=0),  # 03:00 UTC daily
+    },
+}
+```
+
+### Worker security notes
+
+- Tasks **must never** receive tokens, API keys, cookies, or magic links.
+- Pass only domain IDs (project_id, user_id) and safe content.
+- The Redis port is **not exposed** to the host — internal Docker network only.
+
+---
+
+## Internal Analyzer Service (future)
+
+The analyzer scoring/ranking logic currently runs in-process (`ANALYZER_MODE=local`).
+When you need to scale scoring independently, you can split it into a private
+internal service.
+
+### How it works
+
+```
+ANALYZER_MODE=local     → scoring runs inside the API process (default)
+ANALYZER_MODE=service   → API calls http://analyzer:9000 on the internal network
+```
+
+The `analyzer` service is **never exposed publicly** — no ports are mapped
+to the host, and it is unreachable via Cloudflare Tunnel or any public route.
+
+### Enable analyzer service mode
+
+1. Build the analyzer service (separate repo/folder `./analyzer/`).
+
+2. Uncomment the `analyzer:` block in `docker-compose.yml`.
+
+3. Add to `.env`:
+
+```env
+ANALYZER_MODE=service
+ANALYZER_SERVICE_URL=http://analyzer:9000
+```
+
+4. Start:
+
+```bash
+docker compose --profile analyzer up -d
+```
+
+### Security requirement
+
+The analyzer service **must have no `ports:` mapping** in `docker-compose.yml`.
+It communicates only on the Docker internal `default` network, which is
+unreachable from outside the host.

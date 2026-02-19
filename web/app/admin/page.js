@@ -7,10 +7,11 @@ import { useToast } from "../components/toast";
 import { SkeletonCard } from "../components/skeleton";
 
 const TABS = [
-  { id: "waitlist", label: "Waitlist" },
-  { id: "invites",  label: "Invites" },
-  { id: "users",    label: "Users" },
-  { id: "usage",    label: "Usage" },
+  { id: "waitlist",   label: "Waitlist" },
+  { id: "invites",    label: "Invites" },
+  { id: "users",      label: "Users" },
+  { id: "login-ips",  label: "Login IPs" },
+  { id: "usage",      label: "Usage" },
 ];
 
 function StatusBadge({ status }) {
@@ -44,6 +45,12 @@ export default function AdminPage() {
   const [waitlistFilter, setWaitlistFilter] = useState("");
   const [inviteFilter,   setInviteFilter]   = useState("");
   const [userFilter,     setUserFilter]     = useState("");
+
+  // Login IPs tab state
+  const [selectedUserId,   setSelectedUserId]   = useState(null);
+  const [selectedUserEmail, setSelectedUserEmail] = useState("");
+  const [loginEvents,      setLoginEvents]      = useState([]);
+  const [loginEventsLoading, setLoginEventsLoading] = useState(false);
 
   function handleErr(err) {
     if (err instanceof ApiError) {
@@ -153,6 +160,22 @@ export default function AdminPage() {
       toast.success(`${userEmail} ${grant ? "granted" : "revoked"} admin.`);
       await load();
     } catch (err) { handleErr(err); }
+  }
+
+  // ── Login event actions ───────────────────────────────────────────────────
+  async function loadLoginEvents(userId, userEmail) {
+    setSelectedUserId(userId);
+    setSelectedUserEmail(userEmail);
+    setLoginEventsLoading(true);
+    setLoginEvents([]);
+    try {
+      const events = await apiFetch(`/admin/users/${userId}/login-events`);
+      setLoginEvents(events || []);
+    } catch (err) {
+      toast.error(`Login IPs: ${err.message || "failed to load"}`);
+    } finally {
+      setLoginEventsLoading(false);
+    }
   }
 
   // ── Filtered views ────────────────────────────────────────────────────────
@@ -459,6 +482,134 @@ export default function AdminPage() {
             </table>
           </div>
         </section>
+      )}
+
+      {/* ── Login IPs tab ── */}
+      {activeTab === "login-ips" && (
+        <div className="stack-lg">
+          <section className="card">
+            <h2 style={{ marginBottom: 8 }}>Login IP History</h2>
+            <p className="muted" style={{ marginBottom: 16, fontSize: "0.88rem" }}>
+              Select a user to view their last 10 login IP addresses and timestamps.
+              IPs are stored verbatim — no tokens, cookies, or secrets are shown.
+            </p>
+
+            {/* User picker */}
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Email</th>
+                    <th>Last login</th>
+                    <th>Status</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.length === 0 && (
+                    <tr>
+                      <td colSpan={4} style={{ textAlign: "center", color: "var(--muted)", padding: 20 }}>
+                        No users found.
+                      </td>
+                    </tr>
+                  )}
+                  {users.map((u) => (
+                    <tr
+                      key={u.id}
+                      style={selectedUserId === u.id ? { background: "var(--panel-2)" } : {}}
+                    >
+                      <td className="mono">{u.email}</td>
+                      <td className="muted" style={{ fontSize: "0.8rem" }}>
+                        {u.last_login_at
+                          ? new Date(u.last_login_at).toLocaleString()
+                          : "never"}
+                      </td>
+                      <td>
+                        <StatusBadge status={u.is_disabled ? "disabled" : "active"} />
+                      </td>
+                      <td>
+                        <button
+                          className={`btn sm ${selectedUserId === u.id ? "primary" : "secondary"}`}
+                          onClick={() => loadLoginEvents(u.id, u.email)}
+                          aria-pressed={selectedUserId === u.id}
+                        >
+                          {selectedUserId === u.id ? "Viewing" : "View IPs"}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          {/* Login events panel */}
+          {selectedUserId !== null && (
+            <section className="card">
+              <div className="row spread" style={{ marginBottom: 12 }}>
+                <h3 style={{ margin: 0 }}>
+                  Login events for{" "}
+                  <span className="mono" style={{ fontSize: "0.9em" }}>
+                    {selectedUserEmail}
+                  </span>
+                </h3>
+                <button
+                  className="btn secondary sm"
+                  onClick={() => loadLoginEvents(selectedUserId, selectedUserEmail)}
+                  disabled={loginEventsLoading}
+                >
+                  {loginEventsLoading ? "Loading…" : "Refresh"}
+                </button>
+              </div>
+
+              {loginEventsLoading ? (
+                <p className="muted">Loading…</p>
+              ) : loginEvents.length === 0 ? (
+                <p className="muted">No login events recorded for this user.</p>
+              ) : (
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>IP Address</th>
+                        <th>Date &amp; Time (UTC)</th>
+                        <th>User Agent</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {loginEvents.map((ev, idx) => (
+                        <tr key={ev.id}>
+                          <td className="muted" style={{ fontSize: "0.8rem" }}>{idx + 1}</td>
+                          <td className="mono" style={{ fontSize: "0.88rem" }}>{ev.ip}</td>
+                          <td className="muted" style={{ fontSize: "0.8rem" }}>
+                            {new Date(ev.created_at).toUTCString()}
+                          </td>
+                          <td
+                            className="muted"
+                            style={{
+                              fontSize: "0.75rem",
+                              maxWidth: 280,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                            title={ev.user_agent || ""}
+                          >
+                            {ev.user_agent || "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <p className="muted" style={{ fontSize: "0.75rem", marginTop: 10 }}>
+                Showing up to 10 most recent login events. Older records are automatically deleted.
+              </p>
+            </section>
+          )}
+        </div>
       )}
 
       {/* ── Usage tab ── */}
