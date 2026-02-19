@@ -17,6 +17,12 @@ Usage:
     cc mem list --project 1
     cc recall --project 1 "postgres schema decisions"
     cc usage
+    cc invites list
+    cc invites create user@example.com [--notes "Beta tester"]
+    cc invites revoke INVITE_ID
+    cc waitlist list
+    cc waitlist approve ENTRY_ID
+    cc waitlist reject ENTRY_ID
 """
 from __future__ import annotations
 
@@ -246,6 +252,54 @@ def cmd_recall(args: list[str]) -> None:
         print(result["memory_pack_text"])
 
 
+def cmd_invites(args: list[str]) -> None:
+    """cc invites list | create EMAIL [--notes TEXT] | revoke ID"""
+    sub = args[0] if args else ""
+    if sub == "list":
+        rows = _request("GET", "/admin/invites") or []
+        _print_table(rows, ["id", "email", "status", "expires_at", "notes"])
+    elif sub == "create":
+        email = args[1] if len(args) > 1 and not args[1].startswith("--") else None
+        if not email:
+            _err("Provide email: cc invites create user@example.com")
+        notes = _flag(args, "--notes")
+        body: dict = {"email": email}
+        if notes:
+            body["notes"] = notes
+        result = _request("POST", "/admin/invites", body=body)
+        _ok(f"Invite created — id={result.get('id')}  email={result.get('email')}  expires={result.get('expires_at')}")
+    elif sub == "revoke":
+        invite_id = args[1] if len(args) > 1 else None
+        if not invite_id:
+            _err("Provide invite ID: cc invites revoke 42")
+        _request("POST", f"/admin/invites/{invite_id}/revoke")
+        _ok(f"Invite {invite_id} revoked.")
+    else:
+        print("Usage: cc invites [list | create EMAIL | revoke ID]")
+
+
+def cmd_waitlist(args: list[str]) -> None:
+    """cc waitlist list | approve ID | reject ID"""
+    sub = args[0] if args else ""
+    if sub == "list":
+        rows = _request("GET", "/admin/waitlist") or []
+        _print_table(rows, ["id", "email", "created_at", "source", "note"])
+    elif sub == "approve":
+        entry_id = args[1] if len(args) > 1 else None
+        if not entry_id:
+            _err("Provide entry ID: cc waitlist approve 7")
+        result = _request("POST", f"/admin/waitlist/{entry_id}/approve")
+        _ok(f"Entry {entry_id} approved — invite id={result.get('id')}  email={result.get('email')}")
+    elif sub == "reject":
+        entry_id = args[1] if len(args) > 1 else None
+        if not entry_id:
+            _err("Provide entry ID: cc waitlist reject 7")
+        _request("POST", f"/admin/waitlist/{entry_id}/reject")
+        _ok(f"Entry {entry_id} rejected.")
+    else:
+        print("Usage: cc waitlist [list | approve ID | reject ID]")
+
+
 def cmd_usage(_args: list[str]) -> None:
     """cc usage — show today's usage counters and limits"""
     result = _request("GET", "/me/usage")
@@ -282,6 +336,8 @@ COMMANDS = {
     "mem":      cmd_mem,
     "recall":   cmd_recall,
     "usage":    cmd_usage,
+    "invites":  cmd_invites,
+    "waitlist": cmd_waitlist,
 }
 
 

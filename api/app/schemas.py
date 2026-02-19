@@ -213,6 +213,15 @@ class AdminUserOut(BaseModel):
     last_login_at: datetime | None = None
     is_admin: bool
     is_disabled: bool
+    is_unlimited: bool = False
+
+
+class AdminUserStatsOut(BaseModel):
+    user_id: int
+    memory_count: int
+    today_memories: int
+    today_recalls: int
+    today_projects: int
 
 
 # ---------------------------------------------------------------------------

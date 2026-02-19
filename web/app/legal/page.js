@@ -48,6 +48,9 @@ export default function LegalPage() {
               ["#ip",       "Intellectual Property"],
               ["#liability","Liability"],
               ["#conduct",  "Acceptable Use"],
+              ["#indemnification", "Indemnification"],
+              ["#termination",     "Termination"],
+              ["#law",      "Governing Law"],
               ["#changes",  "Changes"],
               ["#contact",  "Contact"],
             ].map(([href, label]) => (
@@ -170,7 +173,14 @@ export default function LegalPage() {
           <li><strong>Account data:</strong> Email address (for invitation and authentication).</li>
           <li><strong>Content data:</strong> Project names and memory card content that you explicitly submit.</li>
           <li><strong>Usage data:</strong> Anonymised event logs (e.g., login timestamps, recall counts) for service operation and abuse prevention. We do not log memory card content in usage events.</li>
-          <li><strong>Technical data:</strong> IP address prefix (first 3 octets only), hashed user-agent strings, session tokens stored as SHA-256 hashes.</li>
+          <li>
+            <strong>Technical data:</strong> Login IP addresses (stored verbatim for security
+            and abuse prevention), hashed user-agent strings, session tokens stored as
+            SHA-256 hashes. The system automatically retains only the{" "}
+            <strong>last 10 login events per user</strong> — older records are overwritten
+            atomically on each new sign-in. All login events are purged automatically after
+            90 days by a nightly maintenance task.
+          </li>
         </ul>
 
         <p><strong>What we do not collect</strong></p>
@@ -217,9 +227,15 @@ export default function LegalPage() {
         <p>
           <strong>Our IP:</strong> The Service, its software, design, branding, trademarks,
           and all content produced by {COMPANY} are owned by or licensed to {COMPANY} and
-          are protected by copyright, trademark, and other applicable laws. The &ldquo;™&rdquo;
-          symbol indicates a trademark claim. No license to any {COMPANY} intellectual
-          property is granted beyond what is expressly stated in these Terms.
+          are protected by copyright, trademark, and other applicable laws. No license to
+          any {COMPANY} intellectual property is granted beyond what is expressly stated in
+          these Terms.
+        </p>
+        <p>
+          <strong>Trademark notice:</strong> &ldquo;thecontextcache™&rdquo; is a pending
+          trademark. The ™ symbol indicates an unregistered trademark claim. We intend to
+          register this mark; until registration is confirmed, the ™ symbol (not ®) is used.
+          Unauthorised use of the mark or any confusingly similar mark is prohibited.
         </p>
         <p>
           <strong>Your content:</strong> You retain ownership of all memory card content,

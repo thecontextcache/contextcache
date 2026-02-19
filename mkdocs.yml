@@ -60,6 +60,7 @@ nav:
   - Operations:
     - Deployment: 06-deployment.md
     - Security Model: 07-security.md
+  - CLI & SDK: 09-cli-sdk.md
   - Roadmap: 08-roadmap.md
   - Legal: legal.md
 

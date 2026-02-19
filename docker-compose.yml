@@ -131,22 +131,29 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # ── Optional: Celery Beat scheduler (periodic tasks) ─────────────────────
-  # Uncomment when you have scheduled tasks defined in celery_app.conf.beat_schedule
-  # beat:
-  #   build:
-  #     context: ./api
-  #     target: runtime
-  #   command: uv run celery -A app.worker.celery_app beat --loglevel=info
-  #   profiles: ["worker"]
-  #   env_file:
-  #     - path: .env
-  #       required: false
-  #   environment:
-  #     - CELERY_BROKER_URL=redis://redis:6379/0
-  #   depends_on:
-  #     - redis
-  #   restart: unless-stopped
+  # ── Celery Beat scheduler (periodic tasks) ───────────────────────────────
+  # Handles: cleanup_expired_magic_links, cleanup_old_usage_counters,
+  #          cleanup_old_login_events.  Run ONE instance only — no HA needed.
+  # Start with:  docker compose --profile worker up -d beat
+  beat:
+    build:
+      context: ./api
+      target: runtime
+    command: uv run celery -A app.worker.celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule
+    profiles: ["worker"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD:-change-me}@db:5432/${POSTGRES_DB:-contextcache}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    restart: unless-stopped
 
   # ── Future: internal analyzer service (NOT publicly exposed) ─────────────
   # Uncomment when you build a standalone analyzer service.

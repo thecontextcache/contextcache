@@ -27,6 +27,7 @@ from .schemas import (
     AdminInviteOut,
     AdminUsageOut,
     AdminUserOut,
+    AdminUserStatsOut,
     AdminWaitlistOut,
     AuthMeOut,
     AuthRequestLinkIn,
@@ -455,6 +456,7 @@ async def list_users(request: Request, db: AsyncSession = Depends(get_db)) -> li
             last_login_at=u.last_login_at,
             is_admin=bool(u.is_admin),
             is_disabled=bool(u.is_disabled),
+            is_unlimited=bool(u.is_unlimited),
         )
         for u in rows
     ]
@@ -532,6 +534,71 @@ async def revoke_sessions(user_id: int, request: Request, db: AsyncSession = Dep
         session.revoked_at = now
     await db.commit()
     return {"status": "ok", "revoked": len(sessions)}
+
+
+@router.post("/admin/users/{user_id}/set-unlimited")
+async def set_unlimited(
+    user_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    unlimited: bool = True,
+):
+    """Grant or remove the unlimited-usage flag for a user (admin-only).
+
+    Query param: unlimited=true|false
+    """
+    _, is_admin = _require_session_auth(request)
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    user = (await db.execute(select(AuthUser).where(AuthUser.id == user_id).limit(1))).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.is_unlimited = unlimited
+    await db.commit()
+    return {"status": "ok", "is_unlimited": unlimited}
+
+
+@router.get("/admin/users/{user_id}/stats", response_model=AdminUserStatsOut)
+async def get_user_stats(
+    user_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> AdminUserStatsOut:
+    """Return lightweight usage stats for a user (admin-only)."""
+    from datetime import date as _date
+    from sqlalchemy import func as sqla_func
+    from .models import Memory, UsageCounter
+
+    _, is_admin = _require_session_auth(request)
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    user = (await db.execute(select(AuthUser).where(AuthUser.id == user_id).limit(1))).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    memory_count = (
+        await db.execute(
+            select(sqla_func.count(Memory.id)).where(Memory.created_by_user_id == user_id)
+        )
+    ).scalar_one()
+
+    today_counter = (
+        await db.execute(
+            select(UsageCounter).where(
+                UsageCounter.user_id == user_id,
+                UsageCounter.day == _date.today(),
+            ).limit(1)
+        )
+    ).scalar_one_or_none()
+
+    return AdminUserStatsOut(
+        user_id=user_id,
+        memory_count=int(memory_count or 0),
+        today_memories=int(today_counter.memories_created if today_counter else 0),
+        today_recalls=int(today_counter.recall_queries if today_counter else 0),
+        today_projects=int(today_counter.projects_created if today_counter else 0),
+    )
 
 
 @router.get("/admin/users/{user_id}/login-events", response_model=list[LoginEventOut])
@@ -612,6 +679,7 @@ async def usage_stats(request: Request, db: AsyncSession = Depends(get_db)) -> l
 # Waitlist — public join endpoint
 # ---------------------------------------------------------------------------
 
+@router.post("/waitlist", response_model=WaitlistJoinOut)
 @router.post("/waitlist/join", response_model=WaitlistJoinOut)
 async def waitlist_join(
     payload: WaitlistJoinIn,

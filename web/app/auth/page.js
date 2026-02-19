@@ -12,6 +12,7 @@ export default function AuthPage() {
   const [debugLink, setDebugLink] = useState("");
   const [error, setError] = useState("");
   const [errorKind, setErrorKind] = useState("");
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   async function submit(event) {
     event.preventDefault();
@@ -115,10 +116,36 @@ export default function AuthPage() {
           </span>
         </div>
 
+        {/* Terms acceptance */}
+        <label
+          style={{
+            display: "flex", alignItems: "flex-start", gap: 10,
+            fontSize: "0.82rem", color: "var(--ink-2)", cursor: "pointer",
+            padding: "8px 0",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={termsAccepted}
+            onChange={(e) => setTermsAccepted(e.target.checked)}
+            style={{ marginTop: 2, flexShrink: 0, accentColor: "var(--brand)" }}
+            aria-label="I agree to the Terms of Service and Privacy Policy"
+          />
+          <span>
+            I agree to the{" "}
+            <Link href="/legal" target="_blank" rel="noopener noreferrer"
+              style={{ color: "var(--brand)" }}>
+              Terms of Service &amp; Privacy Policy
+            </Link>
+            {" "}of thecontextcache™. I understand this is an invite-only alpha
+            and data may change.
+          </span>
+        </label>
+
         <button
           type="submit"
           className={`btn primary${submitting ? " loading" : ""}`}
-          disabled={submitting || !email.trim()}
+          disabled={submitting || !email.trim() || !termsAccepted}
           aria-busy={submitting}
         >
           {submitting && <span className="spinner" aria-hidden="true" />}

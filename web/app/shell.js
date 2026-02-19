@@ -102,6 +102,7 @@ export default function Shell({ children }) {
         <nav className="nav" aria-label="Main navigation">
           <Link href="/pricing" className={nav("/pricing")}>Pricing</Link>
           <Link href="/app" className={nav("/app")}>App</Link>
+          {!onAuthPage && isLoggedIn && <Link href="/brain" className={nav("/brain")}>Brain</Link>}
           {!onAuthPage && isAdmin && <Link href="/admin" className={nav("/admin")}>Admin</Link>}
           {!onAuthPage && isLoggedIn ? (
             <button type="button" className="nav-btn" onClick={logout}>

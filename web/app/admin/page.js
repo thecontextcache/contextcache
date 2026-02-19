@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "../lib/api";
 import { useToast } from "../components/toast";
@@ -51,6 +51,10 @@ export default function AdminPage() {
   const [selectedUserEmail, setSelectedUserEmail] = useState("");
   const [loginEvents,      setLoginEvents]      = useState([]);
   const [loginEventsLoading, setLoginEventsLoading] = useState(false);
+
+  // Per-user stats (loaded on demand)
+  const [userStats, setUserStats] = useState({});   // { [userId]: { memory_count, today_* } }
+  const [statsLoading, setStatsLoading] = useState({});
 
   function handleErr(err) {
     if (err instanceof ApiError) {
@@ -160,6 +164,26 @@ export default function AdminPage() {
       toast.success(`${userEmail} ${grant ? "granted" : "revoked"} admin.`);
       await load();
     } catch (err) { handleErr(err); }
+  }
+
+  async function setUnlimited(id, unlimited) {
+    try {
+      await apiFetch(`/admin/users/${id}/set-unlimited?unlimited=${unlimited}`, { method: "POST" });
+      toast.success(unlimited ? "User marked as unlimited." : "Unlimited removed.");
+      await load();
+    } catch (err) { handleErr(err); }
+  }
+
+  async function loadUserStats(userId) {
+    setStatsLoading((s) => ({ ...s, [userId]: true }));
+    try {
+      const stats = await apiFetch(`/admin/users/${userId}/stats`);
+      setUserStats((s) => ({ ...s, [userId]: stats }));
+    } catch (err) {
+      toast.error(`Stats: ${err.message || "failed"}`);
+    } finally {
+      setStatsLoading((s) => ({ ...s, [userId]: false }));
+    }
   }
 
   // ── Login event actions ───────────────────────────────────────────────────
@@ -435,7 +459,7 @@ export default function AdminPage() {
               <thead>
                 <tr>
                   <th>Email</th>
-                  <th>Admin</th>
+                  <th>Roles</th>
                   <th>Last login</th>
                   <th>Status</th>
                   <th>Actions</th>
@@ -445,13 +469,17 @@ export default function AdminPage() {
                 {filteredUsers.length === 0 && (
                   <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--muted)", padding: 20 }}>No users found.</td></tr>
                 )}
-                {filteredUsers.map((u) => (
-                  <tr key={u.id}>
+                {filteredUsers.map((u) => {
+                  const stats = userStats[u.id];
+                  const statsLoaded = stats !== undefined;
+                  return (
+                  <React.Fragment key={u.id}>
+                  <tr>
                     <td className="mono">{u.email}</td>
-                    <td>
-                      {u.is_admin
-                        ? <span className="badge badge-brand">admin</span>
-                        : <span className="muted">—</span>}
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      {u.is_admin && <span className="badge badge-brand" style={{ marginRight: 4 }}>admin</span>}
+                      {u.is_unlimited && <span className="badge badge-ok" title="No daily usage limits">∞ unlimited</span>}
+                      {!u.is_admin && !u.is_unlimited && <span className="muted">—</span>}
                     </td>
                     <td className="muted" style={{ fontSize: "0.8rem" }}>
                       {u.last_login_at ? new Date(u.last_login_at).toLocaleDateString() : "never"}
@@ -474,10 +502,38 @@ export default function AdminPage() {
                         >
                           {u.is_admin ? "Revoke admin" : "Grant admin"}
                         </button>
+                        <button
+                          className={`btn sm ${u.is_unlimited ? "danger" : "secondary"}`}
+                          onClick={() => setUnlimited(u.id, !u.is_unlimited)}
+                          title={u.is_unlimited ? "Remove unlimited limits bypass" : "Remove all daily usage limits for this user"}
+                        >
+                          {u.is_unlimited ? "Set limited" : "Set unlimited"}
+                        </button>
+                        <button
+                          className="btn secondary sm"
+                          onClick={() => statsLoaded ? setUserStats((s) => { const n = {...s}; delete n[u.id]; return n; }) : loadUserStats(u.id)}
+                          title="Toggle usage stats"
+                        >
+                          {statsLoading[u.id] ? "Loading…" : statsLoaded ? "Hide stats" : "Stats"}
+                        </button>
                       </div>
                     </td>
                   </tr>
-                ))}
+                  {statsLoaded && (
+                    <tr style={{ background: "var(--panel-2)" }}>
+                      <td colSpan={5} style={{ padding: "6px 12px 10px 12px" }}>
+                        <div style={{ display: "flex", gap: "1.5rem", fontSize: "0.82rem", color: "var(--ink-2)", flexWrap: "wrap" }}>
+                          <span>Total memories: <strong style={{ color: "var(--brand)" }}>{stats.memory_count}</strong></span>
+                          <span>Today memories: <strong>{stats.today_memories}</strong></span>
+                          <span>Today recalls: <strong>{stats.today_recalls}</strong></span>
+                          <span>Today projects: <strong>{stats.today_projects}</strong></span>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
+                );})}
+
               </tbody>
             </table>
           </div>

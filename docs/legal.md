@@ -1,31 +1,138 @@
-# Legal
+# Legal, Licensing & Privacy
 
-## Copyright Notice
-Copyright © 2024-2025 thecontextcache™. All Rights Reserved.
+!!! warning "Trademark notice"
+    **thecontextcache™** is a pending trademark. The ™ symbol indicates an unregistered
+    trademark claim. No licence to use the mark is granted beyond what is expressly stated
+    in the Terms of Service.
 
-Note: The ™ symbol indicates a trademark claim. thecontextcache is not currently registered with any trademark office. No LLC has been formed yet.
+---
 
-## License Grant
-This software and associated documentation files (the "Software") are proprietary and confidential. The Software is licensed, not sold.
+## Copyright
 
-## Development License
-During the development phase, this Software is provided for internal development and testing purposes only. No rights are granted to use, copy, modify, merge, publish, distribute, sublicense, or sell copies of the Software without explicit written permission from the copyright holder.
+Copyright © 2026 thecontextcache™. All Rights Reserved.
 
-## Restrictions
-You may NOT:
+This software and its source code, design, documentation, and associated materials
+("the Software") are the exclusive property of thecontextcache™ and are protected by
+copyright, trade secret, and other intellectual property laws.
 
-- Use the Software for any commercial or production purposes
-- Copy, modify, or create derivative works of the Software
-- Distribute, sublicense, rent, lease, or lend the Software
-- Reverse engineer, decompile, or disassemble the Software
-- Remove or alter any proprietary notices or labels
-- Use the Software in any way that violates applicable laws
+---
+
+## Proprietary Software Licence
+
+The Software is **licensed, not sold**.
+
+During the alpha phase, the Software is made available to invited users for evaluation
+and early-access use only. The following restrictions apply to all users, evaluators,
+and contributors:
+
+**You may NOT:**
+
+- Copy, reproduce, distribute, sublicense, sell, resell, or otherwise exploit the
+  Software or any portion thereof.
+- Modify, translate, adapt, merge, or create derivative works based on the Software,
+  its source code, documentation, or underlying algorithms.
+- Reverse-engineer, decompile, disassemble, or attempt to derive source code,
+  algorithms, or trade secrets from the Software.
+- Use the Software to build a competing product or service.
+- Benchmark or publish performance comparisons without prior written consent.
+- Remove, obscure, or alter any copyright, trademark, or proprietary notice.
+- Circumvent, disable, or otherwise interfere with security controls, rate limits,
+  or access-control mechanisms.
+
+All rights not expressly granted herein are reserved by thecontextcache™.
+
+---
 
 ## Disclaimer of Warranty
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND…
+
+THE SOFTWARE IS PROVIDED **"AS IS"** AND **"AS AVAILABLE"**, WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT.
+
+THECONTEXTCACHE™ DOES NOT WARRANT THAT THE SOFTWARE WILL BE UNINTERRUPTED, ERROR-FREE,
+FREE FROM HARMFUL COMPONENTS, OR THAT DEFECTS WILL BE CORRECTED.
+
+---
 
 ## Limitation of Liability
-IN NO EVENT SHALL CONTEXTCACHE™ BE LIABLE…
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THECONTEXTCACHE™, ITS OFFICERS,
+DIRECTORS, EMPLOYEES, AND AGENTS SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL,
+SPECIAL, CONSEQUENTIAL, PUNITIVE, OR EXEMPLARY DAMAGES — INCLUDING LOSS OF PROFITS,
+DATA, GOODWILL, OR BUSINESS INTERRUPTION — ARISING OUT OF OR RELATING TO YOUR USE OF,
+OR INABILITY TO USE, THE SOFTWARE.
+
+IN NO EVENT SHALL TOTAL CUMULATIVE LIABILITY EXCEED THE GREATER OF (A) AMOUNTS PAID
+IN THE 12 MONTHS PRIOR TO THE CLAIM, OR (B) £100. DURING THE FREE ALPHA PHASE,
+LIABILITY SHALL NOT EXCEED £0 (ZERO).
+
+---
+
+## Data & Privacy Summary
+
+This section summarises how user data is handled. The canonical Terms & Privacy Policy
+is at [/legal](https://thecontextcache.com/legal).
+
+### What we collect
+
+| Data | Purpose | Retention |
+|------|---------|-----------|
+| Email address | Authentication & invitations | Until deletion requested |
+| Session token (SHA-256 hash) | Session management | Until revoked or expired |
+| Login IP address | Security & abuse prevention | Last 10 per user; nightly purge after 90 days |
+| User-agent string | Security context | Last 10 per user |
+| Memory card content | Core product functionality | Until user deletes project |
+| Daily usage counters | Limit enforcement | 90-day rolling window |
+
+### IP address logging
+
+On each successful magic-link sign-in, the client IP address is recorded.
+The system atomically retains **only the last 10 login events per user** — older records
+are deleted within the same database transaction on each new sign-in.
+A nightly Celery task (`cleanup_old_login_events`) removes any rows older than 90 days.
+
+The real client IP is extracted with the following priority:
+
+1. `CF-Connecting-IP` (Cloudflare Tunnel header — present in production)
+2. `X-Forwarded-For` (first IP in the chain)
+3. `request.client.host` (direct connection fallback for dev)
+
+IP addresses are **never** logged in application logs, emails, or API responses.
+They are visible only to administrators via the admin panel (`/admin` → Login IPs tab).
+
+### Session cookies
+
+| Attribute | Dev | Prod (APP_ENV=prod) |
+|-----------|-----|---------------------|
+| HttpOnly | ✓ | ✓ |
+| Secure | ✗ | ✓ |
+| SameSite | Lax | Lax |
+| Domain | unset | unset (host-only) |
+
+SameSite=Lax prevents the session cookie from being sent on cross-site POST requests,
+providing strong CSRF protection without additional middleware.
+
+---
 
 ## Termination
-This license is effective until terminated…
+
+Either party may terminate your access at any time. On termination, all licences cease
+immediately. The warranty disclaimer, liability limitation, and IP sections survive.
+
+---
+
+## Governing Law
+
+These terms are governed by the laws of **England and Wales**.
+
+---
+
+## Contact
+
+For legal inquiries, trademark notices, or data subject requests:
+
+```
+support@thecontextcache.com
+```
+
+Response target: **5 business days** for general inquiries, **30 days** for data subject requests.

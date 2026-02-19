@@ -13,7 +13,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import generate_api_key, get_db, hash_api_key
-from .models import ApiKey, AuditLog, Membership, Memory, MemoryTag, Organization, Project, Tag, UsageCounter, UsageEvent, User
+from .models import ApiKey, AuditLog, AuthUser, Membership, Memory, MemoryTag, Organization, Project, Tag, UsageCounter, UsageEvent, User
 from .recall import build_memory_pack
 from .schemas import (
     ApiKeyCreate,
@@ -167,9 +167,14 @@ async def _check_daily_limit(db: AsyncSession, auth_user_id: int | None, field: 
 
     Skips the check when:
     - auth_user_id is None (API-key-only calls, no auth user)
-    - limit <= 0 (unlimited)
+    - limit <= 0 (disabled globally)
+    - auth_user.is_unlimited is True (per-user bypass)
     """
     if auth_user_id is None or limit <= 0:
+        return
+    # Per-user bypass check (one extra query, fine at alpha scale)
+    au = (await db.execute(select(AuthUser).where(AuthUser.id == auth_user_id).limit(1))).scalar_one_or_none()
+    if au is not None and au.is_unlimited:
         return
     counter = await _get_usage_counter(db, auth_user_id)
     if counter is not None:

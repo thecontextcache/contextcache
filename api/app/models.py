@@ -231,6 +231,8 @@ class AuthUser(Base):
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     is_disabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    # When true, all daily usage limits are bypassed for this user (e.g. admins, beta testers)
+    is_unlimited: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     invite_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     invite_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 

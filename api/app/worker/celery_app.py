@@ -42,4 +42,26 @@ celery_app.conf.update(
     # Worker settings
     worker_prefetch_multiplier=1,   # fair dispatch — one task at a time per worker
     task_acks_late=True,            # ack after completion (safe re-queue on crash)
+    # ── Periodic tasks (Celery Beat) ────────────────────────────────────────
+    # Enable Beat scheduler with:  docker compose --profile worker up -d beat
+    beat_schedule={
+        # Purge expired/unconsumed magic links every hour
+        "cleanup-expired-magic-links": {
+            "task": "contextcache.cleanup_expired_magic_links",
+            "schedule": 3600,  # seconds
+        },
+        # Remove usage_counter rows older than 90 days — runs at 01:00 UTC daily
+        "cleanup-old-usage-counters": {
+            "task": "contextcache.cleanup_old_usage_counters",
+            "schedule": 86400,
+            "kwargs": {"retain_days": 90},
+            "options": {"eta": None},  # Celery Beat schedules by interval; crontab overrides below
+        },
+        # Remove login event rows older than 90 days — runs nightly
+        "cleanup-old-login-events": {
+            "task": "contextcache.cleanup_old_login_events",
+            "schedule": 86400,
+            "kwargs": {"retain_days": 90},
+        },
+    },
 )
