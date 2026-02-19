@@ -31,7 +31,7 @@ export default function AuthPage() {
 
       if (!res.ok) {
         if (res.status === 403) {
-          setError("You don't have an invitation yet. Contact your admin to request access.");
+          setError("This is an invite-only alpha. Join the waitlist to request access.");
           setErrorKind("forbidden");
           return;
         }
@@ -132,10 +132,23 @@ export default function AuthPage() {
           role="alert"
           style={{ marginTop: 12 }}
         >
-          {errorKind === "forbidden" && <span>🔒</span>}
-          {errorKind === "network" && <span>📡</span>}
-          {errorKind === "rate_limit" && <span>⏱</span>}
-          {error}
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <span>
+              {errorKind === "forbidden" && <span>🔒 </span>}
+              {errorKind === "network" && <span>📡 </span>}
+              {errorKind === "rate_limit" && <span>⏱ </span>}
+              {error}
+            </span>
+            {errorKind === "forbidden" && (
+              <Link
+                href="/waitlist"
+                className="btn primary sm"
+                style={{ alignSelf: "flex-start" }}
+              >
+                Join the waitlist →
+              </Link>
+            )}
+          </div>
         </div>
       )}
 

@@ -20,16 +20,19 @@ from .auth_utils import (
 )
 from .db import get_db
 from .emailer import send_magic_link
-from .models import AuthInvite, AuthMagicLink, AuthSession, AuthUser, Membership, Organization, UsageEvent, User
+from .models import AuthInvite, AuthMagicLink, AuthSession, AuthUser, Membership, Organization, UsageEvent, User, Waitlist
 from .rate_limit import check_request_link_limits, check_verify_limits
 from .schemas import (
     AdminInviteCreateIn,
     AdminInviteOut,
     AdminUsageOut,
     AdminUserOut,
+    AdminWaitlistOut,
     AuthMeOut,
     AuthRequestLinkIn,
     AuthRequestLinkOut,
+    WaitlistJoinIn,
+    WaitlistJoinOut,
 )
 
 router = APIRouter()
@@ -139,7 +142,7 @@ async def request_link(
         if total_users > 0 or total_invites > 0:
             raise HTTPException(
                 status_code=403,
-                detail="You're not invited yet. Request access from an admin.",
+                detail="Invite-only alpha. Join the waitlist at /waitlist.",
             )
         # Fresh install — fall through and issue the first magic link freely.
 
@@ -532,3 +535,144 @@ async def usage_stats(request: Request, db: AsyncSession = Depends(get_db)) -> l
         print(f"[WARN] usage_stats failed: {exc}")
         traceback.print_exc()
         return []
+
+
+# ---------------------------------------------------------------------------
+# Waitlist — public join endpoint
+# ---------------------------------------------------------------------------
+
+@router.post("/waitlist/join", response_model=WaitlistJoinOut)
+async def waitlist_join(
+    payload: WaitlistJoinIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> WaitlistJoinOut:
+    """Public endpoint — anyone can join the waitlist.
+
+    Returns the same response whether the email is new or already waitlisted
+    to avoid leaking account/invite status (anti-enumeration).
+    """
+    email = normalize_email(payload.email)
+    ip = _client_ip(request)
+
+    # Basic rate-limit reuse (same limits as request_link per IP)
+    allowed, detail = check_request_link_limits(ip, email)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=detail)
+
+    existing = (
+        await db.execute(select(Waitlist).where(func.lower(Waitlist.email) == email).limit(1))
+    ).scalar_one_or_none()
+
+    if existing is None:
+        db.add(Waitlist(email=email))
+        await db.commit()
+
+    # Identical response for new and existing — do not reveal status
+    return WaitlistJoinOut(
+        status="ok",
+        detail="You're on the list — we'll reach out when your spot is ready.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Waitlist — admin management
+# ---------------------------------------------------------------------------
+
+@router.get("/admin/waitlist", response_model=list[AdminWaitlistOut])
+async def list_waitlist(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> list[AdminWaitlistOut]:
+    _, is_admin = _require_session_auth(request)
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    rows = (
+        await db.execute(
+            select(Waitlist).order_by(Waitlist.created_at.desc(), Waitlist.id.desc())
+        )
+    ).scalars().all()
+    return [
+        AdminWaitlistOut(
+            id=w.id,
+            email=w.email,
+            status=w.status,
+            notes=w.notes,
+            created_at=w.created_at,
+            reviewed_at=w.reviewed_at,
+            reviewed_by_admin_id=w.reviewed_by_admin_id,
+        )
+        for w in rows
+    ]
+
+
+@router.post("/admin/waitlist/{entry_id}/approve", response_model=AdminInviteOut, status_code=201)
+async def approve_waitlist(
+    entry_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> AdminInviteOut:
+    """Approve a waitlist entry → creates an AuthInvite so the user can request a magic link."""
+    auth_user_id, is_admin = _require_session_auth(request)
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    entry = (
+        await db.execute(select(Waitlist).where(Waitlist.id == entry_id).limit(1))
+    ).scalar_one_or_none()
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Waitlist entry not found")
+    if entry.status == "approved":
+        raise HTTPException(status_code=409, detail="Entry is already approved")
+
+    now = now_utc()
+    entry.status = "approved"
+    entry.reviewed_at = now
+    entry.reviewed_by_admin_id = auth_user_id
+
+    # Create invite
+    invite = AuthInvite(
+        email=entry.email,
+        invited_by_user_id=auth_user_id,
+        expires_at=now + timedelta(days=INVITE_TTL_DAYS),
+        notes=f"Approved from waitlist (entry #{entry.id})",
+    )
+    db.add(invite)
+    await db.commit()
+    await db.refresh(invite)
+
+    return AdminInviteOut(
+        id=invite.id,
+        email=invite.email,
+        invited_by_user_id=invite.invited_by_user_id,
+        created_at=invite.created_at,
+        expires_at=invite.expires_at,
+        accepted_at=invite.accepted_at,
+        revoked_at=invite.revoked_at,
+        notes=invite.notes,
+    )
+
+
+@router.post("/admin/waitlist/{entry_id}/reject")
+async def reject_waitlist(
+    entry_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    auth_user_id, is_admin = _require_session_auth(request)
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    entry = (
+        await db.execute(select(Waitlist).where(Waitlist.id == entry_id).limit(1))
+    ).scalar_one_or_none()
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Waitlist entry not found")
+
+    now = now_utc()
+    entry.status = "rejected"
+    entry.reviewed_at = now
+    entry.reviewed_by_admin_id = auth_user_id
+    await db.commit()
+    return {"status": "ok"}

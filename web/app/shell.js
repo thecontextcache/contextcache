@@ -39,7 +39,7 @@ export default function Shell({ children }) {
   }, []);
 
   // Auth probe — only on protected pages
-  const isPublicPage = pathname === "/" || pathname.startsWith("/auth") || pathname.startsWith("/legal");
+  const isPublicPage = pathname === "/" || pathname.startsWith("/auth") || pathname.startsWith("/legal") || pathname.startsWith("/waitlist") || pathname === "/pricing";
   useEffect(() => {
     if (isPublicPage) return;
     async function checkMe() {

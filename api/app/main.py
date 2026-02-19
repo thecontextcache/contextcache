@@ -16,7 +16,7 @@ from .auth_routes import router as auth_router
 from .routes import router
 
 app = FastAPI(title="ContextCache API", version="0.1.0")
-PUBLIC_PATH_PREFIXES = ("/health", "/docs", "/openapi.json")
+PUBLIC_PATH_PREFIXES = ("/health", "/docs", "/openapi.json", "/waitlist")
 PUBLIC_AUTH_PATHS = ("/auth/request-link", "/auth/verify")
 WARNED_NO_KEYS = False
 APP_ENV = os.getenv("APP_ENV", "").strip().lower()

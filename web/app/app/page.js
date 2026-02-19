@@ -6,7 +6,8 @@ import { apiFetch, ApiError } from "../lib/api";
 import { useToast } from "../components/toast";
 import { SkeletonCard, Skeleton } from "../components/skeleton";
 
-const MEMORY_TYPES = ["decision", "finding", "definition", "note", "link", "todo"];
+const MEMORY_TYPES = ["decision", "finding", "definition", "note", "link", "todo", "chat", "doc", "code"];
+const MEMORY_SOURCES = ["manual", "chatgpt", "claude", "cursor", "codex", "api"];
 
 // Dark-mode-aware type colors using the design system palette
 const TYPE_COLORS = {
@@ -69,7 +70,11 @@ export default function AppPage() {
 
   // Memory composer
   const [memoryType, setMemoryType]       = useState("decision");
+  const [memorySource, setMemorySource]   = useState("manual");
+  const [memoryTitle, setMemoryTitle]     = useState("");
   const [memoryContent, setMemoryContent] = useState("");
+  const [memoryTags, setMemoryTags]       = useState("");
+  const [memoryMeta, setMemoryMeta]       = useState({ url: "", file_path: "", language: "", model: "" });
   const [savingMemory, setSavingMemory]   = useState(false);
 
   // Memories list
@@ -137,11 +142,14 @@ export default function AppPage() {
   function selectProject(id) {
     if (id === projectId) return; // already selected — no-op
     setProjectId(id);
-    setTab("compose");        // reset to compose on project switch
+    setTab("compose");
     setRecallItems([]);
     setMemoryPack("");
     setRecallQuery("");
     setMemoryContent("");
+    setMemoryTitle("");
+    setMemoryTags("");
+    setMemoryMeta({ url: "", file_path: "", language: "", model: "" });
   }
 
   async function createProject(e) {
@@ -170,14 +178,35 @@ export default function AppPage() {
     e.preventDefault();
     if (!memoryContent.trim() || !projectId || savingMemory) return;
     setSavingMemory(true);
+
+    // Build clean metadata object — omit empty values
+    const metadata = Object.fromEntries(
+      Object.entries(memoryMeta).filter(([, v]) => v.trim())
+    );
+    // Parse comma-separated tags
+    const tags = memoryTags
+      .split(",")
+      .map((t) => t.trim().toLowerCase())
+      .filter(Boolean);
+
     try {
       await apiFetch(`/projects/${projectId}/memories`, {
         method: "POST",
-        body: JSON.stringify({ type: memoryType, content: memoryContent.trim() }),
+        body: JSON.stringify({
+          type: memoryType,
+          source: memorySource,
+          title: memoryTitle.trim() || null,
+          content: memoryContent.trim(),
+          metadata,
+          tags,
+        }),
       });
       toast.success("Memory saved.");
       setMemoryContent("");
-      await loadMemories(); // keep count fresh
+      setMemoryTitle("");
+      setMemoryTags("");
+      setMemoryMeta({ url: "", file_path: "", language: "", model: "" });
+      await loadMemories();
     } catch (err) {
       handleApiError(err);
     } finally {
@@ -420,6 +449,8 @@ export default function AppPage() {
               <div className="card">
                 <h2 style={{ marginBottom: 14, fontSize: "1rem" }}>Add a memory</h2>
                 <form onSubmit={saveMemory} className="stack">
+
+                  {/* Type chips */}
                   <div className="field">
                     <label>Memory type</label>
                     <div className="memory-type-grid" role="group" aria-label="Memory type">
@@ -442,6 +473,36 @@ export default function AppPage() {
                     </div>
                   </div>
 
+                  {/* Source + Title row */}
+                  <div className="grid-2" style={{ gap: 12 }}>
+                    <div className="field" style={{ marginBottom: 0 }}>
+                      <label htmlFor="memory-source">Source</label>
+                      <select
+                        id="memory-source"
+                        value={memorySource}
+                        onChange={(e) => setMemorySource(e.target.value)}
+                        disabled={savingMemory}
+                      >
+                        {MEMORY_SOURCES.map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="field" style={{ marginBottom: 0 }}>
+                      <label htmlFor="memory-title">Title <span className="muted">(optional)</span></label>
+                      <input
+                        id="memory-title"
+                        type="text"
+                        value={memoryTitle}
+                        onChange={(e) => setMemoryTitle(e.target.value)}
+                        placeholder="Short descriptive title"
+                        disabled={savingMemory}
+                        maxLength={500}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Content */}
                   <div className="field">
                     <label htmlFor="memory-content">Content</label>
                     <textarea
@@ -459,6 +520,74 @@ export default function AppPage() {
                     </span>
                   </div>
 
+                  {/* Tags */}
+                  <div className="field">
+                    <label htmlFor="memory-tags">Tags <span className="muted">(comma-separated)</span></label>
+                    <input
+                      id="memory-tags"
+                      type="text"
+                      value={memoryTags}
+                      onChange={(e) => setMemoryTags(e.target.value)}
+                      placeholder="e.g. auth, postgres, api-design"
+                      disabled={savingMemory}
+                    />
+                    <span className="field-hint">Tags are shared across the project and clickable in search.</span>
+                  </div>
+
+                  {/* Advanced accordion */}
+                  <details className="advanced-accordion">
+                    <summary className="advanced-summary">Advanced metadata</summary>
+                    <div className="stack-sm" style={{ paddingTop: 10 }}>
+                      <div className="grid-2" style={{ gap: 12 }}>
+                        <div className="field" style={{ marginBottom: 0 }}>
+                          <label htmlFor="meta-url">URL</label>
+                          <input
+                            id="meta-url"
+                            type="url"
+                            value={memoryMeta.url}
+                            onChange={(e) => setMemoryMeta((m) => ({ ...m, url: e.target.value }))}
+                            placeholder="https://…"
+                            disabled={savingMemory}
+                          />
+                        </div>
+                        <div className="field" style={{ marginBottom: 0 }}>
+                          <label htmlFor="meta-file">File path</label>
+                          <input
+                            id="meta-file"
+                            type="text"
+                            value={memoryMeta.file_path}
+                            onChange={(e) => setMemoryMeta((m) => ({ ...m, file_path: e.target.value }))}
+                            placeholder="src/app/auth.py"
+                            disabled={savingMemory}
+                          />
+                        </div>
+                        <div className="field" style={{ marginBottom: 0 }}>
+                          <label htmlFor="meta-lang">Language</label>
+                          <input
+                            id="meta-lang"
+                            type="text"
+                            value={memoryMeta.language}
+                            onChange={(e) => setMemoryMeta((m) => ({ ...m, language: e.target.value }))}
+                            placeholder="python, typescript…"
+                            disabled={savingMemory}
+                          />
+                        </div>
+                        <div className="field" style={{ marginBottom: 0 }}>
+                          <label htmlFor="meta-model">Model / tool</label>
+                          <input
+                            id="meta-model"
+                            type="text"
+                            value={memoryMeta.model}
+                            onChange={(e) => setMemoryMeta((m) => ({ ...m, model: e.target.value }))}
+                            placeholder="gpt-4o, claude-3-5-sonnet…"
+                            disabled={savingMemory}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </details>
+
+                  {/* Actions */}
                   <div className="row" style={{ gap: 8 }}>
                     <button
                       type="submit"
@@ -469,8 +598,17 @@ export default function AppPage() {
                       {savingMemory && <span className="spinner" />}
                       {savingMemory ? "Saving…" : "Publish memory"}
                     </button>
-                    {memoryContent && (
-                      <button type="button" className="btn ghost sm" onClick={() => setMemoryContent("")}>
+                    {(memoryContent || memoryTitle || memoryTags) && (
+                      <button
+                        type="button"
+                        className="btn ghost sm"
+                        onClick={() => {
+                          setMemoryContent("");
+                          setMemoryTitle("");
+                          setMemoryTags("");
+                          setMemoryMeta({ url: "", file_path: "", language: "", model: "" });
+                        }}
+                      >
                         Clear
                       </button>
                     )}
@@ -511,9 +649,36 @@ export default function AppPage() {
                 ) : (
                   <div className="memory-list" role="list">
                     {memories.map((m) => (
-                      <div key={m.id} className="memory-row" role="listitem">
-                        <TypeBadge type={m.type} />
-                        <span className="memory-row-content">{m.content}</span>
+                      <div key={m.id} className="memory-row" role="listitem" style={{ flexWrap: "wrap", gap: 8 }}>
+                        <div className="row" style={{ gap: 6, flexShrink: 0, alignItems: "center" }}>
+                          <TypeBadge type={m.type} />
+                          {m.source && m.source !== "manual" && (
+                            <span style={{ fontSize: "0.68rem", color: "var(--muted)", fontFamily: "var(--mono)" }}>
+                              {m.source}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          {m.title && (
+                            <p style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--ink)", margin: "0 0 2px" }}>
+                              {m.title}
+                            </p>
+                          )}
+                          <span className="memory-row-content">{m.content}</span>
+                          {m.tags?.length > 0 && (
+                            <div className="row" style={{ gap: 4, marginTop: 5, flexWrap: "wrap" }}>
+                              {m.tags.map((tag) => (
+                                <span key={tag} style={{
+                                  fontSize: "0.68rem", color: "var(--brand)",
+                                  background: "var(--brand-light)", border: "1px solid rgba(0,212,255,0.2)",
+                                  borderRadius: 999, padding: "1px 7px", fontFamily: "var(--mono)",
+                                }}>
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                         <span className="memory-row-time" title={new Date(m.created_at).toLocaleString()}>
                           {fmtTime(m.created_at)}
                         </span>

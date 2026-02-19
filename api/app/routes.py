@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import generate_api_key, get_db, hash_api_key
-from .models import ApiKey, AuditLog, Membership, Organization, Project, Memory, UsageEvent, User
+from .models import ApiKey, AuditLog, Membership, Memory, MemoryTag, Organization, Project, Tag, UsageEvent, User
 from .recall import build_memory_pack
 from .schemas import (
     ApiKeyCreate,
@@ -28,6 +29,7 @@ from .schemas import (
     RecallItemOut,
     RecallOut,
     RoleType,
+    SearchOut,
 )
 
 router = APIRouter()
@@ -560,6 +562,81 @@ async def list_projects(
     return await list_org_projects(org_id=ctx.org_id, db=db, ctx=ctx)
 
 
+def _content_hash(content: str) -> str:
+    return hashlib.sha256(content.encode()).hexdigest()
+
+
+async def _load_tag_names(db: AsyncSession, memory_ids: list[int]) -> dict[int, list[str]]:
+    """Load tag names for a list of memory IDs. Returns {memory_id: [tag_name, ...]}."""
+    if not memory_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(MemoryTag.memory_id, Tag.name)
+            .join(Tag, Tag.id == MemoryTag.tag_id)
+            .where(MemoryTag.memory_id.in_(memory_ids))
+            .order_by(Tag.name)
+        )
+    ).all()
+    result: dict[int, list[str]] = {mid: [] for mid in memory_ids}
+    for memory_id, tag_name in rows:
+        result[memory_id].append(tag_name)
+    return result
+
+
+async def _upsert_tags(db: AsyncSession, project_id: int, tag_names: list[str]) -> list[Tag]:
+    """Return Tag objects for the given names, creating any that don't exist."""
+    clean = [n.strip().lower()[:100] for n in tag_names if n.strip()][:20]
+    tags: list[Tag] = []
+    for name in clean:
+        tag = (
+            await db.execute(
+                select(Tag)
+                .where(Tag.project_id == project_id, func.lower(Tag.name) == name)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if tag is None:
+            tag = Tag(project_id=project_id, name=name)
+            db.add(tag)
+            await db.flush()
+        tags.append(tag)
+    return tags
+
+
+def _memory_to_out(m: Memory, tag_names: list[str]) -> MemoryOut:
+    return MemoryOut(
+        id=m.id,
+        project_id=m.project_id,
+        created_by_user_id=m.created_by_user_id,
+        type=m.type,
+        source=m.source,
+        title=m.title,
+        content=m.content,
+        metadata=m.metadata_json or {},
+        tags=tag_names,
+        created_at=m.created_at,
+        updated_at=m.updated_at,
+    )
+
+
+def _recall_item_to_out(m: Memory, tag_names: list[str], rank_score: float | None) -> RecallItemOut:
+    return RecallItemOut(
+        id=m.id,
+        project_id=m.project_id,
+        created_by_user_id=m.created_by_user_id,
+        type=m.type,
+        source=m.source,
+        title=m.title,
+        content=m.content,
+        metadata=m.metadata_json or {},
+        tags=tag_names,
+        created_at=m.created_at,
+        updated_at=m.updated_at,
+        rank_score=rank_score,
+    )
+
+
 @router.post("/projects/{project_id}/memories", response_model=MemoryOut, status_code=201)
 async def create_memory(
     project_id: int,
@@ -571,9 +648,27 @@ async def create_memory(
     require_role(ctx, "member")
     project = await get_project_or_404(db, project_id, ctx)
 
-    memory = Memory(project_id=project.id, type=payload.type, content=payload.content)
+    memory = Memory(
+        project_id=project.id,
+        created_by_user_id=ctx.actor_user_id,
+        type=payload.type,
+        source=payload.source,
+        title=payload.title,
+        content=payload.content,
+        metadata_json=payload.metadata or {},
+        content_hash=_content_hash(payload.content),
+    )
     db.add(memory)
     await db.flush()
+
+    # Upsert tags
+    tag_names: list[str] = []
+    if payload.tags:
+        tags = await _upsert_tags(db, project.id, payload.tags)
+        for tag in tags:
+            db.add(MemoryTag(memory_id=memory.id, tag_id=tag.id))
+        tag_names = [t.name for t in tags]
+
     await write_audit(
         db,
         ctx=ctx,
@@ -581,7 +676,7 @@ async def create_memory(
         action="memory.create",
         entity_type="memory",
         entity_id=memory.id,
-        metadata={"type": memory.type},
+        metadata={"type": memory.type, "source": memory.source},
     )
     await write_usage(
         db,
@@ -593,13 +688,7 @@ async def create_memory(
     )
     await db.commit()
     await db.refresh(memory)
-    return MemoryOut(
-        id=memory.id,
-        project_id=memory.project_id,
-        type=memory.type,
-        content=memory.content,
-        created_at=memory.created_at,
-    )
+    return _memory_to_out(memory, tag_names)
 
 
 @router.get("/projects/{project_id}/memories", response_model=List[MemoryOut])
@@ -617,16 +706,82 @@ async def list_memories(
             .order_by(Memory.created_at.desc(), Memory.id.desc())
         )
     ).scalars().all()
-    return [
-        MemoryOut(
-            id=i.id,
-            project_id=i.project_id,
-            type=i.type,
-            content=i.content,
-            created_at=i.created_at,
+    tag_map = await _load_tag_names(db, [m.id for m in items])
+    return [_memory_to_out(m, tag_map.get(m.id, [])) for m in items]
+
+
+@router.get("/projects/{project_id}/search", response_model=SearchOut)
+async def search_memories(
+    project_id: int,
+    request: Request,
+    q: str = Query(default="", description="Full-text search query"),
+    type: str | None = Query(default=None),
+    source: str | None = Query(default=None),
+    tag: str | None = Query(default=None, description="Filter by tag name"),
+    limit: int = Query(default=20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    ctx: RequestContext = Depends(get_actor_context),
+) -> SearchOut:
+    """FTS search with optional filters. Ranks by ts_rank_cd + recency boost."""
+    require_role(ctx, "viewer")
+    project = await get_project_or_404(db, project_id, ctx)
+
+    query_clean = q.strip()
+    stmt = select(Memory).where(Memory.project_id == project.id)
+
+    if type:
+        stmt = stmt.where(Memory.type == type)
+    if source:
+        stmt = stmt.where(Memory.source == source)
+    if tag:
+        tag_row = (
+            await db.execute(
+                select(Tag)
+                .where(Tag.project_id == project.id, func.lower(Tag.name) == tag.lower())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if tag_row:
+            stmt = stmt.join(MemoryTag, MemoryTag.memory_id == Memory.id).where(
+                MemoryTag.tag_id == tag_row.id
+            )
+        else:
+            # Tag doesn't exist → no results
+            return SearchOut(project_id=project.id, query=query_clean, total=0, items=[])
+
+    top_with_rank: list[tuple[Memory, float | None]] = []
+    if query_clean:
+        tsquery = func.websearch_to_tsquery("english", query_clean)
+        rank_expr = func.ts_rank_cd(Memory.search_tsv, tsquery).label("rank_score")
+        fts_stmt = (
+            stmt.add_columns(rank_expr)
+            .where(Memory.search_tsv.op("@@")(tsquery))
+            .order_by(desc(rank_expr), Memory.created_at.desc(), Memory.id.desc())
+            .limit(limit)
         )
-        for i in items
-    ]
+        rows = (await db.execute(fts_stmt)).all()
+        top_with_rank = [(row[0], float(row[1])) for row in rows]
+    else:
+        recent = (
+            await db.execute(
+                stmt.order_by(Memory.created_at.desc(), Memory.id.desc()).limit(limit)
+            )
+        ).scalars().all()
+        top_with_rank = [(m, None) for m in recent]
+
+    await write_usage(
+        db, request=request, ctx=ctx,
+        event_type="search_called", org_id=project.org_id, project_id=project.id,
+    )
+    await db.commit()
+
+    tag_map = await _load_tag_names(db, [m.id for m, _ in top_with_rank])
+    return SearchOut(
+        project_id=project.id,
+        query=query_clean,
+        total=len(top_with_rank),
+        items=[_recall_item_to_out(m, tag_map.get(m.id, []), rs) for m, rs in top_with_rank],
+    )
 
 
 @router.get("/projects/{project_id}/recall", response_model=RecallOut)
@@ -681,17 +836,9 @@ async def recall(
         project_id=project.id,
     )
     await db.commit()
-    out_items = [
-        RecallItemOut(
-            id=m.id,
-            project_id=m.project_id,
-            type=m.type,
-            content=m.content,
-            created_at=m.created_at,
-            rank_score=rank_score,
-        )
-        for m, rank_score in top_with_rank
-    ]
+
+    tag_map = await _load_tag_names(db, [m.id for m, _ in top_with_rank])
+    out_items = [_recall_item_to_out(m, tag_map.get(m.id, []), rs) for m, rs in top_with_rank]
     return RecallOut(
         project_id=project.id,
         query=query_clean,

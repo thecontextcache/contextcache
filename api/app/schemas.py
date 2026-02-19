@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Literal
+from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
-MemoryType = Literal["decision", "finding", "definition", "note", "link", "todo"]
+MemoryType = Literal["decision", "finding", "definition", "note", "link", "todo", "chat", "doc", "code", "file", "web", "event"]
+MemorySource = Literal["manual", "chatgpt", "claude", "cursor", "codex", "api", "extension"]
 RoleType = Literal["owner", "admin", "member", "viewer"]
+WaitlistStatus = Literal["pending", "approved", "rejected"]
 
+
+# ---------------------------------------------------------------------------
+# Projects
+# ---------------------------------------------------------------------------
 
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
@@ -18,19 +24,45 @@ class ProjectOut(BaseModel):
     created_by_user_id: int | None = None
     name: str
     created_at: datetime
+    updated_at: datetime | None = None
 
+
+# ---------------------------------------------------------------------------
+# Tags
+# ---------------------------------------------------------------------------
+
+class TagOut(BaseModel):
+    id: int
+    name: str
+
+
+# ---------------------------------------------------------------------------
+# Memories
+# ---------------------------------------------------------------------------
 
 class MemoryCreate(BaseModel):
     type: MemoryType
+    source: MemorySource = "manual"
+    title: Optional[str] = Field(default=None, max_length=500)
     content: str = Field(min_length=1)
+    # Flexible metadata: url, file_path, language, model, tool, thread_id, commit_sha, role, etc.
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    # Comma-separated or pre-split tag names — max 20 tags, each max 100 chars
+    tags: List[str] = Field(default_factory=list)
 
 
 class MemoryOut(BaseModel):
     id: int
     project_id: int
+    created_by_user_id: int | None = None
     type: str
+    source: str
+    title: str | None = None
     content: str
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    tags: List[str] = Field(default_factory=list)
     created_at: datetime
+    updated_at: datetime | None = None
 
 
 class RecallItemOut(MemoryOut):
@@ -44,6 +76,17 @@ class RecallOut(BaseModel):
     items: List[RecallItemOut]
 
 
+class SearchOut(BaseModel):
+    project_id: int
+    query: str
+    total: int
+    items: List[RecallItemOut]
+
+
+# ---------------------------------------------------------------------------
+# Orgs
+# ---------------------------------------------------------------------------
+
 class OrgCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
 
@@ -53,6 +96,10 @@ class OrgOut(BaseModel):
     name: str
     created_at: datetime
 
+
+# ---------------------------------------------------------------------------
+# API keys
+# ---------------------------------------------------------------------------
 
 class ApiKeyCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
@@ -70,6 +117,10 @@ class ApiKeyOut(BaseModel):
 class ApiKeyCreatedOut(ApiKeyOut):
     api_key: str
 
+
+# ---------------------------------------------------------------------------
+# Memberships
+# ---------------------------------------------------------------------------
 
 class MeOut(BaseModel):
     org_id: int | None = None
@@ -94,6 +145,10 @@ class MembershipOut(BaseModel):
     created_at: datetime
 
 
+# ---------------------------------------------------------------------------
+# Audit logs
+# ---------------------------------------------------------------------------
+
 class AuditLogOut(BaseModel):
     id: int
     org_id: int
@@ -105,6 +160,10 @@ class AuditLogOut(BaseModel):
     metadata: dict
     created_at: datetime
 
+
+# ---------------------------------------------------------------------------
+# Auth
+# ---------------------------------------------------------------------------
 
 class AuthRequestLinkIn(BaseModel):
     email: str = Field(min_length=3, max_length=255)
@@ -123,6 +182,10 @@ class AuthMeOut(BaseModel):
     last_login_at: datetime | None = None
 
 
+# ---------------------------------------------------------------------------
+# Admin — invites
+# ---------------------------------------------------------------------------
+
 class AdminInviteCreateIn(BaseModel):
     email: str = Field(min_length=3, max_length=255)
     notes: str | None = Field(default=None, max_length=2000)
@@ -139,6 +202,10 @@ class AdminInviteOut(BaseModel):
     notes: str | None = None
 
 
+# ---------------------------------------------------------------------------
+# Admin — users
+# ---------------------------------------------------------------------------
+
 class AdminUserOut(BaseModel):
     id: int
     email: str
@@ -148,7 +215,34 @@ class AdminUserOut(BaseModel):
     is_disabled: bool
 
 
+# ---------------------------------------------------------------------------
+# Admin — usage
+# ---------------------------------------------------------------------------
+
 class AdminUsageOut(BaseModel):
     date: str
     event_type: str
     count: int
+
+
+# ---------------------------------------------------------------------------
+# Waitlist
+# ---------------------------------------------------------------------------
+
+class WaitlistJoinIn(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+
+
+class WaitlistJoinOut(BaseModel):
+    status: str
+    detail: str
+
+
+class AdminWaitlistOut(BaseModel):
+    id: int
+    email: str
+    status: WaitlistStatus
+    notes: str | None = None
+    created_at: datetime
+    reviewed_at: datetime | None = None
+    reviewed_by_admin_id: int | None = None

@@ -3,7 +3,18 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func, text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -11,6 +22,10 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 class Base(DeclarativeBase):
     pass
 
+
+# ---------------------------------------------------------------------------
+# Domain models (org / user / membership)
+# ---------------------------------------------------------------------------
 
 class Organization(Base):
     __tablename__ = "organizations"
@@ -41,6 +56,10 @@ class Membership(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+# ---------------------------------------------------------------------------
+# Projects
+# ---------------------------------------------------------------------------
+
 class Project(Base):
     __tablename__ = "projects"
 
@@ -49,24 +68,121 @@ class Project(Base):
     created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=True,
+    )
+
     memories: Mapped[list["Memory"]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+    tags: Mapped[list["Tag"]] = relationship(
         back_populates="project",
         cascade="all, delete-orphan",
     )
     organization: Mapped[Organization] = relationship(back_populates="projects")
 
 
+# ---------------------------------------------------------------------------
+# Memories + tags
+# ---------------------------------------------------------------------------
+
 class Memory(Base):
     __tablename__ = "memories"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
-    type: Mapped[str] = mapped_column(String(50), nullable=False)  # decision/finding/definition/note/link/todo
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("auth_users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # What kind of memory: decision, finding, definition, note, link, todo, chat, doc, code, etc.
+    type: Mapped[str] = mapped_column(String(50), nullable=False)
+    # Where it came from: manual, chatgpt, claude, cursor, codex, api, extension, etc.
+    source: Mapped[str] = mapped_column(String(100), nullable=False, server_default=text("'manual'"))
+    title: Mapped[str | None] = mapped_column(String(500), nullable=True)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    # Flexible structured metadata: url, file_path, language, model, tool, thread_id, commit_sha, etc.
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    # SHA-256 of content for deduplication
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # FTS vector — maintained by trig_memories_tsv trigger in the DB
     search_tsv: Mapped[str | None] = mapped_column(TSVECTOR, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    project: Mapped[Project] = relationship(back_populates="memories")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=True,
+    )
 
+    project: Mapped[Project] = relationship(back_populates="memories")
+    memory_tags: Mapped[list["MemoryTag"]] = relationship(
+        back_populates="memory", cascade="all, delete-orphan"
+    )
+
+
+class Tag(Base):
+    __tablename__ = "tags"
+    __table_args__ = (UniqueConstraint("project_id", "name", name="uq_tags_project_name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    project: Mapped[Project] = relationship(back_populates="tags")
+    memory_tags: Mapped[list["MemoryTag"]] = relationship(back_populates="tag")
+
+
+class MemoryTag(Base):
+    __tablename__ = "memory_tags"
+    __table_args__ = (UniqueConstraint("memory_id", "tag_id", name="uq_memory_tags"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    memory_id: Mapped[int] = mapped_column(
+        ForeignKey("memories.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    tag_id: Mapped[int] = mapped_column(
+        ForeignKey("tags.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+
+    memory: Mapped[Memory] = relationship(back_populates="memory_tags")
+    tag: Mapped[Tag] = relationship(back_populates="memory_tags")
+
+
+# ---------------------------------------------------------------------------
+# Memory embeddings placeholder (pgvector drops in later)
+# ---------------------------------------------------------------------------
+
+class MemoryEmbedding(Base):
+    """Placeholder table for future vector embeddings.
+
+    When pgvector is ready:
+      ALTER TABLE memory_embeddings ADD COLUMN embedding vector(1536);
+      CREATE INDEX ON memory_embeddings USING ivfflat (embedding vector_cosine_ops);
+    """
+    __tablename__ = "memory_embeddings"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    memory_id: Mapped[int] = mapped_column(
+        ForeignKey("memories.id", ondelete="CASCADE"), nullable=False, unique=True, index=True
+    )
+    model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    dims: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+# ---------------------------------------------------------------------------
+# API keys + audit
+# ---------------------------------------------------------------------------
 
 class ApiKey(Base):
     __tablename__ = "api_keys"
@@ -98,6 +214,10 @@ class AuditLog(Base):
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+
+# ---------------------------------------------------------------------------
+# Auth models
+# ---------------------------------------------------------------------------
 
 class AuthUser(Base):
     __tablename__ = "auth_users"
@@ -155,7 +275,32 @@ class AuthInvite(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+# ---------------------------------------------------------------------------
+# Waitlist
+# ---------------------------------------------------------------------------
+
+class Waitlist(Base):
+    """Stores emails of visitors who requested alpha access but are not yet invited."""
+    __tablename__ = "waitlist"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    # pending | approved | rejected
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'pending'"), index=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reviewed_by_admin_id: Mapped[int | None] = mapped_column(
+        ForeignKey("auth_users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
+
+# ---------------------------------------------------------------------------
+# Usage tracking
+# ---------------------------------------------------------------------------
+
 class UsageEvent(Base):
+    """Raw usage event log — one row per action."""
     __tablename__ = "usage_events"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
@@ -166,3 +311,25 @@ class UsageEvent(Base):
     user_agent_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     project_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     org_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+
+
+class UsagePeriod(Base):
+    """Aggregated per-user monthly usage counters for limit enforcement."""
+    __tablename__ = "usage_periods"
+    __table_args__ = (UniqueConstraint("user_id", "period_start", name="uq_usage_periods_user_period"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("auth_users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # First day of the month (UTC), e.g. 2026-02-01
+    period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    # Last instant of the month
+    period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    memories_created: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    search_queries: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    # Rough byte estimate for ingested content
+    bytes_ingested: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text("0"))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

@@ -131,11 +131,11 @@ export default function LandingPage() {
 
         {/* CTAs */}
         <div className="l-actions">
-          <Link href="/auth" className="btn-glow">
-            Request access →
+          <Link href="/waitlist" className="btn-glow">
+            Join the waitlist →
           </Link>
-          <Link href="/pricing" className="btn-outline-glow">
-            See pricing
+          <Link href="/auth" className="btn-outline-glow">
+            Sign in
           </Link>
         </div>
 
@@ -299,11 +299,11 @@ export default function LandingPage() {
             Request your invitation to the alpha. We onboard in small batches to maintain quality.
           </p>
           <div className="l-cta-actions">
-            <Link href="/auth" className="btn-glow">
-              Request access →
+            <Link href="/waitlist" className="btn-glow">
+              Join the waitlist →
             </Link>
-            <Link href="/pricing" className="btn-outline-glow">
-              View pricing
+            <Link href="/auth" className="btn-outline-glow">
+              Sign in
             </Link>
           </div>
         </div>
