@@ -332,7 +332,9 @@ async def validation_exception_handler(_: Request, exc: RequestValidationError) 
 
 
 @app.exception_handler(Exception)
-async def unhandled_exception_handler(_: Request, __: Exception) -> JSONResponse:
+async def unhandled_exception_handler(_: Request, exc: Exception) -> JSONResponse:
+    import traceback
+    traceback.print_exc()  # prints full traceback to docker logs
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 

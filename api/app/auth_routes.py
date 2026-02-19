@@ -448,6 +448,34 @@ async def enable_user(user_id: int, request: Request, db: AsyncSession = Depends
     return {"status": "ok"}
 
 
+@router.post("/admin/users/{user_id}/grant-admin")
+async def grant_admin(user_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    auth_user_id, is_admin = _require_session_auth(request)
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    user = (await db.execute(select(AuthUser).where(AuthUser.id == user_id).limit(1))).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.is_admin = True
+    await db.commit()
+    return {"status": "ok"}
+
+
+@router.post("/admin/users/{user_id}/revoke-admin")
+async def revoke_admin(user_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    auth_user_id, is_admin = _require_session_auth(request)
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if user_id == auth_user_id:
+        raise HTTPException(status_code=400, detail="You cannot revoke your own admin status.")
+    user = (await db.execute(select(AuthUser).where(AuthUser.id == user_id).limit(1))).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.is_admin = False
+    await db.commit()
+    return {"status": "ok"}
+
+
 @router.post("/admin/users/{user_id}/revoke-sessions")
 async def revoke_sessions(user_id: int, request: Request, db: AsyncSession = Depends(get_db)):
     _, is_admin = _require_session_auth(request)
@@ -477,9 +505,9 @@ async def usage_stats(request: Request, db: AsyncSession = Depends(get_db)) -> l
     rows = (
         await db.execute(
             select(
-                func.date_trunc("day", UsageEvent.created_at).label("day"),
+                func.date_trunc("day", UsageEvent.created_at).label("bucket"),
                 UsageEvent.event_type,
-                func.count(UsageEvent.id).label("count"),
+                func.count(UsageEvent.id).label("event_count"),
             )
             .group_by(func.date_trunc("day", UsageEvent.created_at), UsageEvent.event_type)
             .order_by(func.date_trunc("day", UsageEvent.created_at).desc())
@@ -488,5 +516,10 @@ async def usage_stats(request: Request, db: AsyncSession = Depends(get_db)) -> l
     ).all()
 
     return [
-        AdminUsageOut(date=str(row.day.date()), event_type=row.event_type, count=int(row.count)) for row in rows
+        AdminUsageOut(
+            date=str(row.bucket.date()) if row.bucket else "unknown",
+            event_type=row.event_type,
+            count=int(row.event_count),
+        )
+        for row in rows
     ]

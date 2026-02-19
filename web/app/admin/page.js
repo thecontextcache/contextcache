@@ -110,6 +110,16 @@ export default function AdminPage() {
     }
   }
 
+  async function setAdmin(id, userEmail, grant) {
+    try {
+      await apiFetch(`/admin/users/${id}/${grant ? "grant-admin" : "revoke-admin"}`, { method: "POST" });
+      toast.success(`${userEmail} ${grant ? "granted" : "revoked"} admin.`);
+      await load();
+    } catch (err) {
+      handleErr(err);
+    }
+  }
+
   const filteredInvites = useMemo(
     () => invites.filter((i) => !inviteFilter || i.email.toLowerCase().includes(inviteFilter.toLowerCase())),
     [invites, inviteFilter]
@@ -301,7 +311,7 @@ export default function AdminPage() {
                     </span>
                   </td>
                   <td>
-                    <div className="td-actions">
+                    <div className="td-actions" style={{ flexWrap: "wrap" }}>
                       <button
                         className="btn secondary sm"
                         onClick={() => setUserDisabled(u.id, !u.is_disabled)}
@@ -313,6 +323,13 @@ export default function AdminPage() {
                         onClick={() => revokeSessions(u.id, u.email)}
                       >
                         Revoke sessions
+                      </button>
+                      <button
+                        className={`btn sm ${u.is_admin ? "danger" : "secondary"}`}
+                        onClick={() => setAdmin(u.id, u.email, !u.is_admin)}
+                        title={u.is_admin ? "Remove admin privileges" : "Grant admin privileges"}
+                      >
+                        {u.is_admin ? "Revoke admin" : "Grant admin"}
                       </button>
                     </div>
                   </td>
