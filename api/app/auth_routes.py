@@ -151,7 +151,9 @@ async def request_link(
         )
     )
     await db.commit()
-    debug_link = link if APP_ENV == "dev" and send_status == "logged" else None
+    # debug_link is a relative path so it works on any host (Tailscale, localhost, etc.)
+    # The browser resolves it against its current origin — no wrong-domain issues.
+    debug_link = f"/auth/verify?token={raw_token}" if APP_ENV == "dev" and send_status == "logged" else None
     return AuthRequestLinkOut(status="ok", detail="Check your email for a sign-in link.", debug_link=debug_link)
 
 

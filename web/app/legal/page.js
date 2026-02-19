@@ -7,7 +7,7 @@ export default function LegalPage() {
 
       <h2>Copyright Notice</h2>
       <p>
-        Copyright &copy; 2024–2025 thecontextcache™. All Rights Reserved. The &ldquo;™&rdquo;
+        Copyright &copy; 2024–2026 thecontextcache™. All Rights Reserved. The &ldquo;™&rdquo;
         symbol indicates a trademark claim. TheContextCache is not currently registered with
         any trademark office, and no LLC has been formed.
       </p>

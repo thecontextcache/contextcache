@@ -19,7 +19,13 @@ export default function Shell({ children }) {
   const [session, setSession] = useState(null);
 
   const apiBase = useMemo(() => buildApiBase(), []);
-  const docsBase = useMemo(() => buildDocsBase(), []);
+  // Docs URL is client-only — buildDocsBase() needs window.location.hostname.
+  // useEffect ensures it never runs on the server (avoids SSR → localhost:8001).
+  const [docsBase, setDocsBase] = useState("");
+
+  useEffect(() => {
+    setDocsBase(buildDocsBase());
+  }, []);
 
   // Health check on mount, retry when recovered
   useEffect(() => {
@@ -90,9 +96,11 @@ export default function Shell({ children }) {
           <Link href="/app" className={nav("/app")}>App</Link>
           {isAdmin && <Link href="/admin" className={nav("/admin")}>Admin</Link>}
           <Link href="/legal" className={nav("/legal")}>Legal</Link>
-          <a href={docsBase} target="_blank" rel="noreferrer" className="nav-link">
-            Docs
-          </a>
+          {docsBase && (
+            <a href={docsBase} target="_blank" rel="noreferrer" className="nav-link">
+              Docs
+            </a>
+          )}
           {isLoggedIn ? (
             <button type="button" className="nav-btn" onClick={logout}>
               Sign out
@@ -119,7 +127,7 @@ export default function Shell({ children }) {
       <footer className="footer">
         <span className="muted">thecontextcache™ — invite-only alpha</span>
         <div className="footer-links">
-          <a href={docsBase} target="_blank" rel="noreferrer">Docs</a>
+          {docsBase && <a href={docsBase} target="_blank" rel="noreferrer">Docs</a>}
           <a href="mailto:support@thecontextcache.com">Support</a>
           <Link href="/legal">Legal</Link>
         </div>
