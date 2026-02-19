@@ -75,6 +75,10 @@ export default function Shell({ children }) {
     return `nav-link${active ? " active" : ""}`;
   }
 
+  // Don't show login-state nav items on the auth page itself —
+  // the user is mid-signin and "Sign out" / "Admin" make no sense there.
+  const onAuthPage = pathname.startsWith("/auth");
+
   if (healthOk === false) {
     return (
       <ServiceUnavailable
@@ -98,14 +102,14 @@ export default function Shell({ children }) {
         <nav className="nav" aria-label="Main navigation">
           <Link href="/pricing" className={nav("/pricing")}>Pricing</Link>
           <Link href="/app" className={nav("/app")}>App</Link>
-          {isAdmin && <Link href="/admin" className={nav("/admin")}>Admin</Link>}
-          {isLoggedIn ? (
+          {!onAuthPage && isAdmin && <Link href="/admin" className={nav("/admin")}>Admin</Link>}
+          {!onAuthPage && isLoggedIn ? (
             <button type="button" className="nav-btn" onClick={logout}>
               Sign out
             </button>
-          ) : (
+          ) : !onAuthPage && !isLoggedIn ? (
             <Link href="/auth" className={nav("/auth")}>Sign in</Link>
-          )}
+          ) : null}
           <button
             type="button"
             className="theme-toggle"
