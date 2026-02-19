@@ -43,6 +43,7 @@ services:
       - "8000:8000"
     environment:
       - APP_ENV=${APP_ENV:-dev}
+      - APP_PUBLIC_BASE_URL=${APP_PUBLIC_BASE_URL:-http://localhost:3000}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD:-change-me}@db:5432/${POSTGRES_DB:-contextcache}
       - RUN_MIGRATIONS=1

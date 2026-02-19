@@ -122,7 +122,12 @@ async def request_link(
 
     sent, send_status = send_magic_link(email=email, link=link, template_type="login")
     if not sent:
-        raise HTTPException(status_code=500, detail="Email delivery failed")
+        # In prod this means SES is misconfigured or sandbox-blocked.
+        # In dev the emailer always returns sent=True (falls back to log).
+        raise HTTPException(
+            status_code=500,
+            detail="Email delivery failed. Contact your admin — SES may not be configured yet.",
+        )
 
     db.add(
         AuthMagicLink(

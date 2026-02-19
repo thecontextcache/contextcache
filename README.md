@@ -1,10 +1,12 @@
 # TheContextCache™
 
-[![CI](https://github.com/YOUR_ORG/contextcache/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_ORG/contextcache/actions/workflows/ci.yml)
+[![CI](https://github.com/nd-contextcache/contextcache/actions/workflows/ci.yml/badge.svg)](https://github.com/nd-contextcache/contextcache/actions/workflows/ci.yml)
 
-> Invite-only alpha · Project Brain for AI-assisted teams
+> Invite-only alpha — Project Brain for AI-assisted teams.
 
-Capture high-signal decisions and findings, then recall paste-ready context packs — right when your LLM needs them.
+Capture high-signal decisions and findings, then recall paste-ready context packs when your LLM needs them.
+
+---
 
 ## Stack
 
@@ -16,129 +18,69 @@ Capture high-signal decisions and findings, then recall paste-ready context pack
 | Docs | MkDocs Material |
 | Infra | Docker Compose |
 
-## API Connectivity (server deployment)
-
-The frontend derives the API base URL from:
-1. `NEXT_PUBLIC_API_BASE_URL` env var (set in `.env` before building)
-2. Fallback: `window.location.protocol + hostname + :8000`
-
-**CORS must include your web origin.** In `.env` on the server:
-
-```env
-CORS_ORIGINS=http://localhost:3000,http://YOUR_SERVER_IP:3000
-NEXT_PUBLIC_API_BASE_URL=http://YOUR_SERVER_IP:8000
-```
-
-Then rebuild: `docker compose up -d --build`
-
-To verify CORS is working:
-
-```bash
-curl -i -X OPTIONS "http://YOUR_SERVER_IP:8000/health" \
-  -H "Origin: http://YOUR_SERVER_IP:3000" \
-  -H "Access-Control-Request-Method: GET"
-# Expect: 200 + Access-Control-Allow-Origin header
-```
+---
 
 ## Quickstart
 
 ```bash
+cp .env.example .env
+# Edit .env with your values
 docker compose up -d --build
 ```
-
-Open:
 
 - Web: `http://localhost:3000`
 - API docs: `http://localhost:8000/docs`
 - MkDocs: `http://localhost:8001`
 
-## Environment
+---
 
-Copy `.env.example` to `.env` and set values.
+## Deployment modes
 
-Important vars:
+### Mode A — Tailscale / private network
 
-- `APP_ENV=dev|prod|test`
-- `APP_PUBLIC_BASE_URL` (magic-link URL host)
-- `CORS_ORIGINS` (comma-separated web origins)
-- `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `SES_FROM_EMAIL`
-- `MAGIC_LINK_TTL_MINUTES`, `SESSION_TTL_DAYS`, `MAX_SESSIONS_PER_USER`
-- `AUTH_RATE_LIMIT_PER_IP_PER_HOUR`, `AUTH_RATE_LIMIT_PER_EMAIL_PER_HOUR`, `AUTH_VERIFY_RATE_LIMIT_PER_IP_PER_HOUR`
-- `BOOTSTRAP_API_KEY` (dev-only stable fallback key)
-- `NEXT_PUBLIC_API_BASE_URL` (optional)
-- `NEXT_PUBLIC_DOCS_URL` (optional; avoids localhost links on server deploy)
+Set in `.env`:
 
-## Auth flow
+```env
+APP_ENV=dev
+APP_PUBLIC_BASE_URL=http://<tailscale-ip>:3000
+CORS_ORIGINS=http://localhost:3000,http://<tailscale-ip>:3000
+```
 
-1. Admin creates invite from `/admin`.
-2. User opens `/auth` and requests magic link.
-3. API sends SES email (or logs debug link in `APP_ENV=dev` if SES fails).
-4. User verifies token at `/auth/verify?token=...`.
-5. API sets `HttpOnly` session cookie and user enters `/app`.
+### Mode B — Cloudflare Tunnel (HTTPS domain)
 
-Rules:
+```env
+APP_ENV=prod
+APP_PUBLIC_BASE_URL=https://thecontextcache.com
+CORS_ORIGINS=https://thecontextcache.com
+```
 
-- `/app` and `/admin` are session-gated in UI.
-- `/admin/*` API endpoints require `is_admin=true`.
-- Core APIs accept session auth or `X-API-Key`.
+The frontend auto-detects the production domain and switches to same-origin
+API paths (`/api`, `/docs`). See [`docs/06-deployment.md`](docs/06-deployment.md)
+for the full Cloudflare Tunnel and nginx path-stripping setup.
 
-## SES behavior
-
-- `APP_ENV=dev`: SES failure falls back to console log and `/auth/request-link` returns `debug_link`.
-- `APP_ENV!=dev`: SES failure returns HTTP 500 (`Email delivery failed`).
+---
 
 ## Tests
 
 ```bash
 docker compose --profile test run --rm api-test
-```
-
-Profile behavior:
-
-- Normal: `docker compose up -d` does not start `db-test`/`api-test`.
-- Tests: `docker compose --profile test up -d db-test` then run `api-test`.
-- Cleanup: `docker compose --profile test down -v`
-
-## Debugging / sanity checks
-
-```bash
-# Health
-curl -s http://127.0.0.1:8000/health
-
-# Session me (after login)
-curl -i -s http://127.0.0.1:8000/auth/me
-
-# API key me (programmatic path)
-curl -s http://127.0.0.1:8000/me -H "X-API-Key: $BOOTSTRAP_API_KEY"
-
-# CORS preflight
-curl -i -X OPTIONS "http://127.0.0.1:8000/projects" \
-  -H "Origin: http://127.0.0.1:3000" \
-  -H "Access-Control-Request-Method: GET" \
-  -H "Access-Control-Request-Headers: x-api-key,x-org-id,content-type"
-
-# DB rows
-docker compose exec db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT id,name,prefix,revoked_at FROM api_keys ORDER BY id DESC LIMIT 5;"'
-```
-
-## If db-test is still running
-
-```bash
 docker compose --profile test down -v
-# or
-docker compose rm -sf db-test
 ```
 
-## Dev DB reset
+---
 
-```bash
-docker compose down
-docker volume rm contextcache_pgdata
-docker compose up -d --build
-```
+## Auth flow
 
-Then verify bootstrap key visibility:
+1. Admin sends an invitation from `/admin`.
+2. User visits `/auth` and requests a magic link.
+3. In dev mode, if SES is not configured, the link is printed to API logs and returned as `debug_link` in the response.
+4. User follows the link to `/auth/verify?token=...`.
+5. API sets a secure `HttpOnly` session cookie; user lands in `/app`.
 
-```bash
-docker compose exec api env | grep BOOTSTRAP_API_KEY
-```
+---
+
+## Environment
+
+Copy `.env.example` to `.env`. Key variables are documented inline in that file.
+
+Never commit `.env` — it is git-ignored.
