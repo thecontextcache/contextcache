@@ -18,7 +18,17 @@ engine: AsyncEngine = create_async_engine(DATABASE_URL, echo=False, future=True)
 @event.listens_for(engine.sync_engine, "connect")
 def _pgvector_connect(dbapi_connection, _connection_record) -> None:
     """Register pgvector codecs for asyncpg connections."""
-    dbapi_connection.run_async(register_vector)
+    async def _safe_register(conn) -> None:
+        try:
+            await register_vector(conn)
+        except ValueError as exc:
+            # Happens before `CREATE EXTENSION vector` runs on first startup/migration.
+            # Safe to ignore here; connections created after migrations will register.
+            if "unknown type: public.vector" in str(exc):
+                return
+            raise
+
+    dbapi_connection.run_async(_safe_register)
 
 AsyncSessionLocal = sessionmaker(
     bind=engine,
