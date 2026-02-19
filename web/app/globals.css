@@ -196,9 +196,19 @@ img, svg { display: block; max-width: 100%; }
   font-size: 0.82rem;
   background: rgba(6, 12, 24, 0.6);
 }
-.footer-links { display: flex; gap: 14px; flex-wrap: wrap; }
+.footer-links { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
 .footer-links a { color: var(--muted); transition: color var(--transition); }
 .footer-links a:hover { color: var(--brand); text-decoration: none; }
+
+.footer-social {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  transition: color var(--transition), text-shadow var(--transition);
+}
+.footer-social:hover { color: var(--brand); text-shadow: 0 0 10px rgba(0,212,255,0.4); text-decoration: none; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    SPACING / LAYOUT UTILITIES

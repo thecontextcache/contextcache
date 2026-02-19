@@ -134,8 +134,8 @@ export default function LandingPage() {
           <Link href="/auth" className="btn-glow">
             Request access →
           </Link>
-          <Link href="/auth" className="btn-outline-glow">
-            Sign in
+          <Link href="/pricing" className="btn-outline-glow">
+            See pricing
           </Link>
         </div>
 
@@ -302,16 +302,9 @@ export default function LandingPage() {
             <Link href="/auth" className="btn-glow">
               Request access →
             </Link>
-            <a
-              href="#"
-              className="btn-outline-glow"
-              onClick={(e) => {
-                e.preventDefault();
-                window.location.href = "mailto:support@thecontextcache.com?subject=Alpha Access Request";
-              }}
-            >
-              Email us
-            </a>
+            <Link href="/pricing" className="btn-outline-glow">
+              View pricing
+            </Link>
           </div>
         </div>
       </div>

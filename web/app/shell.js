@@ -86,6 +86,9 @@ export default function Shell({ children }) {
     );
   }
 
+  // Landing page and pricing are full-width — they handle their own layout.
+  const isFullWidth = pathname === "/" || pathname === "/pricing";
+
   return (
     <div className="shell">
       <header className="topbar">
@@ -93,6 +96,7 @@ export default function Shell({ children }) {
           thecontextcache™
         </Link>
         <nav className="nav" aria-label="Main navigation">
+          <Link href="/pricing" className={nav("/pricing")}>Pricing</Link>
           <Link href="/app" className={nav("/app")}>App</Link>
           {isAdmin && <Link href="/admin" className={nav("/admin")}>Admin</Link>}
           <Link href="/legal" className={nav("/legal")}>Legal</Link>
@@ -120,16 +124,55 @@ export default function Shell({ children }) {
         </nav>
       </header>
 
-      <div className="page" id="main-content">
-        {children}
-      </div>
+      {isFullWidth ? (
+        <main id="main-content">{children}</main>
+      ) : (
+        <div className="page" id="main-content">{children}</div>
+      )}
 
       <footer className="footer">
         <span className="muted">thecontextcache™ — invite-only alpha</span>
+
         <div className="footer-links">
+          <Link href="/pricing">Pricing</Link>
           {docsBase && <a href={docsBase} target="_blank" rel="noreferrer">Docs</a>}
           <a href="mailto:support@thecontextcache.com">Support</a>
           <Link href="/legal">Legal</Link>
+
+          {/* Divider */}
+          <span style={{ color: "var(--muted-2)", userSelect: "none" }}>·</span>
+
+          {/* Bluesky */}
+          <a
+            href="https://bsky.app/profile/thecontextcache.bsky.social"
+            target="_blank"
+            rel="noreferrer"
+            className="footer-social"
+            aria-label="TheContextCache on Bluesky"
+            title="@thecontextcache.bsky.social on Bluesky"
+          >
+            <svg width="14" height="14" viewBox="0 0 360 320" fill="currentColor" aria-hidden="true">
+              <path d="M180 142c-16-70-80-120-140-120C15 22 0 60 0 80c0 52 40 70 80 80-50 10-80 40-80 80 0 30 20 60 60 60 50 0 100-40 120-80 20 40 70 80 120 80 40 0 60-30 60-60 0-40-30-70-80-80 40-10 80-28 80-80C360 60 345 22 320 22c-60 0-124 50-140 120z" />
+            </svg>
+            Bluesky
+          </a>
+
+          {/* Instagram */}
+          <a
+            href="https://www.instagram.com/thecontextcache"
+            target="_blank"
+            rel="noreferrer"
+            className="footer-social"
+            aria-label="TheContextCache on Instagram"
+            title="@thecontextcache on Instagram"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
+              <circle cx="12" cy="12" r="4" />
+              <circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none" />
+            </svg>
+            Instagram
+          </a>
         </div>
       </footer>
 
