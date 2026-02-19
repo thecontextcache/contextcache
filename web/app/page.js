@@ -1,5 +1,9 @@
 import Link from "next/link";
 
+// Never statically cache — the middleware must run on every request
+// so authenticated users are redirected to /app before this renders.
+export const dynamic = "force-dynamic";
+
 const FEATURES = [
   {
     icon: "🧠",

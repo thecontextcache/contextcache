@@ -96,9 +96,11 @@ export default function Shell({ children }) {
   return (
     <div className="shell">
       <header className="topbar">
-        <Link href="/" className="brand">
+        {/* Hard navigate: bypasses Next.js client router cache so middleware
+            always runs and redirects auth users correctly to /app */}
+        <a href="/" className="brand">
           thecontextcache™
-        </Link>
+        </a>
         <nav className="nav" aria-label="Main navigation">
           <Link href="/pricing" className={nav("/pricing")}>Pricing</Link>
           <Link href="/app" className={nav("/app")}>App</Link>
