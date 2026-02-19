@@ -1,42 +1,45 @@
 "use client";
 
-// Production domain — when accessed over HTTPS from this hostname (or any
-// subdomain), the frontend uses same-origin relative paths that Cloudflare
-// Tunnel (or any reverse-proxy) maps to the correct backend service:
-//   /api  → api:8000
-//   /docs → docs:8001
-const PRODUCTION_DOMAIN = "thecontextcache.com";
-
-function isProductionDomain() {
-  if (typeof window === "undefined") return false;
-  const { protocol, hostname } = window.location;
-  return (
-    protocol === "https:" &&
-    (hostname === PRODUCTION_DOMAIN || hostname.endsWith(`.${PRODUCTION_DOMAIN}`))
-  );
-}
-
-// Priority order:
-// 1. NEXT_PUBLIC_API_BASE_URL (explicit override — baked in at build time)
-// 2. Same-origin /api  — when on production HTTPS domain (Mode B: Cloudflare)
-// 3. Same host on :8000 — Tailscale / local (Mode A)
+/**
+ * API base resolution.
+ *
+ * All browser traffic goes to the same-origin /api prefix.
+ * next.config.js rewrites /api/:path* → http://api:8000/:path* server-side.
+ * This means:
+ *   - No CORS — browser never calls port 8000 directly
+ *   - Works identically on Tailscale, Cloudflare, and local dev
+ *   - NEXT_PUBLIC_API_BASE_URL can still override for edge deployments
+ */
 export function buildApiBase() {
   if (process.env.NEXT_PUBLIC_API_BASE_URL) {
     return process.env.NEXT_PUBLIC_API_BASE_URL.replace(/\/$/, "");
   }
-  if (typeof window === "undefined") return "http://localhost:8000";
-  if (isProductionDomain()) return "/api";
-  return `${window.location.protocol}//${window.location.hostname}:8000`;
+  return "/api";
 }
 
-// Same two-mode logic for the docs site.
+/**
+ * Docs base URL.
+ * MkDocs runs on a separate container so we link externally.
+ * On production (HTTPS + thecontextcache.com) we assume a /docs proxy.
+ */
+const PRODUCTION_DOMAIN = "thecontextcache.com";
+
 export function buildDocsBase() {
   if (process.env.NEXT_PUBLIC_DOCS_URL) {
     return process.env.NEXT_PUBLIC_DOCS_URL.replace(/\/$/, "");
   }
-  if (typeof window === "undefined") return "http://localhost:8001";
-  if (isProductionDomain()) return "/docs";
-  return `${window.location.protocol}//${window.location.hostname}:8001`;
+  if (typeof window !== "undefined") {
+    const { protocol, hostname } = window.location;
+    if (
+      protocol === "https:" &&
+      (hostname === PRODUCTION_DOMAIN || hostname.endsWith(`.${PRODUCTION_DOMAIN}`))
+    ) {
+      return "/docs";
+    }
+    // Tailscale / local: open docs on :8001 of the same host
+    return `${protocol}//${hostname}:8001`;
+  }
+  return "http://localhost:8001";
 }
 
 export class ApiError extends Error {
@@ -81,7 +84,11 @@ export async function apiFetch(path, init = {}) {
         "rate_limit"
       );
     if (response.status >= 500)
-      throw new ApiError("Server error. Please try again shortly.", response.status, "server");
+      throw new ApiError(
+        "Server error. Please try again shortly.",
+        response.status,
+        "server"
+      );
     throw new ApiError(detail, response.status, "client");
   }
 
@@ -89,9 +96,8 @@ export async function apiFetch(path, init = {}) {
 }
 
 export async function checkHealth(signal) {
-  const base = buildApiBase();
   try {
-    const res = await fetch(`${base}/health`, {
+    const res = await fetch(`${buildApiBase()}/health`, {
       credentials: "include",
       signal: signal ?? AbortSignal.timeout(5000),
     });
