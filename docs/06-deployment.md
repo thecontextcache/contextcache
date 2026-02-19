@@ -412,6 +412,16 @@ batch recall, scheduled cleanup).
 | `worker` | same as `api` | Celery worker process |
 | `beat` | same as `api` | Celery Beat scheduler (periodic tasks) |
 
+### Database image requirement (pgvector)
+
+Hybrid recall uses native pgvector columns, so Postgres must include the `vector` extension.
+
+Use:
+
+- `pgvector/pgvector:pg16` (recommended)
+
+If you run plain `postgres:16`, API startup can fail during migrations when `CREATE EXTENSION vector` runs.
+
 ### Enable worker mode
 
 1. Add to your `.env`:

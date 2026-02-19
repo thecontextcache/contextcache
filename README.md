@@ -109,6 +109,21 @@ set `NEXT_PUBLIC_DOCS_URL=https://docs.thecontextcache.com` in `.env` and rebuil
 docker compose up -d --build web
 ```
 
+If the web shows `Service Temporarily Unavailable` with detected API endpoint `/api`,
+check API startup + DB extension support:
+
+```bash
+docker compose logs -n 120 api
+docker compose ps
+```
+
+If logs mention pgvector/`vector` extension failures, use the pgvector DB image
+(`pgvector/pgvector:pg16`) and rebuild:
+
+```bash
+docker compose up -d --build db api web
+```
+
 ## Worker profile
 
 ```bash
