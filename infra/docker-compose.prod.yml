@@ -1,22 +1,41 @@
+# Production deployment — run from project root:
+#   docker compose -f infra/docker-compose.prod.yml up -d
+#
+# Required environment variables (set in .env or shell):
+#   POSTGRES_PASSWORD, JWT_SECRET, CORS_ORIGINS, APP_PUBLIC_BASE_URL
+#
+# Optional:
+#   NEXT_PUBLIC_ASSET_VERSION  (cache-busting string, e.g. "20260220")
 
 services:
   db:
-    image: ankane/pgvector:v0.4.2
+    image: pgvector/pgvector:pg16
     restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-contextcache}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-contextcache}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       POSTGRES_DB: ${POSTGRES_DB:-contextcache}
     volumes:
       - prod-db-data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-contextcache} -d ${POSTGRES_DB:-contextcache}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    # DB port is intentionally NOT exposed — only reachable inside Docker network
 
   redis:
     image: redis:7-alpine
     restart: always
+    command: redis-server --save 60 1 --loglevel warning
     volumes:
       - prod-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   api:
     build:
@@ -24,24 +43,32 @@ services:
       dockerfile: Dockerfile
     restart: always
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD:-contextcache}@db:5432/${POSTGRES_DB:-contextcache}
-      - REDIS_URL=redis://redis:6379/0
-      - JWT_SECRET=${JWT_SECRET:-super-secret-default-key-change-me}
       - APP_ENV=prod
-      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-contextcache}
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
+      - CORS_ORIGINS=${CORS_ORIGINS:-https://thecontextcache.com}
+      - APP_PUBLIC_BASE_URL=${APP_PUBLIC_BASE_URL:-https://thecontextcache.com}
+      - RUN_MIGRATIONS=1
     ports:
       - "8000:8000"
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   web:
     build:
       context: ../web
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_ASSET_VERSION: ${NEXT_PUBLIC_ASSET_VERSION:-20260220}
     restart: always
     environment:
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      # Server-side proxy: Next.js rewrites /api/* → http://api:8000/*
+      # Browser never calls port 8000 directly — zero CORS issues
+      - API_UPSTREAM=http://api:8000
     ports:
       - "3000:3000"
     depends_on:
@@ -52,28 +79,38 @@ services:
       context: ../api
       dockerfile: Dockerfile
     restart: always
-    command: celery -A app.worker.celery_app worker --loglevel=info
+    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=2
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD:-contextcache}@db:5432/${POSTGRES_DB:-contextcache}
-      - REDIS_URL=redis://redis:6379/0
       - APP_ENV=prod
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-contextcache}
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - WORKER_ENABLED=true
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   beat:
     build:
       context: ../api
       dockerfile: Dockerfile
     restart: always
-    command: celery -A app.worker.celery_app beat --loglevel=info
+    command: celery -A app.worker.celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD:-contextcache}@db:5432/${POSTGRES_DB:-contextcache}
-      - REDIS_URL=redis://redis:6379/0
       - APP_ENV=prod
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-contextcache}
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - WORKER_ENABLED=true
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
   prod-db-data:
