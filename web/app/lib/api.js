@@ -11,10 +11,25 @@
  *   - NEXT_PUBLIC_API_BASE_URL can still override for edge deployments
  */
 export function buildApiBase() {
-  if (process.env.NEXT_PUBLIC_API_BASE_URL) {
-    return process.env.NEXT_PUBLIC_API_BASE_URL.replace(/\/$/, "");
+  const configured = (process.env.NEXT_PUBLIC_API_BASE_URL || "").trim();
+  if (!configured) {
+    return "/api";
   }
-  return "/api";
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    const prodDomain =
+      host === "thecontextcache.com" || host.endsWith(".thecontextcache.com");
+    const lowerConfigured = configured.toLowerCase();
+    // Guardrail: if production host is in use but API base points to localhost,
+    // force same-origin proxy path to avoid browser-side network/CORS failures.
+    if (
+      prodDomain &&
+      (lowerConfigured.includes("localhost") || lowerConfigured.includes("127.0.0.1"))
+    ) {
+      return "/api";
+    }
+  }
+  return configured.replace(/\/$/, "");
 }
 
 /**
@@ -58,18 +73,35 @@ export class ApiError extends Error {
 }
 
 export async function apiFetch(path, init = {}) {
-  const base = buildApiBase();
+  const primaryBase = buildApiBase();
+  const bases = primaryBase === "/api" ? [primaryBase] : [primaryBase, "/api"];
   let response;
-  try {
-    response = await fetch(`${base}${path}`, {
-      ...init,
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        ...(init.headers || {}),
-      },
-    });
-  } catch {
+  let networkFailureCount = 0;
+
+  for (const base of bases) {
+    try {
+      response = await fetch(`${base}${path}`, {
+        ...init,
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...(init.headers || {}),
+        },
+      });
+      break;
+    } catch {
+      networkFailureCount += 1;
+      if (networkFailureCount >= bases.length) {
+        throw new ApiError(
+          "Cannot reach the backend. Check your network or server status.",
+          0,
+          "network"
+        );
+      }
+    }
+  }
+
+  if (!response) {
     throw new ApiError(
       "Cannot reach the backend. Check your network or server status.",
       0,
@@ -113,13 +145,20 @@ function makeTimeoutSignal(ms) {
 }
 
 export async function checkHealth(signal) {
-  try {
-    const res = await fetch(`${buildApiBase()}/health`, {
-      credentials: "include",
-      signal: signal ?? makeTimeoutSignal(5000),
-    });
-    return res.ok;
-  } catch {
-    return false;
+  const primaryBase = buildApiBase();
+  const bases = primaryBase === "/api" ? [primaryBase] : [primaryBase, "/api"];
+  for (const base of bases) {
+    try {
+      const res = await fetch(`${base}/health`, {
+        credentials: "include",
+        signal: signal ?? makeTimeoutSignal(5000),
+      });
+      if (res.ok) {
+        return true;
+      }
+    } catch {
+      // try next candidate
+    }
   }
+  return false;
 }

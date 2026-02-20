@@ -21,12 +21,13 @@ def _pgvector_connect(dbapi_connection, _connection_record) -> None:
     async def _safe_register(conn) -> None:
         try:
             await register_vector(conn)
-        except ValueError as exc:
-            # Happens before `CREATE EXTENSION vector` runs on first startup/migration.
-            # Safe to ignore here; connections created after migrations will register.
+        except Exception as exc:
+            # During first boot/migration, `vector` may not exist yet.
+            # Also tolerate codec registration failures so API/migrations don't crash-loop.
             if "unknown type: public.vector" in str(exc):
                 return
-            raise
+            print(f"[db] pgvector codec registration skipped: {exc}")
+            return
 
     dbapi_connection.run_async(_safe_register)
 
