@@ -103,8 +103,22 @@ CAG_KV_STUB_ENABLED=true
 ### 6. Start
 
 ```bash
-docker compose up -d --build
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 sudo systemctl start cloudflared
+```
+
+### Dev vs prod compose
+
+- Dev local/server testing:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+```
+
+- Prod (localhost-only binds for Cloudflared):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
 
 ### Compose profiles
@@ -260,8 +274,24 @@ frontend automatically derives them from `window.location.hostname:8000/8001`.
 ### Start
 
 ```bash
-docker compose up -d --build
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 ```
+
+## SES rejection recovery (temporary)
+
+If Amazon SES is still in sandbox/rejected and login links fail in non-dev:
+
+1. Set in `.env`:
+   - `MAGIC_LINK_ALLOW_LOG_FALLBACK=true`
+2. Rebuild/restart API:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build api
+```
+
+3. Request link again and use the `debug_link` response.
+4. After SES is fixed, revert:
+   - `MAGIC_LINK_ALLOW_LOG_FALLBACK=false`
 
 ---
 

@@ -39,6 +39,8 @@ Session controls:
 - Uses AWS SES via `boto3`
 - `APP_ENV=dev`: SES failures log `[magic-link-debug]` and flow returns success with `debug_link`
 - non-dev: SES failure returns `500` (`Email delivery failed`)
+- emergency override: `MAGIC_LINK_ALLOW_LOG_FALLBACK=true` allows logged `debug_link` outside dev.
+  Use only as a temporary recovery switch; disable after SES is healthy.
 
 ## API key storage + org isolation
 

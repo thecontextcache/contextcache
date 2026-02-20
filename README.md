@@ -34,6 +34,31 @@ docker compose up -d --build
 
 ---
 
+## Architecture & deployment model
+
+- Runtime host: single Ubuntu server (your old laptop).
+- Public ingress: Cloudflare Tunnel.
+- Services:
+  - `web` (Next.js) on port `3000`
+  - `api` (FastAPI) on port `8000`
+  - `docs` (MkDocs) on port `8001`
+  - `db` (Postgres + pgvector) internal
+  - `redis` internal
+- Domain routing:
+  - `thecontextcache.com` → `web`
+  - `api.thecontextcache.com` → `api`
+  - `docs.thecontextcache.com` → `docs`
+
+### Compose environments (professional split)
+
+- Dev:
+  - `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build`
+- Prod:
+  - `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build`
+  - binds web/api/docs to `127.0.0.1` so only Cloudflared can reach them.
+
+---
+
 ## Deployment modes
 
 ### Mode A — Tailscale / private network
@@ -202,6 +227,10 @@ SES production note:
 - Keep SES in sandbox/dev mode until Amazon production access is approved.
 - After approval, set `APP_ENV=prod` and configure:
   `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `SES_FROM_EMAIL`.
+- If SES is blocked and login is urgent, temporarily set:
+  - `MAGIC_LINK_ALLOW_LOG_FALLBACK=true`
+  - then use returned/logged `debug_link`.
+  - set it back to `false` after recovery.
 
 ---
 

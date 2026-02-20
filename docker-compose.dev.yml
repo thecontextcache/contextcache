@@ -1,0 +1,16 @@
+services:
+  api:
+    environment:
+      - APP_ENV=dev
+      - RUN_MIGRATIONS=1
+    ports:
+      - "8000:8000"
+
+  web:
+    ports:
+      - "3000:3000"
+
+  docs:
+    ports:
+      - "8001:8001"
+

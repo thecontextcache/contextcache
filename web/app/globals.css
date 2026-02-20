@@ -295,26 +295,27 @@ html[data-theme="light"] .brand-logo {
 
 .footer {
   border-top: 1px solid var(--line);
-  padding: 16px 24px;
+  background: linear-gradient(to bottom, var(--bg-2), var(--bg));
+  padding: 20px 28px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
   color: var(--muted);
-  font-size: 0.82rem;
-  background: var(--panel);
+  font-size: 0.8rem;
+  letter-spacing: 0.01em;
   flex-wrap: wrap;
 }
 
 .footer-links {
   display: flex;
-  gap: 14px;
+  gap: 16px;
   flex-wrap: wrap;
   align-items: center;
 }
 
 .footer-links a {
-  color: var(--muted);
+  color: var(--muted-2);
   transition: color var(--transition);
 }
 
@@ -327,8 +328,8 @@ html[data-theme="light"] .brand-logo {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  color: var(--muted);
-  font-size: 0.82rem;
+  color: var(--muted-2);
+  font-size: 0.8rem;
   transition: color var(--transition), text-shadow var(--transition);
 }
 

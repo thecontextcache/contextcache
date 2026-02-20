@@ -57,6 +57,9 @@ APP_PUBLIC_BASE_URL = os.getenv("APP_PUBLIC_BASE_URL", "http://localhost:3000").
 APP_ENV = os.getenv("APP_ENV", "dev").strip().lower()
 # Belt-and-suspenders: treat as production if APP_ENV=prod OR ENVIRONMENT=production
 IS_PROD = APP_ENV == "prod" or os.getenv("ENVIRONMENT", "").strip().lower() == "production"
+MAGIC_LINK_ALLOW_LOG_FALLBACK = (
+    os.getenv("MAGIC_LINK_ALLOW_LOG_FALLBACK", "false").strip().lower() == "true"
+)
 INVITE_TTL_DAYS = int(os.getenv("INVITE_TTL_DAYS", "7"))
 
 
@@ -221,7 +224,11 @@ async def request_link(
     await db.commit()
     # debug_link is a relative path so it works on any host (Tailscale, localhost, etc.)
     # The browser resolves it against its current origin — no wrong-domain issues.
-    debug_link = f"/auth/verify?token={raw_token}" if APP_ENV == "dev" and send_status == "logged" else None
+    debug_link = (
+        f"/auth/verify?token={raw_token}"
+        if send_status == "logged" and (APP_ENV == "dev" or MAGIC_LINK_ALLOW_LOG_FALLBACK)
+        else None
+    )
     detail_text = (
         "You're already registered. Check your email for a sign-in link."
         if auth_user is not None
