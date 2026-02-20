@@ -294,8 +294,32 @@ async def api_key_middleware(request: Request, call_next):
     return await call_next(request)
 
 
+def _check_env_var_names() -> None:
+    """Warn if deprecated or misspelled env var names are present in the environment.
+
+    Common mistakes (found in prod .env files):
+      DAILY_MEMORIES_LIMIT  → should be DAILY_MEMORY_LIMIT  (or DAILY_MAX_MEMORIES)
+      DAILY_PROJECTS_LIMIT  → should be DAILY_PROJECT_LIMIT (or DAILY_MAX_PROJECTS)
+      DAILY_RECALLS_LIMIT   → should be DAILY_RECALL_LIMIT  (or DAILY_MAX_RECALLS)
+    These misspelled names are silently ignored by the backend and default values are used.
+    """
+    wrong_to_correct: dict[str, str] = {
+        "DAILY_MEMORIES_LIMIT": "DAILY_MEMORY_LIMIT  (or DAILY_MAX_MEMORIES)",
+        "DAILY_PROJECTS_LIMIT": "DAILY_PROJECT_LIMIT (or DAILY_MAX_PROJECTS)",
+        "DAILY_RECALLS_LIMIT":  "DAILY_RECALL_LIMIT  (or DAILY_MAX_RECALLS)",
+    }
+    for wrong, correct in wrong_to_correct.items():
+        if os.getenv(wrong):
+            print(
+                f"[env-warn] {wrong} is SET but NOT read by the backend. "
+                f"Rename it to {correct}. "
+                f"Daily limits are currently using default values."
+            )
+
+
 @app.on_event("startup")
 async def startup() -> None:
+    _check_env_var_names()
     warm_cag_cache()
     if APP_ENV == "dev":
         print(
