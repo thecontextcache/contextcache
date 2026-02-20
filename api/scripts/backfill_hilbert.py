@@ -31,6 +31,7 @@ async def backfill(batch_size: int, max_rows: int | None = None, dry_run: bool =
     
     logger.info(f"Starting hilbert backfill. Batch size: {batch_size}, Max rows: {max_rows or 'Unlimited'}, Dry run: {dry_run}")
     
+    last_id = 0
     while True:
         if max_rows is not None and total_processed >= max_rows:
             logger.info("Reached max_rows limit. Stopping.")
@@ -38,7 +39,10 @@ async def backfill(batch_size: int, max_rows: int | None = None, dry_run: bool =
             
         async with AsyncSessionLocal() as session:
             # Find rows
-            stmt = select(Memory).where(Memory.hilbert_index.is_(None)).limit(batch_size)
+            stmt = select(Memory).where(
+                Memory.hilbert_index.is_(None),
+                Memory.id > last_id
+            ).order_by(Memory.id).limit(batch_size)
             result = await session.execute(stmt)
             memories = result.scalars().all()
             
@@ -49,6 +53,7 @@ async def backfill(batch_size: int, max_rows: int | None = None, dry_run: bool =
             batch_updates = []
             
             for mem in memories:
+                last_id = max(last_id, mem.id)
                 total_processed += 1
                 vec = None
                 if isinstance(mem.embedding_vector, list) and len(mem.embedding_vector) > 0:
