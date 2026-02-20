@@ -55,6 +55,8 @@ from .schemas import (
 router = APIRouter()
 APP_PUBLIC_BASE_URL = os.getenv("APP_PUBLIC_BASE_URL", "http://localhost:3000").rstrip("/")
 APP_ENV = os.getenv("APP_ENV", "dev").strip().lower()
+# Belt-and-suspenders: treat as production if APP_ENV=prod OR ENVIRONMENT=production
+IS_PROD = APP_ENV == "prod" or os.getenv("ENVIRONMENT", "").strip().lower() == "production"
 INVITE_TTL_DAYS = int(os.getenv("INVITE_TTL_DAYS", "7"))
 
 
@@ -351,7 +353,7 @@ async def verify_link(
         key=SESSION_COOKIE_NAME,
         value=raw_session,
         httponly=True,
-        secure=APP_ENV == "prod",
+        secure=IS_PROD,
         samesite="lax",
         max_age=int((new_session.expires_at - now).total_seconds()),
         expires=new_session.expires_at,

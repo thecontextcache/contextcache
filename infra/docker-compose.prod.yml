@@ -28,6 +28,7 @@ services:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD:-contextcache}@db:5432/${POSTGRES_DB:-contextcache}
       - REDIS_URL=redis://redis:6379/0
       - JWT_SECRET=${JWT_SECRET:-super-secret-default-key-change-me}
+      - APP_ENV=prod
       - ENVIRONMENT=production
     ports:
       - "8000:8000"
@@ -56,6 +57,7 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD:-contextcache}@db:5432/${POSTGRES_DB:-contextcache}
       - REDIS_URL=redis://redis:6379/0
+      - APP_ENV=prod
     depends_on:
       - db
       - redis
@@ -69,6 +71,7 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD:-contextcache}@db:5432/${POSTGRES_DB:-contextcache}
       - REDIS_URL=redis://redis:6379/0
+      - APP_ENV=prod
     depends_on:
       - db
       - redis
