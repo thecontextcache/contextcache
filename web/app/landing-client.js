@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import Link from "next/link";
+import { motion, useScroll, useTransform } from "framer-motion";
 import BrainGraph from "./components/BrainGraph";
 
 const FEATURES = [
@@ -50,12 +51,12 @@ const FEATURES = [
 ];
 
 const MEMORY_TYPES = [
-  { label: "decision",   color: "#00D4FF" },
-  { label: "finding",    color: "#7C3AFF" },
+  { label: "decision", color: "#00D4FF" },
+  { label: "finding", color: "#7C3AFF" },
   { label: "definition", color: "#00E5A0" },
-  { label: "note",       color: "#FFB800" },
-  { label: "link",       color: "#FF3B6E" },
-  { label: "todo",       color: "#A78BFA" },
+  { label: "note", color: "#FFB800" },
+  { label: "link", color: "#FF3B6E" },
+  { label: "todo", color: "#A78BFA" },
 ];
 
 const STEPS = [
@@ -77,12 +78,12 @@ const STEPS = [
 ];
 
 const TECH = [
-  { label: "fastapi",    color: "#00E5A0" },
-  { label: "postgres",   color: "#00D4FF" },
-  { label: "next.js",    color: "#ffffff" },
+  { label: "fastapi", color: "#00E5A0" },
+  { label: "postgres", color: "#00D4FF" },
+  { label: "next.js", color: "#ffffff" },
   { label: "sqlalchemy", color: "#FFB800" },
-  { label: "alembic",    color: "#7C3AFF" },
-  { label: "docker",     color: "#00D4FF" },
+  { label: "alembic", color: "#7C3AFF" },
+  { label: "docker", color: "#00D4FF" },
 ];
 
 const LIVE_BRAIN_PROJECTS = [
@@ -131,6 +132,53 @@ function FaqItem({ q, a }) {
 }
 
 export default function LandingPage() {
+  const { scrollY } = useScroll();
+  const blob1Y = useTransform(scrollY, [0, 1000], [0, 200]);
+  const blob2Y = useTransform(scrollY, [0, 1000], [0, -150]);
+
+  // "Steve Jobs" style premium startup chime (synthetic)
+  const playStartupSound = useCallback(() => {
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      const ctx = new AudioContext();
+
+      // Deep, resonant sci-fi chord (C minor 9th-ish)
+      const playOsc = (freq, type, detune, duration, vol) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = type;
+        osc.frequency.value = freq;
+        osc.detune.value = detune;
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        const now = ctx.currentTime;
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(vol, now + 0.1);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+        osc.start(now);
+        osc.stop(now + duration);
+      };
+
+      // The sweeping chord: Low C, G, Eb, High D
+      playOsc(65.41, "sine", 0, 3.5, 0.4);   // Sub bass
+      playOsc(98.00, "sine", 5, 4.0, 0.2);   // G
+      playOsc(155.56, "triangle", 0, 3.0, 0.15); // Eb
+      playOsc(293.66, "sine", -5, 4.5, 0.1); // High D
+    } catch (e) {
+      console.warn("AudioContext not supported or blocked");
+    }
+  }, []);
+
+  // Common fade-up variant for sections
+  const sectionVariants = {
+    hidden: { opacity: 0, y: 40 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.8, ease: [0.16, 1, 0.3, 1] } }
+  };
+
   return (
     <>
       {/* ══ HERO ══════════════════════════════════════════════════════════════ */}
@@ -138,65 +186,99 @@ export default function LandingPage() {
         {/* Background grid */}
         <div className="l-grid-bg" />
 
-        {/* Glow blobs */}
-        <div
+        {/* Glow blobs with Parallax */}
+        <motion.div
           className="l-glow-blob"
           style={{
             width: 600, height: 600,
             background: "radial-gradient(circle, rgba(0,212,255,0.14) 0%, transparent 70%)",
             top: "-10%", left: "60%",
+            y: blob1Y
           }}
         />
-        <div
+        <motion.div
           className="l-glow-blob"
           style={{
             width: 500, height: 500,
             background: "radial-gradient(circle, rgba(124,58,255,0.12) 0%, transparent 70%)",
             top: "30%", left: "-10%",
             animationDelay: "3s",
+            y: blob2Y
           }}
         />
 
         {/* Badge */}
-        <div className="l-badge">
+        <motion.div
+          className="l-badge"
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.1 }}
+        >
           <span className="l-badge-dot" />
           Invite-only alpha — now live
-        </div>
+        </motion.div>
 
         {/* Headline */}
-        <h1 className="l-title">
+        <motion.h1
+          className="l-title"
+          initial={{ opacity: 0, y: 30, filter: "blur(10px)" }}
+          animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+          transition={{ duration: 1, delay: 0.2, ease: "easeOut" }}
+        >
           <span className="l-title-grad">TheContextCache</span>
           <br />
           <span className="l-title-white" style={{ fontSize: "0.55em", letterSpacing: "0.02em", opacity: 0.9 }}>
             Project Brain for AI Teams
           </span>
-        </h1>
+        </motion.h1>
 
         {/* Tagline */}
-        <p className="l-tagline">
+        <motion.p
+          className="l-tagline"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 1, delay: 0.35, ease: "easeOut" }}
+        >
           Capture high-signal decisions and findings. Recall a formatted, paste-ready
           memory pack — in milliseconds — right when your LLM needs them.
-        </p>
+        </motion.p>
 
         {/* CTAs */}
-        <div className="l-actions">
-          <Link href="/waitlist" className="btn-glow">
+        <motion.div
+          className="l-actions"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 1, delay: 0.5, ease: "easeOut" }}
+        >
+          <Link href="/waitlist" className="btn-glow" onClick={playStartupSound}>
             Join the waitlist →
           </Link>
-          <Link href="/auth" className="btn-outline-glow">
+          <Link href="/auth" className="btn-outline-glow" onClick={playStartupSound}>
             Sign in
           </Link>
-        </div>
+        </motion.div>
 
         {/* Scroll hint */}
-        <div className="l-scroll-hint">
+        <motion.div
+          className="l-scroll-hint"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 1, delay: 1.2 }}
+        >
           <div className="l-scroll-line" />
           scroll
-        </div>
+        </motion.div>
       </section>
 
       {/* ══ LIVE BRAIN PREVIEW ═════════════════════════════════════════════ */}
-      <div className="l-section" style={{ paddingTop: 0 }}>
+      <motion.div
+        className="l-section"
+        style={{ paddingTop: 0 }}
+        variants={sectionVariants}
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true, margin: "-100px" }}
+      >
         <div style={{ marginBottom: 26 }}>
           <p className="l-section-label">Live preview</p>
           <h2 className="l-section-title">Your knowledge as a living neural graph</h2>
@@ -216,9 +298,9 @@ export default function LandingPage() {
         </div>
         <div className="l-actions" style={{ justifyContent: "flex-start", marginTop: 18 }}>
           <Link href="/brain" className="btn-outline-glow">Learn more</Link>
-          <Link href="/waitlist" className="btn-glow">Join waitlist →</Link>
+          <Link href="/waitlist" className="btn-glow" onClick={playStartupSound}>Join waitlist →</Link>
         </div>
-      </div>
+      </motion.div>
 
       {/* ══ TECH STRIP ════════════════════════════════════════════════════════ */}
       <div className="l-tech-strip">
@@ -237,7 +319,13 @@ export default function LandingPage() {
       </div>
 
       {/* ══ HOW IT WORKS ══════════════════════════════════════════════════════ */}
-      <div className="l-section">
+      <motion.div
+        className="l-section"
+        variants={sectionVariants}
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true, margin: "-100px" }}
+      >
         <div style={{ textAlign: "center", marginBottom: 52 }}>
           <p className="l-section-label">How it works</p>
           <h2 className="l-section-title">Three steps. Zero friction.</h2>
@@ -254,10 +342,17 @@ export default function LandingPage() {
             </div>
           ))}
         </div>
-      </div>
+      </motion.div>
 
       {/* ══ TERMINAL DEMO ═════════════════════════════════════════════════════ */}
-      <div className="l-section" style={{ paddingTop: 0 }}>
+      <motion.div
+        className="l-section"
+        style={{ paddingTop: 0 }}
+        variants={sectionVariants}
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true, margin: "-100px" }}
+      >
         <div className="l-terminal">
           <div className="l-terminal-bar">
             <span className="l-terminal-dot" style={{ background: "#FF3B6E" }} />
@@ -281,10 +376,17 @@ export default function LandingPage() {
             <div style={{ marginTop: 8 }}><span className="muted-t">$</span> <span className="l-terminal-cursor" /></div>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* ══ FEATURES ══════════════════════════════════════════════════════════ */}
-      <div className="l-section" style={{ paddingTop: 0 }}>
+      <motion.div
+        className="l-section"
+        style={{ paddingTop: 0 }}
+        variants={sectionVariants}
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true, margin: "-100px" }}
+      >
         <div style={{ marginBottom: 40 }}>
           <p className="l-section-label">Capabilities</p>
           <h2 className="l-section-title">Everything your AI context needs</h2>
@@ -310,7 +412,7 @@ export default function LandingPage() {
             </div>
           ))}
         </div>
-      </div>
+      </motion.div>
 
       {/* ══ MEMORY TYPES ══════════════════════════════════════════════════════ */}
       <div className="l-section" style={{ paddingTop: 0, textAlign: "center" }}>
@@ -345,9 +447,9 @@ export default function LandingPage() {
         <div className="l-stats">
           {[
             { value: "<10ms", label: "Recall latency" },
-            { value: "6",     label: "Memory types" },
-            { value: "100%",  label: "Self-hosted" },
-            { value: "0",     label: "External deps" },
+            { value: "6", label: "Memory types" },
+            { value: "100%", label: "Self-hosted" },
+            { value: "0", label: "External deps" },
           ].map((s) => (
             <div key={s.label} className="l-stat">
               <div className="l-stat-value">{s.value}</div>
@@ -361,12 +463,12 @@ export default function LandingPage() {
       <div className="l-section" style={{ paddingTop: 0 }}>
         <div className="l-trust-strip">
           {[
-            { icon: "🏠", label: "Self-hosted",       desc: "Runs entirely on your infrastructure. No SaaS lock-in." },
-            { icon: "🔒", label: "No telemetry",       desc: "Zero data sent to third parties. We never see your memories." },
-            { icon: "🛡", label: "Invite-only alpha",  desc: "Hand-picked users. We onboard carefully to maintain quality." },
-            { icon: "🗝",  label: "API key + session",  desc: "Two auth methods. Keys are hashed at rest, sessions are HttpOnly." },
-            { icon: "🧹", label: "Auto-purge",         desc: "Login IPs capped at 10 per user. Usage rows purged after 90 days." },
-            { icon: "📄", label: "Proprietary license",desc: "Source visible but not open source. Your IP stays yours." },
+            { icon: "🏠", label: "Self-hosted", desc: "Runs entirely on your infrastructure. No SaaS lock-in." },
+            { icon: "🔒", label: "No telemetry", desc: "Zero data sent to third parties. We never see your memories." },
+            { icon: "🛡", label: "Invite-only alpha", desc: "Hand-picked users. We onboard carefully to maintain quality." },
+            { icon: "🗝", label: "API key + session", desc: "Two auth methods. Keys are hashed at rest, sessions are HttpOnly." },
+            { icon: "🧹", label: "Auto-purge", desc: "Login IPs capped at 10 per user. Usage rows purged after 90 days." },
+            { icon: "📄", label: "Proprietary license", desc: "Source visible but not open source. Your IP stays yours." },
           ].map(({ icon, label, desc }) => (
             <div key={label} className="l-trust-item">
               <span className="l-trust-icon">{icon}</span>
@@ -422,7 +524,14 @@ export default function LandingPage() {
       </div>
 
       {/* ══ FINAL CTA ═════════════════════════════════════════════════════════ */}
-      <div className="l-section" style={{ paddingTop: 0 }}>
+      <motion.div
+        className="l-section"
+        style={{ paddingTop: 0 }}
+        variants={sectionVariants}
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true, margin: "-100px" }}
+      >
         <div className="l-cta-box">
           <div className="l-grid-bg" style={{ opacity: 0.5 }} />
           <div className="l-cta-glow" />
@@ -439,10 +548,10 @@ export default function LandingPage() {
             access, and a seat at the table while we shape the product.
           </p>
           <div className="l-cta-actions" style={{ justifyContent: "center" }}>
-            <Link href="/waitlist" className="btn-glow" style={{ fontSize: "1rem", padding: "14px 36px" }}>
+            <Link href="/waitlist" className="btn-glow" style={{ fontSize: "1rem", padding: "14px 36px" }} onClick={playStartupSound}>
               Join the waitlist →
             </Link>
-            <Link href="/auth" className="btn-outline-glow">
+            <Link href="/auth" className="btn-outline-glow" onClick={playStartupSound}>
               Already invited? Sign in
             </Link>
           </div>
@@ -454,7 +563,7 @@ export default function LandingPage() {
             No credit card · Self-hosted · Your data stays yours
           </p>
         </div>
-      </div>
+      </motion.div>
 
       {/* Bottom spacer */}
       <div style={{ height: 40 }} />

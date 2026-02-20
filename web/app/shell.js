@@ -113,6 +113,7 @@ export default function Shell({ children }) {
         </a>
         <nav className="nav" aria-label="Main navigation">
           <Link href="/pricing" className={nav("/pricing")}>Pricing</Link>
+          <Link href="/clients" className={nav("/clients")}>Clients</Link>
           <Link href="/app" className={nav("/app")}>App</Link>
           {!onAuthPage && isLoggedIn && <Link href="/brain" className={nav("/brain")}>Brain</Link>}
           {!onAuthPage && isAdmin && <Link href="/admin" className={nav("/admin")}>Admin</Link>}
@@ -150,6 +151,7 @@ export default function Shell({ children }) {
 
         <div className="footer-links">
           <Link href="/pricing">Pricing</Link>
+          <Link href="/clients">Clients</Link>
           {docsBase && <a href={docsBase} target="_blank" rel="noreferrer">Docs</a>}
           <a href="mailto:support@thecontextcache.com">Support</a>
           <Link href="/legal">Legal</Link>
