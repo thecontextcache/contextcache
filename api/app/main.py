@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from .analyzer.cag import warm_cag_cache
 from .auth_utils import SESSION_COOKIE_NAME, hash_token, now_utc
 from .db import AsyncSessionLocal, hash_api_key
 from .models import ApiKey, AuthSession, AuthUser, Membership, Organization, User
@@ -295,6 +296,7 @@ async def api_key_middleware(request: Request, call_next):
 
 @app.on_event("startup")
 async def startup() -> None:
+    warm_cag_cache()
     if APP_ENV == "dev":
         print(
             f"[bootstrap] APP_ENV=dev BOOTSTRAP_API_KEY_present="

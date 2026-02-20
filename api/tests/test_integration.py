@@ -180,3 +180,55 @@ async def test_contextualize_endpoint_returns_queued(client, app_ctx: Ctx) -> No
     )
     assert response.status_code == 200
     assert response.json()["status"] == "queued"
+
+
+async def test_integrations_list_returns_uploaded_memory(client, app_ctx: Ctx) -> None:
+    create_resp = await client.post(
+        "/integrations/memories",
+        headers=auth_headers(app_ctx, role="owner"),
+        json={
+            "project_id": app_ctx.project_id,
+            "type": "note",
+            "source": "api",
+            "content": "Integration list should return this memory.",
+            "metadata": {},
+            "tags": [],
+        },
+    )
+    assert create_resp.status_code == 201
+
+    listed = await client.get(
+        "/integrations/memories",
+        headers=auth_headers(app_ctx, role="viewer"),
+        params={"project_id": app_ctx.project_id, "limit": 20, "offset": 0},
+    )
+    assert listed.status_code == 200
+    rows = listed.json()
+    assert any(row["content"] == "Integration list should return this memory." for row in rows)
+
+
+async def test_admin_recall_logs_returns_recent_entries(client, app_ctx: Ctx) -> None:
+    create_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=auth_headers(app_ctx, role="owner"),
+        json={"type": "decision", "content": "Recall log coverage memory"},
+    )
+    assert create_resp.status_code == 201
+
+    recall_resp = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=auth_headers(app_ctx, role="owner"),
+        params={"query": "coverage memory", "limit": 5},
+    )
+    assert recall_resp.status_code == 200
+
+    logs_resp = await client.get(
+        "/admin/recall/logs",
+        headers=auth_headers(app_ctx, role="owner"),
+        params={"limit": 20, "offset": 0, "project_id": app_ctx.project_id},
+    )
+    assert logs_resp.status_code == 200
+    logs = logs_resp.json()
+    assert len(logs) >= 1
+    assert logs[0]["project_id"] == app_ctx.project_id
+    assert logs[0]["strategy"] in {"hybrid", "recency", "cag"}

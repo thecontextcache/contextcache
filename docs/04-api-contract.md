@@ -121,7 +121,26 @@ Response for `GET /admin/users/{id}/stats`:
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET`  | `/admin/usage` | Usage summary across all users |
+| `GET`  | `/admin/recall/logs` | Last recall decision logs (`limit`, `offset`, `project_id`) |
 | `GET`  | `/me/usage` | Current user's today usage + configured limits |
+
+Example `GET /admin/recall/logs` item:
+
+```json
+{
+  "id": 12,
+  "org_id": 1,
+  "project_id": 3,
+  "actor_user_id": 5,
+  "strategy": "hybrid",
+  "query_text": "migration reliability",
+  "input_memory_ids": [44, 45, 46],
+  "ranked_memory_ids": [45, 44],
+  "weights": {"fts": 0.65, "vector": 0.25, "recency": 0.1},
+  "score_details": {"45": {"fts": 1.0, "vector": 0.51, "recency": 0.92, "total": 0.78}},
+  "created_at": "2026-02-20T01:23:45Z"
+}
+```
 
 Response for `GET /me/usage`:
 ```json
@@ -158,6 +177,7 @@ Daily + weekly limits are configured via environment variables (`DAILY_MAX_*`, `
 - `GET /projects`
 - `POST /projects/{project_id}/memories`
 - `POST /integrations/memories`
+- `GET /integrations/memories?project_id=...&limit=...&offset=...`
 - `POST /integrations/memories/{memory_id}/contextualize`
 - `GET /projects/{project_id}/memories`
 - `GET /projects/{project_id}/recall?query=...&limit=10`
@@ -185,12 +205,15 @@ Daily + weekly limits are configured via environment variables (`DAILY_MAX_*`, `
 ```
 
 - Recall ranking uses hybrid scoring:
+  - CAG pre-check: static golden-knowledge cache can short-circuit with a direct pack answer.
   - Postgres FTS with `websearch_to_tsquery('english', query)` + `ts_rank_cd`
   - pgvector cosine similarity from `memories.embedding_vector` (when vectors exist)
   - Recency boost
+- Strategy and score details are written to `recall_logs` and visible via admin endpoint.
 - Weights are env-configurable (`FTS_WEIGHT`, `VECTOR_WEIGHT`, `RECENCY_WEIGHT`; legacy `RECALL_WEIGHT_*` aliases still supported).
 - Rows returned from hybrid scoring include `rank_score` (float).
 - Recency fallback rows use `rank_score: null`.
+- CAG short-circuit responses return `items: []` and keep the same `memory_pack_text` format.
 - `memory_pack_text` remains grouped and paste-ready.
 
 ## Integration capture endpoint
@@ -210,6 +233,15 @@ Daily + weekly limits are configured via environment variables (`DAILY_MAX_*`, `
 ```
 
 It is functionally equivalent to `POST /projects/{project_id}/memories` and keeps the same auth + rate-limit behavior.
+
+Optional signing header for inbound integrations:
+- `X-Integration-Signature: sha256=<hex-hmac>`
+- HMAC is computed over raw request body with `INTEGRATION_SIGNING_SECRET`.
+- If `INTEGRATION_SIGNING_SECRET` is unset, signature checking is skipped.
+
+`GET /integrations/memories` returns recent ingested memories:
+- with `project_id`: scoped to one project
+- without `project_id`: scoped to current org
 
 `POST /integrations/memories/{memory_id}/contextualize` queues an Ollama contextualization worker task.
 

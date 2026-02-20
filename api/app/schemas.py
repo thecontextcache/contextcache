@@ -229,6 +229,20 @@ class AdminUserStatsOut(BaseModel):
     today_projects: int
 
 
+class AdminRecallLogOut(BaseModel):
+    id: int
+    org_id: int
+    project_id: int
+    actor_user_id: int | None = None
+    strategy: str
+    query_text: str
+    input_memory_ids: list[int] = Field(default_factory=list)
+    ranked_memory_ids: list[int] = Field(default_factory=list)
+    weights: Dict[str, float] = Field(default_factory=dict)
+    score_details: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
 # ---------------------------------------------------------------------------
 # Admin — usage
 # ---------------------------------------------------------------------------

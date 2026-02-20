@@ -300,7 +300,8 @@ def contextualize_memory_with_ollama(self, memory_id: int) -> dict:
     from urllib import request as urllib_request
 
     base_url = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434").strip().rstrip("/")
-    model = os.getenv("OLLAMA_CONTEXT_MODEL", "llama3.1").strip() or "llama3.1"
+    endpoint = os.getenv("OLLAMA_CHAT_ENDPOINT", f"{base_url}/api/generate").strip()
+    model = os.getenv("OLLAMA_CONTEXT_MODEL", os.getenv("OLLAMA_MODEL", "llama3.1")).strip() or "llama3.1"
     logger.info("[worker] contextualize_memory_with_ollama started memory_id=%s", memory_id)
 
     from sqlalchemy import select
@@ -316,7 +317,7 @@ def contextualize_memory_with_ollama(self, memory_id: int) -> dict:
             f"Title: {memory.title or ''}\nContent: {memory.content}"
         )
         req = urllib_request.Request(
-            f"{base_url}/api/generate",
+            endpoint,
             data=json.dumps({"model": model, "prompt": prompt, "stream": False}).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",

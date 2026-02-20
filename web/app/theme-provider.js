@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 
 const ThemeContext = createContext({ theme: "dark", resolvedTheme: "dark", toggleTheme: () => {} });
+const ASSET_REV = process.env.NEXT_PUBLIC_ASSET_VERSION || "20260220";
 
 function getInitialTheme() {
   if (typeof window === "undefined") return "dark";
@@ -20,7 +21,12 @@ function applyFavicon(resolvedTheme) {
   if (typeof document === "undefined") return;
   const favicon = document.getElementById("dynamic-favicon");
   if (!favicon) return;
-  favicon.setAttribute("href", resolvedTheme === "dark" ? "/favicon-dark.svg" : "/favicon-light.svg");
+  favicon.setAttribute(
+    "href",
+    resolvedTheme === "dark"
+      ? `/favicon-dark.svg?v=${ASSET_REV}`
+      : `/favicon-light.svg?v=${ASSET_REV}`,
+  );
 }
 
 export function ThemeProvider({ children }) {

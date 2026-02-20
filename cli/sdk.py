@@ -57,11 +57,19 @@ class ContextCacheError(Exception):
 
 
 class _Transport:
-    def __init__(self, base_url: str, api_key: str, org_id: int | None, timeout: int) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        org_id: int | None,
+        timeout: int,
+        api_version: str | None = None,
+    ) -> None:
         self._base = base_url.rstrip("/")
         self._key = api_key
         self._org_id = str(org_id) if org_id is not None else None
         self._timeout = timeout
+        self._api_version = (api_version or "").strip() or None
 
     def request(
         self,
@@ -80,6 +88,8 @@ class _Transport:
             headers["X-API-Key"] = self._key
         if self._org_id:
             headers["X-Org-Id"] = self._org_id
+        if self._api_version:
+            headers["X-API-Version"] = self._api_version
 
         data = json.dumps(body).encode() if body is not None else None
         req = urllib.request.Request(url, data=data, headers=headers, method=method)
@@ -239,7 +249,25 @@ class _Integrations:
         return self._t.request("POST", "/integrations/memories", body=body)
 
     def contextualize_memory(self, memory_id: int) -> dict:
+        """Queue contextualization for an existing memory."""
         return self._t.request("POST", f"/integrations/memories/{memory_id}/contextualize")
+
+    def list_memories(
+        self,
+        *,
+        project_id: int | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> list[dict]:
+        """List memories from integration API surface."""
+        params: dict[str, Any] = {}
+        if project_id is not None:
+            params["project_id"] = project_id
+        if limit is not None:
+            params["limit"] = limit
+        if offset is not None:
+            params["offset"] = offset
+        return self._t.request("GET", "/integrations/memories", params=params or None)
 
 
 class _AdminUsers:
@@ -283,6 +311,7 @@ class _Admin:
         self.users = _AdminUsers(t)
         self.invites = _Invites(t)
         self.waitlist = _Waitlist(t)
+        self.projects = _Projects(t)
 
 
 # ---------------------------------------------------------------------------
@@ -298,6 +327,7 @@ class ContextCacheClient:
         base_url: Base URL of the API (default: https://api.thecontextcache.com).
         org_id:   Organisation ID sent as ``X-Org-Id`` header.
         timeout:  Request timeout in seconds (default: 15).
+        api_version: Optional API version header value sent as ``X-API-Version``.
     """
 
     def __init__(
@@ -306,8 +336,15 @@ class ContextCacheClient:
         base_url: str = "https://api.thecontextcache.com",
         org_id: int | None = None,
         timeout: int = 15,
+        api_version: str | None = None,
     ) -> None:
-        self._t = _Transport(base_url=base_url, api_key=api_key, org_id=org_id, timeout=timeout)
+        self._t = _Transport(
+            base_url=base_url,
+            api_key=api_key,
+            org_id=org_id,
+            timeout=timeout,
+            api_version=api_version,
+        )
         self.projects = _Projects(self._t)
         self.memories = _Memories(self._t)
         self.invites  = _Invites(self._t)

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 
 export default function PricingPage() {
   const TIERS = [
@@ -125,6 +126,9 @@ export default function PricingPage() {
     },
   ];
 
+  const [selectedTier, setSelectedTier] = useState("alpha");
+  const activeTier = TIERS.find((tier) => tier.id === selectedTier) || TIERS[0];
+
   return (
     <>
       {/* ══ HERO ════════════════════════════════════════════════════════════ */}
@@ -173,6 +177,47 @@ export default function PricingPage() {
           padding: "0 20px 80px",
         }}
       >
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ marginBottom: 8, fontSize: "0.72rem", color: "var(--muted)", letterSpacing: "0.09em", fontFamily: "var(--mono)" }}>
+            TIER COMPARISON
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {TIERS.map((tier) => (
+              <button
+                key={tier.id}
+                type="button"
+                onClick={() => setSelectedTier(tier.id)}
+                style={{
+                  borderRadius: 999,
+                  border: selectedTier === tier.id ? "1px solid var(--brand)" : "1px solid var(--line)",
+                  background: selectedTier === tier.id ? "rgba(0,212,255,0.12)" : "var(--panel)",
+                  color: selectedTier === tier.id ? "var(--ink)" : "var(--ink-2)",
+                  padding: "7px 13px",
+                  fontSize: "0.74rem",
+                  letterSpacing: "0.04em",
+                  fontWeight: 700,
+                }}
+              >
+                {tier.name}
+              </button>
+            ))}
+          </div>
+          <div style={{
+            marginTop: 10,
+            border: "1px solid var(--line)",
+            borderRadius: 12,
+            background: "var(--panel)",
+            padding: "12px 14px",
+            fontSize: "0.84rem",
+            color: "var(--ink-2)",
+          }}>
+            <strong style={{ color: "var(--ink)" }}>{activeTier.name}</strong>: {activeTier.description}
+            <div style={{ marginTop: 6, color: "var(--muted)" }}>
+              Limits are configured by environment variables. Accounts with `is_unlimited=true` bypass quota throttles.
+            </div>
+          </div>
+        </div>
+
         <div
           style={{
             display: "grid",

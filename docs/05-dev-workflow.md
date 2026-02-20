@@ -18,6 +18,21 @@ Services:
 docker compose --profile test run --rm api-test
 ```
 
+## Linting
+
+```bash
+uv --project api run black --check app tests
+uv --project api run flake8 app tests
+npm --prefix web run lint
+```
+
+Optional hooks:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
 Optional explicit test DB boot:
 
 ```bash

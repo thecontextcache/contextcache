@@ -229,6 +229,40 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class RecallLog(Base):
+    __tablename__ = "recall_logs"
+    __table_args__ = (
+        Index("ix_recall_logs_org_created", "org_id", "created_at"),
+        Index("ix_recall_logs_project_created", "project_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    actor_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    strategy: Mapped[str] = mapped_column(String(32), nullable=False)
+    query_text: Mapped[str] = mapped_column(Text, nullable=False)
+    input_memory_ids: Mapped[list[int]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    ranked_memory_ids: Mapped[list[int]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    weights_json: Mapped[dict[str, Any]] = mapped_column(
+        "weights",
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+    )
+    score_details_json: Mapped[dict[str, Any]] = mapped_column(
+        "score_details",
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 # ---------------------------------------------------------------------------
 # Auth models
 # ---------------------------------------------------------------------------

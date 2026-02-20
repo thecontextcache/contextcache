@@ -8,6 +8,8 @@ graph TB
         WEB["Next.js UI<br/>:3000"]
         API["FastAPI<br/>:8000"]
         DB["Postgres 16<br/>:5432 (internal)"]
+        REDIS["Redis<br/>:6379 (internal)"]
+        WORKER["Celery Worker/Beat<br/>optional profile"]
         DOCS["MkDocs<br/>:8001"]
     end
 
@@ -17,6 +19,9 @@ graph TB
     WEB -->|"fetch + credentials:include"| API
     API -->|"asyncpg"| DB
     API -->|"alembic migrations on startup"| DB
+    API -->|"rate limits / counters"| REDIS
+    WORKER -->|"broker/result"| REDIS
+    WORKER -->|"embeddings + cleanup jobs"| DB
 
     style Server fill:#f0fdf4,stroke:#14b8a6,stroke-width:2px
     style API fill:#ecfdf5,stroke:#0d9488
@@ -142,9 +147,9 @@ User                    API                     Postgres
   │                      │                         │
   │  GET /recall?query=  │                         │
   │─────────────────────▶│                         │
-  │                      │  SELECT ... WHERE         │
-  │                      │  search_tsv @@ tsquery   │
-  │                      │  ORDER BY ts_rank_cd DESC│
+  │                      │  CAG pre-check (golden docs) │
+  │                      │  if miss: hybrid query        │
+  │                      │  FTS + pgvector + recency     │
   │                      │────────────────────────▶│
   │                      │                         │
   │                      │  Return matching rows   │
@@ -192,9 +197,9 @@ Result: Prompts stay small, signal stays high.
 ## Future Architecture (Post-MVP)
 
 Phase 2+ may add:
-- **Redis** for caching recall results
-- **pgvector** for embedding-based search
-- **Auth service** for user management
-- **FTS ranking** for stronger lexical retrieval
+- advanced re-ranking (RRF / learned ranking)
+- dedicated analyzer microservice
+- external auth providers (OIDC/SSO)
+- multi-region deployment patterns
 
-But MVP is intentionally minimal. Don't add complexity until needed.
+Beta currently runs hybrid retrieval, Redis-backed limits, and optional worker jobs.

@@ -20,11 +20,24 @@ from .auth_utils import (
 )
 from .db import get_db
 from .emailer import send_magic_link
-from .models import AuthInvite, AuthLoginEvent, AuthMagicLink, AuthSession, AuthUser, Membership, Organization, UsageEvent, User, Waitlist
+from .models import (
+    AuthInvite,
+    AuthLoginEvent,
+    AuthMagicLink,
+    AuthSession,
+    AuthUser,
+    Membership,
+    Organization,
+    RecallLog,
+    UsageEvent,
+    User,
+    Waitlist,
+)
 from .rate_limit import check_request_link_limits, check_verify_limits
 from .schemas import (
     AdminInviteCreateIn,
     AdminInviteOut,
+    AdminRecallLogOut,
     AdminUsageOut,
     AdminUserOut,
     AdminUserStatsOut,
@@ -745,6 +758,49 @@ async def usage_stats(request: Request, db: AsyncSession = Depends(get_db)) -> l
         print(f"[WARN] usage_stats failed: {exc}")
         traceback.print_exc()
         return []
+
+
+@router.get("/admin/recall/logs", response_model=list[AdminRecallLogOut])
+async def admin_recall_logs(
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    project_id: int | None = Query(default=None, ge=1),
+    db: AsyncSession = Depends(get_db),
+) -> list[AdminRecallLogOut]:
+    _require_admin_auth(request)
+    org_id = getattr(request.state, "org_id", None)
+    if org_id is None:
+        raise HTTPException(status_code=400, detail="X-Org-Id required")
+
+    stmt = select(RecallLog).where(RecallLog.org_id == org_id)
+    if project_id is not None:
+        stmt = stmt.where(RecallLog.project_id == project_id)
+
+    rows = (
+        await db.execute(
+            stmt
+            .order_by(RecallLog.created_at.desc(), RecallLog.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+    ).scalars().all()
+    return [
+        AdminRecallLogOut(
+            id=row.id,
+            org_id=row.org_id,
+            project_id=row.project_id,
+            actor_user_id=row.actor_user_id,
+            strategy=row.strategy,
+            query_text=row.query_text,
+            input_memory_ids=row.input_memory_ids or [],
+            ranked_memory_ids=row.ranked_memory_ids or [],
+            weights=row.weights_json or {},
+            score_details=row.score_details_json or {},
+            created_at=row.created_at,
+        )
+        for row in rows
+    ]
 
 
 # ---------------------------------------------------------------------------

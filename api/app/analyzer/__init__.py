@@ -38,11 +38,11 @@ def score_memories(
         return asyncio.get_event_loop().run_until_complete(
             score_memories_remote(query, memories, limit=limit)
         )
-    from .core import score_memories_local
+    from .algorithm import score_memories_local
     return score_memories_local(query, memories, limit=limit)
 
 
 def build_memory_pack(query: str, items: list[tuple[str, str]]) -> str:
     """Format ranked items into a structured text pack for LLM injection."""
-    from .core import _build_pack
+    from .algorithm import _build_pack
     return _build_pack(query, items)

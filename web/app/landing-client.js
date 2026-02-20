@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import BrainGraph from "./components/BrainGraph";
 
 const FEATURES = [
   {
@@ -84,6 +85,34 @@ const TECH = [
   { label: "docker",     color: "#00D4FF" },
 ];
 
+const LIVE_BRAIN_PROJECTS = [
+  { id: 1, name: "Platform Core", created_at: "2026-02-20T00:00:00Z" },
+  { id: 2, name: "Growth Loops", created_at: "2026-02-20T00:00:00Z" },
+];
+
+const LIVE_BRAIN_MEMORIES = {
+  1: [
+    { id: 101, type: "decision", title: "Use Postgres + FTS", content: "Core retrieval baseline", created_at: "2026-02-19T10:00:00Z" },
+    { id: 102, type: "finding", title: "Hybrid beats overlap", content: "FTS + vector + recency", created_at: "2026-02-19T10:10:00Z" },
+    { id: 103, type: "definition", title: "Memory pack", content: "Paste-ready grouped output", created_at: "2026-02-19T10:20:00Z" },
+    { id: 104, type: "todo", title: "CocoIndex ingest", content: "Incremental ETL pipeline", created_at: "2026-02-19T10:30:00Z" },
+    { id: 105, type: "code", title: "Recall endpoint", content: "Hybrid scoring path", created_at: "2026-02-19T10:40:00Z" },
+    { id: 106, type: "doc", title: "API contract", content: "Public docs + examples", created_at: "2026-02-19T10:50:00Z" },
+    { id: 107, type: "note", title: "Rate limits", content: "Daily/weekly enforcement", created_at: "2026-02-19T11:00:00Z" },
+    { id: 108, type: "link", title: "Deployment playbook", content: "Cloudflare tunnel mode", created_at: "2026-02-19T11:10:00Z" },
+  ],
+  2: [
+    { id: 201, type: "decision", title: "Invite-only beta", content: "Controlled onboarding", created_at: "2026-02-19T12:00:00Z" },
+    { id: 202, type: "finding", title: "Waitlist conversion", content: "Top traffic sources", created_at: "2026-02-19T12:10:00Z" },
+    { id: 203, type: "definition", title: "Qualified team", content: "Usage + retention signal", created_at: "2026-02-19T12:20:00Z" },
+    { id: 204, type: "todo", title: "CLI expansion", content: "Admin/integration commands", created_at: "2026-02-19T12:30:00Z" },
+    { id: 205, type: "code", title: "SDK release", content: "SemVer 0.2.0 prep", created_at: "2026-02-19T12:40:00Z" },
+    { id: 206, type: "doc", title: "Pricing tiers", content: "Alpha/Pro/Team/Enterprise", created_at: "2026-02-19T12:50:00Z" },
+    { id: 207, type: "note", title: "Landing tests", content: "Theme + accessibility polish", created_at: "2026-02-19T13:00:00Z" },
+    { id: 208, type: "link", title: "Community", content: "Waitlist and docs funnel", created_at: "2026-02-19T13:10:00Z" },
+  ],
+};
+
 function FaqItem({ q, a }) {
   const [open, setOpen] = useState(false);
   return (
@@ -165,6 +194,31 @@ export default function LandingPage() {
           scroll
         </div>
       </section>
+
+      {/* ══ LIVE BRAIN PREVIEW ═════════════════════════════════════════════ */}
+      <div className="l-section" style={{ paddingTop: 0 }}>
+        <div style={{ marginBottom: 26 }}>
+          <p className="l-section-label">Live preview</p>
+          <h2 className="l-section-title">Your knowledge as a living neural graph</h2>
+          <p className="l-section-sub">
+            Capture and recall your project knowledge as a living neural graph.
+            The full interactive view includes filtering, highlights, and recall tracebacks.
+          </p>
+        </div>
+        <div style={{ border: "1px solid var(--line)", borderRadius: 14, overflow: "hidden", boxShadow: "var(--shadow)" }}>
+          <div style={{ height: 360 }}>
+            <BrainGraph
+              projects={LIVE_BRAIN_PROJECTS}
+              memoriesByProject={LIVE_BRAIN_MEMORIES}
+              highlightIds={["101", "201"]}
+            />
+          </div>
+        </div>
+        <div className="l-actions" style={{ justifyContent: "flex-start", marginTop: 18 }}>
+          <Link href="/brain" className="btn-outline-glow">Learn more</Link>
+          <Link href="/waitlist" className="btn-glow">Join waitlist →</Link>
+        </div>
+      </div>
 
       {/* ══ TECH STRIP ════════════════════════════════════════════════════════ */}
       <div className="l-tech-strip">

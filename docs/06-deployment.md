@@ -87,6 +87,23 @@ docker compose up -d --build
 sudo systemctl start cloudflared
 ```
 
+### Compose profiles
+
+- default profile: `db`, `api`, `web`, `docs`, `redis`
+- `test` profile: `db-test`, `api-test`
+- `worker` profile: `worker`, `beat`
+
+```bash
+# default runtime
+docker compose up -d --build
+
+# test stack
+docker compose --profile test run --rm api-test
+
+# worker stack
+docker compose --profile worker up -d worker beat
+```
+
 ### 7. Stale code/cache troubleshooting (root vs `/app`)
 
 If `/` shows an old layout or redirects don’t apply:
@@ -243,6 +260,7 @@ ingress:
     root path setting or use a nginx/caddy sidecar for prefix stripping.
     See [Nginx sidecar option](#nginx-sidecar-option) below.
 
+<a id="nginx-sidecar-option"></a>
 ### Nginx sidecar option (recommended for path stripping)
 
 Add a lightweight nginx container that rewrites `/api/` → `/` before proxying

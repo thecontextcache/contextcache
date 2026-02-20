@@ -125,6 +125,9 @@ html[data-theme="light"] .topbar {
 }
 
 .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-family: var(--display);
   font-weight: 700;
   font-size: 0.82rem;
@@ -135,6 +138,19 @@ html[data-theme="light"] .topbar {
   text-shadow: var(--brand-glow);
 }
 .brand:hover { text-decoration: none; opacity: 0.85; }
+
+.brand-logo {
+  width: 20px;
+  height: 20px;
+  color: var(--brand);
+  filter: drop-shadow(0 0 8px rgba(0, 212, 255, 0.28));
+  flex-shrink: 0;
+}
+
+html[data-theme="light"] .brand-logo {
+  color: #0c7f92;
+  filter: drop-shadow(0 0 7px rgba(12, 127, 146, 0.22));
+}
 
 .nav { display: flex; align-items: center; gap: 2px; }
 

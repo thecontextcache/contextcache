@@ -99,7 +99,21 @@ export default function Shell({ children }) {
         {/* Hard navigate: bypasses Next.js client router cache so middleware
             always runs and redirects auth users correctly to /app */}
         <a href="/" className="brand">
-          thecontextcache™
+          <span className="brand-logo" aria-hidden="true">
+            <svg viewBox="0 0 32 32" role="img" focusable="false">
+              <defs>
+                <linearGradient id="cc-logo-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="currentColor" />
+                  <stop offset="100%" stopColor="#7C3AFF" />
+                </linearGradient>
+              </defs>
+              <circle cx="16" cy="16" r="14" fill="none" stroke="url(#cc-logo-gradient)" strokeWidth="2.4" />
+              <path d="M21.5 10.7a7.5 7.5 0 1 0 0 10.6" fill="none" stroke="url(#cc-logo-gradient)" strokeWidth="2.6" strokeLinecap="round" />
+              <circle cx="22.6" cy="9.4" r="1.7" fill="currentColor" />
+              <circle cx="22.6" cy="22.6" r="1.7" fill="#7C3AFF" />
+            </svg>
+          </span>
+          <span>thecontextcache™</span>
         </a>
         <nav className="nav" aria-label="Main navigation">
           <Link href="/pricing" className={nav("/pricing")}>Pricing</Link>

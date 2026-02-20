@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-import math
+import hmac
 import os
 from dataclasses import dataclass
 from datetime import date as _today_date
@@ -9,13 +9,30 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import desc, func, select, text
+from sqlalchemy import desc, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .analyzer.algorithm import HybridWeights, compute_embedding, merge_hybrid_scores
+from .analyzer.cag import maybe_answer_from_cache
 from .db import generate_api_key, get_db, hash_api_key
 from .billing import emit_usage_event
-from .models import ApiKey, AuditLog, AuthUser, Membership, Memory, MemoryTag, Organization, Project, Tag, UsageCounter, UsageEvent, UsagePeriod, User
+from .models import (
+    ApiKey,
+    AuditLog,
+    AuthUser,
+    Membership,
+    Memory,
+    MemoryTag,
+    Organization,
+    Project,
+    RecallLog,
+    Tag,
+    UsageCounter,
+    UsageEvent,
+    UsagePeriod,
+    User,
+)
 from .recall import build_memory_pack
 from .rate_limit import check_recall_limits, get_counter, incr_counter
 from .schemas import (
@@ -852,23 +869,44 @@ def _extract_client_ip(request: Request) -> str:
     return request.headers.get("cf-connecting-ip", "").strip() or (request.client.host if request.client else "unknown")
 
 
-def _recency_boost(created_at: datetime | None) -> float:
-    if created_at is None:
-        return 0.0
-    now = datetime.now(timezone.utc)
-    if created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=timezone.utc)
-    age_days = max(0.0, (now - created_at).total_seconds() / 86400.0)
-    return math.exp(-math.log(2) * age_days / 14.0)
+def _check_integration_signature(request: Request, body_bytes: bytes) -> None:
+    secret = os.getenv("INTEGRATION_SIGNING_SECRET", "").strip()
+    if not secret:
+        return
+    provided = request.headers.get("x-integration-signature", "").strip()
+    if not provided:
+        raise HTTPException(status_code=401, detail="Missing integration signature")
+    provided_hash = provided.split("=", 1)[1] if provided.startswith("sha256=") else provided
+    expected_hash = hmac.new(secret.encode("utf-8"), body_bytes, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(provided_hash, expected_hash):
+        raise HTTPException(status_code=401, detail="Invalid integration signature")
 
 
-def _normalize_positive(values: dict[int, float]) -> dict[int, float]:
-    if not values:
-        return {}
-    max_val = max(values.values())
-    if max_val <= 0:
-        return {k: 0.0 for k in values}
-    return {k: max(0.0, v) / max_val for k, v in values.items()}
+async def _write_recall_log(
+    db: AsyncSession,
+    *,
+    project: Project,
+    ctx: RequestContext,
+    strategy: str,
+    query_text: str,
+    input_memory_ids: list[int],
+    ranked_memory_ids: list[int],
+    weights: dict[str, float] | None = None,
+    score_details: dict[str, Any] | None = None,
+) -> None:
+    db.add(
+        RecallLog(
+            org_id=project.org_id,
+            project_id=project.id,
+            actor_user_id=ctx.actor_user_id,
+            strategy=strategy,
+            query_text=query_text,
+            input_memory_ids=input_memory_ids,
+            ranked_memory_ids=ranked_memory_ids,
+            weights_json=weights or {},
+            score_details_json=score_details or {},
+        )
+    )
 
 
 @router.post("/projects/{project_id}/memories", response_model=MemoryOut, status_code=201)
@@ -879,8 +917,6 @@ async def create_memory(
     db: AsyncSession = Depends(get_db),
     ctx: RequestContext = Depends(get_actor_context),
 ) -> MemoryOut:
-    from app.analyzer.core import compute_embedding
-
     require_role(ctx, "member")
     project = await get_project_or_404(db, project_id, ctx)
 
@@ -954,6 +990,7 @@ async def capture_memory(
 
     Same auth, RBAC, and usage limits as /projects/{project_id}/memories.
     """
+    _check_integration_signature(request, await request.body())
     memory_payload = MemoryCreate(
         type=payload.type,
         source=payload.source,
@@ -969,6 +1006,37 @@ async def capture_memory(
         db=db,
         ctx=ctx,
     )
+
+
+@router.get("/integrations/memories", response_model=List[MemoryOut])
+async def list_integration_memories(
+    project_id: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    ctx: RequestContext = Depends(get_actor_context),
+) -> List[MemoryOut]:
+    require_role(ctx, "viewer")
+    stmt = select(Memory)
+
+    if project_id is not None:
+        project = await get_project_or_404(db, project_id, ctx)
+        stmt = stmt.where(Memory.project_id == project.id)
+    else:
+        if ctx.org_id is None:
+            raise HTTPException(status_code=400, detail="X-Org-Id required")
+        stmt = stmt.join(Project, Project.id == Memory.project_id).where(Project.org_id == ctx.org_id)
+
+    items = (
+        await db.execute(
+            stmt
+            .order_by(Memory.created_at.desc(), Memory.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+    ).scalars().all()
+    tag_map = await _load_tag_names(db, [m.id for m in items])
+    return [_memory_to_out(m, tag_map.get(m.id, [])) for m in items]
 
 
 @router.post("/integrations/memories/{memory_id}/contextualize")
@@ -1089,8 +1157,6 @@ async def recall(
     db: AsyncSession = Depends(get_db),
     ctx: RequestContext = Depends(get_actor_context),
 ) -> RecallOut:
-    from app.analyzer.core import compute_embedding
-
     require_role(ctx, "viewer")
     project = await get_project_or_404(db, project_id, ctx)
     client_ip = _extract_client_ip(request)
@@ -1105,7 +1171,56 @@ async def recall(
 
     query_clean = query.strip()
     top_with_rank: list[tuple[Memory, float | None]] = []
+    strategy = "recency"
+    input_memory_ids: list[int] = []
+    ranked_memory_ids: list[int] = []
+    score_details: dict[str, Any] = {}
+    weight_details = {
+        "fts": RECALL_WEIGHT_FTS,
+        "vector": RECALL_WEIGHT_VECTOR,
+        "recency": RECALL_WEIGHT_RECENCY,
+    }
+
     if query_clean:
+        cag_answer = maybe_answer_from_cache(query_clean)
+        if cag_answer is not None:
+            strategy = "cag"
+            score_details = {
+                "source": cag_answer.source,
+                "score": cag_answer.score,
+                "snippets": len(cag_answer.snippets),
+            }
+            pack = build_memory_pack(query_clean, [("doc", snippet) for snippet in cag_answer.snippets])
+            await write_usage(
+                db,
+                request=request,
+                ctx=ctx,
+                event_type="recall_called",
+                org_id=project.org_id,
+                project_id=project.id,
+            )
+            await _increment_daily_counter(db, auth_user_id, "recall_queries")
+            await _increment_usage_period(db, auth_user_id, "recall_queries")
+            _billing_hook("recall_called", auth_user_id)
+            await _write_recall_log(
+                db,
+                project=project,
+                ctx=ctx,
+                strategy=strategy,
+                query_text=query_clean,
+                input_memory_ids=[],
+                ranked_memory_ids=[],
+                weights=weight_details,
+                score_details=score_details,
+            )
+            await db.commit()
+            return RecallOut(
+                project_id=project.id,
+                query=query_clean,
+                memory_pack_text=pack,
+                items=[],
+            )
+
         tsquery = func.websearch_to_tsquery("english", query_clean)
         rank = func.ts_rank_cd(Memory.search_tsv, tsquery).label("rank_score")
         fts_result = await db.execute(
@@ -1117,53 +1232,56 @@ async def recall(
         )
         fts_rows = fts_result.all()
         fts_scores = {row[0].id: float(row[1]) for row in fts_rows}
-        fts_norm = _normalize_positive(fts_scores)
-
         vector_scores: dict[int, float] = {}
-        query_vector = compute_embedding(query_clean)
-        vector_rank_expr = (1 - Memory.embedding_vector.cosine_distance(query_vector)).label("vector_score")
-        vector_rows = (
-            await db.execute(
-                select(Memory, vector_rank_expr)
-                .where(Memory.project_id == project.id, Memory.embedding_vector.is_not(None))
-                .order_by(desc(vector_rank_expr), Memory.created_at.desc(), Memory.id.desc())
-                .limit(RECALL_VECTOR_CANDIDATES)
-            )
-        ).all()
+        vector_rows: list[tuple[Memory, float | None]] = []
+        try:
+            query_vector = compute_embedding(query_clean)
+            vector_rank_expr = (1 - Memory.embedding_vector.cosine_distance(query_vector)).label("vector_score")
+            vector_rows = (
+                await db.execute(
+                    select(Memory, vector_rank_expr)
+                    .where(Memory.project_id == project.id, Memory.embedding_vector.is_not(None))
+                    .order_by(desc(vector_rank_expr), Memory.created_at.desc(), Memory.id.desc())
+                    .limit(RECALL_VECTOR_CANDIDATES)
+                )
+            ).all()
+        except Exception:
+            # Keep recall deterministic even if pgvector query path fails.
+            vector_rows = []
         vector_candidates: list[Memory] = []
         for mem, raw_score in vector_rows:
             score = float(raw_score) if raw_score is not None else 0.0
             if score >= RECALL_VECTOR_MIN_SCORE:
                 vector_scores[mem.id] = score
                 vector_candidates.append(mem)
-        vector_norm = _normalize_positive(vector_scores)
 
-        # Hybrid: weighted FTS + embedding cosine + recency.
         candidate_by_id: dict[int, Memory] = {}
         for m, _ in fts_rows:
             candidate_by_id[m.id] = m
         for m in vector_candidates:
-            if m.id in vector_norm:
-                candidate_by_id[m.id] = m
+            candidate_by_id[m.id] = m
 
-        scored: list[tuple[Memory, float]] = []
-        for mem in candidate_by_id.values():
-            score = (
-                RECALL_WEIGHT_FTS * fts_norm.get(mem.id, 0.0)
-                + RECALL_WEIGHT_VECTOR * vector_norm.get(mem.id, 0.0)
-                + RECALL_WEIGHT_RECENCY * _recency_boost(mem.created_at)
-            )
-            scored.append((mem, round(float(score), 6)))
-        scored.sort(
-            key=lambda x: (
-                -x[1],
-                -(x[0].created_at.timestamp() if x[0].created_at is not None else 0.0),
-                -x[0].id,
-            )
+        input_memory_ids = sorted(candidate_by_id.keys())
+        ranked_pairs, score_details = merge_hybrid_scores(
+            fts_scores=fts_scores,
+            vector_scores=vector_scores,
+            created_at_by_id={mem_id: mem.created_at for mem_id, mem in candidate_by_id.items()},
+            weights=HybridWeights(
+                fts=RECALL_WEIGHT_FTS,
+                vector=RECALL_WEIGHT_VECTOR,
+                recency=RECALL_WEIGHT_RECENCY,
+            ),
+            limit=limit,
         )
-        top_with_rank = scored[:limit]
-
-        if not top_with_rank:
+        if ranked_pairs:
+            strategy = "hybrid"
+            ranked_memory_ids = [mem_id for mem_id, _ in ranked_pairs]
+            top_with_rank = [
+                (candidate_by_id[mem_id], score)
+                for mem_id, score in ranked_pairs
+                if mem_id in candidate_by_id
+            ]
+        else:
             fallback_result = await db.execute(
                 select(Memory)
                 .where(Memory.project_id == project.id)
@@ -1171,6 +1289,8 @@ async def recall(
                 .limit(limit)
             )
             top_with_rank = [(m, None) for m in fallback_result.scalars().all()]
+            ranked_memory_ids = [m.id for m, _ in top_with_rank]
+            score_details = {"reason": "no_hybrid_matches"}
     else:
         recent_result = await db.execute(
             select(Memory)
@@ -1179,6 +1299,8 @@ async def recall(
             .limit(limit)
         )
         top_with_rank = [(m, None) for m in recent_result.scalars().all()]
+        ranked_memory_ids = [m.id for m, _ in top_with_rank]
+        score_details = {"reason": "empty_query"}
 
     pack = build_memory_pack(query_clean, [(m.type, m.content) for m, _ in top_with_rank])
     await write_usage(
@@ -1192,6 +1314,17 @@ async def recall(
     await _increment_daily_counter(db, auth_user_id, "recall_queries")
     await _increment_usage_period(db, auth_user_id, "recall_queries")
     _billing_hook("recall_called", auth_user_id)
+    await _write_recall_log(
+        db,
+        project=project,
+        ctx=ctx,
+        strategy=strategy,
+        query_text=query_clean,
+        input_memory_ids=input_memory_ids,
+        ranked_memory_ids=ranked_memory_ids,
+        weights=weight_details if query_clean else {},
+        score_details=score_details,
+    )
     await db.commit()
 
     tag_map = await _load_tag_names(db, [m.id for m, _ in top_with_rank])

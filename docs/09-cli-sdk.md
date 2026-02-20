@@ -26,6 +26,9 @@ Requires **Python 3.9+** — no external packages needed.
 cc login --api-key cck_your_key_here
 # Optional: specify a custom API URL or org
 cc login --api-key cck_xxx --base-url https://api.thecontextcache.com --org-id 1
+
+# Any command can override runtime config:
+cc projects list --api-base https://api.thecontextcache.com --api-key cck_xxx --org-id 1
 ```
 
 The API key and base URL are stored in `~/.contextcache/config.json` (mode 0600).
@@ -101,12 +104,15 @@ cc waitlist reject 7
 
 ```bash
 cc integrations upload --project 1 --type note --text "Captured from CLI"
+cc integrations upload --project 1 --type doc --file ./notes.md
+cc integrations list --project 1 --limit 20 --offset 0
 cc integrations contextualize --memory-id 42
 
 cc admin users --status active --limit 20 --offset 0
 cc admin set-unlimited 5 --value true
 cc admin login-events 5
 cc admin stats 5
+cc admin recall-logs --project 1 --limit 20 --offset 0
 ```
 
 ---
@@ -133,6 +139,14 @@ client = ContextCacheClient(
     api_key="cck_your_key_here",
     base_url="https://api.thecontextcache.com",
     org_id=1,
+)
+
+# Optional version hint header
+client = ContextCacheClient(
+    api_key="cck_your_key_here",
+    base_url="https://api.thecontextcache.com",
+    org_id=1,
+    api_version="2026-02-beta",
 )
 
 # Health check
@@ -190,6 +204,7 @@ client.integrations.upload_memory(
     content="Captured from SDK",
     tags=["sdk"],
 )
+client.integrations.list_memories(project_id=1, limit=20, offset=0)
 client.integrations.contextualize_memory(42)
 
 # Admin namespace
@@ -231,6 +246,13 @@ export CC_BASE_URL=https://api.thecontextcache.com
 export CC_ORG_ID=1
 ```
 
-When `CC_API_KEY` / `CC_BASE_URL` / `CC_ORG_ID` are set, both the CLI and SDK
+Aliases also supported by the CLI for shell compatibility:
+
+```bash
+export API_KEY=cck_xxx
+export ORG_ID=1
+```
+
+When `CC_API_KEY` / `CC_BASE_URL` / `CC_ORG_ID` (or `API_KEY` / `ORG_ID`) are set, both the CLI and SDK
 will use them without a saved config file. *(SDK: pass as constructor args;
 CLI: `--api-key` / `--base-url` / `--org-id` flags override any saved config.)*

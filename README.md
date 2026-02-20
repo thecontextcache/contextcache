@@ -90,6 +90,21 @@ docker compose --profile test run --rm api-test
 docker compose --profile test down -v
 ```
 
+## Linting & hooks
+
+```bash
+# API style checks (inside dev container or local venv)
+uv --project api run black --check app tests
+uv --project api run flake8 app tests
+
+# Web lint (requires npm deps)
+npm --prefix web run lint
+
+# Optional pre-commit install
+pip install pre-commit
+pre-commit install
+```
+
 ## Debugging / sanity checks
 
 ```bash
@@ -208,6 +223,13 @@ python cli/cc.py recall --project 1 "postgres schema decisions"
 
 # Today's usage
 python cli/cc.py usage
+
+# Integrations
+python cli/cc.py integrations upload --project 1 --type note --text "Captured from CLI"
+python cli/cc.py integrations list --project 1 --limit 20 --offset 0
+
+# Global runtime overrides (works with any command)
+python cli/cc.py projects list --api-base http://127.0.0.1:8000 --api-key cck_xxx --org-id 1
 ```
 
 ### Alias (optional)

@@ -24,10 +24,16 @@ Usage:
     cc waitlist approve ENTRY_ID
     cc waitlist reject ENTRY_ID
     cc integrations upload --project 1 --type note --text "hello"
+    cc integrations list --project 1 --limit 20 --offset 0
     cc integrations contextualize --memory-id 42
     cc admin users [--limit 20 --offset 0 --email-q foo --status active]
     cc admin set-unlimited USER_ID [--value true|false]
     cc admin login-events USER_ID
+
+Global flags (work with any command):
+    --api-base URL
+    --api-key KEY
+    --org-id N
 """
 from __future__ import annotations
 
@@ -50,6 +56,7 @@ CONFIG_DIR  = Path(os.getenv("CC_CONFIG_DIR", Path.home() / ".contextcache"))
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
 DEFAULT_BASE_URL = "https://api.thecontextcache.com"
+_GLOBAL_OVERRIDES: dict[str, str] = {}
 
 
 def _load_config() -> dict:
@@ -82,9 +89,21 @@ def _request(
 ) -> Any:
     """Make an authenticated request to the API and return the parsed JSON body."""
     cfg = cfg or _load_config()
-    url = (base_url or cfg.get("base_url", DEFAULT_BASE_URL)).rstrip("/") + path
-    key = api_key or cfg.get("api_key", "")
-    oid = str(org_id or cfg.get("org_id") or "")
+    env_base = os.getenv("CC_BASE_URL") or os.getenv("CONTEXTCACHE_API_BASE_URL")
+    env_key = os.getenv("CC_API_KEY") or os.getenv("API_KEY")
+    env_org = os.getenv("CC_ORG_ID") or os.getenv("ORG_ID")
+    resolved_base = (
+        base_url
+        or _GLOBAL_OVERRIDES.get("base_url")
+        or env_base
+        or cfg.get("base_url", DEFAULT_BASE_URL)
+    )
+    resolved_key = api_key or _GLOBAL_OVERRIDES.get("api_key") or env_key or cfg.get("api_key", "")
+    resolved_org = org_id or _GLOBAL_OVERRIDES.get("org_id") or env_org or cfg.get("org_id") or ""
+
+    url = resolved_base.rstrip("/") + path
+    key = str(resolved_key or "")
+    oid = str(resolved_org)
 
     headers: dict[str, str] = {"Content-Type": "application/json"}
     if key:
@@ -139,9 +158,9 @@ def cmd_help(_args: list[str]) -> None:
 
 def cmd_login(args: list[str]) -> None:
     """cc login --api-key KEY [--base-url URL] [--org-id N]"""
-    api_key  = _flag(args, "--api-key")
-    base_url = _flag(args, "--base-url") or DEFAULT_BASE_URL
-    org_id   = _flag(args, "--org-id")
+    api_key  = _flag(args, "--api-key") or _GLOBAL_OVERRIDES.get("api_key")
+    base_url = _flag(args, "--base-url") or _GLOBAL_OVERRIDES.get("base_url") or DEFAULT_BASE_URL
+    org_id   = _flag(args, "--org-id") or _GLOBAL_OVERRIDES.get("org_id")
 
     if not api_key:
         _err("--api-key is required.  Example: cc login --api-key cck_xxxxx")
@@ -334,16 +353,23 @@ def cmd_usage(_args: list[str]) -> None:
 
 
 def cmd_integrations(args: list[str]) -> None:
-    """cc integrations upload --project ID --type TYPE --text TEXT
+    """cc integrations upload --project ID --type TYPE (--text TEXT | --file PATH)
+       cc integrations list [--project ID] [--limit N] [--offset N]
        cc integrations contextualize --memory-id ID"""
     sub = args[0] if args else ""
     if sub == "upload":
-        project_id = _flag(args, "--project")
+        project_id = _flag(args, "--project") or _flag(args, "--project-id")
         mem_type = _flag(args, "--type") or "note"
         text_val = _flag(args, "--text")
+        file_path = _flag(args, "--file")
         title = _flag(args, "--title")
+        if file_path:
+            try:
+                text_val = Path(file_path).read_text(encoding="utf-8")
+            except OSError as exc:
+                _err(f"Cannot read file {file_path}: {exc}")
         if not project_id or not text_val:
-            _err("Usage: cc integrations upload --project ID --type TYPE --text TEXT")
+            _err("Usage: cc integrations upload --project ID --type TYPE (--text TEXT | --file PATH)")
         body: dict[str, Any] = {
             "project_id": int(project_id),
             "type": mem_type,
@@ -356,6 +382,15 @@ def cmd_integrations(args: list[str]) -> None:
             body["title"] = title
         out = _request("POST", "/integrations/memories", body=body)
         _ok(f"Memory uploaded via integrations endpoint — id={out.get('id')}")
+    elif sub == "list":
+        query = {}
+        for flag, key in [("--project", "project_id"), ("--project-id", "project_id"), ("--limit", "limit"), ("--offset", "offset")]:
+            val = _flag(args, flag)
+            if val:
+                query[key] = val
+        suffix = f"?{urlencode(query)}" if query else ""
+        rows = _request("GET", f"/integrations/memories{suffix}") or []
+        _print_table(rows, ["id", "project_id", "type", "source", "title", "created_at"])
     elif sub == "contextualize":
         memory_id = _flag(args, "--memory-id") or (args[1] if len(args) > 1 else None)
         if not memory_id:
@@ -363,12 +398,21 @@ def cmd_integrations(args: list[str]) -> None:
         out = _request("POST", f"/integrations/memories/{memory_id}/contextualize")
         _ok(f"Contextualization queued for memory {out.get('memory_id')}")
     else:
-        print("Usage: cc integrations [upload|contextualize] ...")
+        print("Usage: cc integrations [upload|list|contextualize] ...")
 
 
 def cmd_admin(args: list[str]) -> None:
-    """cc admin users|set-unlimited|login-events|stats ..."""
+    """cc admin users|set-unlimited|login-events|stats|recall-logs|invites|waitlist|projects ..."""
     sub = args[0] if args else ""
+    if sub == "invites":
+        cmd_invites(args[1:])
+        return
+    if sub == "waitlist":
+        cmd_waitlist(args[1:])
+        return
+    if sub == "projects":
+        cmd_projects(args[1:] if len(args) > 1 else ["list"])
+        return
     if sub == "users":
         query = {}
         for flag, key in [
@@ -404,8 +448,17 @@ def cmd_admin(args: list[str]) -> None:
             _err("Usage: cc admin stats USER_ID")
         out = _request("GET", f"/admin/users/{user_id}/stats")
         print(json.dumps(out, indent=2))
+    elif sub == "recall-logs":
+        query = {}
+        for flag, key in [("--limit", "limit"), ("--offset", "offset"), ("--project", "project_id"), ("--project-id", "project_id")]:
+            val = _flag(args, flag)
+            if val:
+                query[key] = val
+        suffix = f"?{urlencode(query)}" if query else ""
+        rows = _request("GET", f"/admin/recall/logs{suffix}") or []
+        _print_table(rows, ["id", "project_id", "strategy", "query_text", "created_at"])
     else:
-        print("Usage: cc admin [users|set-unlimited|login-events|stats] ...")
+        print("Usage: cc admin [users|set-unlimited|login-events|stats|recall-logs|invites|waitlist|projects] ...")
 
 
 # ── Argument parsing helpers ──────────────────────────────────────────────
@@ -418,6 +471,36 @@ def _flag(args: list[str], name: str) -> str | None:
         if arg.startswith(f"{name}="):
             return arg.split("=", 1)[1]
     return None
+
+
+def _extract_global_overrides(args: list[str]) -> tuple[list[str], dict[str, str]]:
+    cleaned: list[str] = []
+    overrides: dict[str, str] = {}
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg in {"--api-base", "--api-key", "--org-id"}:
+            if i + 1 >= len(args):
+                _err(f"{arg} requires a value")
+            key = {"--api-base": "base_url", "--api-key": "api_key", "--org-id": "org_id"}[arg]
+            overrides[key] = args[i + 1]
+            i += 2
+            continue
+        if arg.startswith("--api-base="):
+            overrides["base_url"] = arg.split("=", 1)[1]
+            i += 1
+            continue
+        if arg.startswith("--api-key="):
+            overrides["api_key"] = arg.split("=", 1)[1]
+            i += 1
+            continue
+        if arg.startswith("--org-id="):
+            overrides["org_id"] = arg.split("=", 1)[1]
+            i += 1
+            continue
+        cleaned.append(arg)
+        i += 1
+    return cleaned, overrides
 
 
 # ── Entry point ───────────────────────────────────────────────────────────
@@ -440,7 +523,9 @@ COMMANDS = {
 
 
 def main() -> None:
-    argv = sys.argv[1:]
+    global _GLOBAL_OVERRIDES
+    argv, overrides = _extract_global_overrides(sys.argv[1:])
+    _GLOBAL_OVERRIDES = overrides
     if not argv:
         cmd_help([])
         return

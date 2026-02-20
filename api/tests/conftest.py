@@ -112,6 +112,7 @@ async def clean_db(test_engine: AsyncEngine) -> AsyncIterator[None]:
                     waitlist,
                     auth_users,
                     audit_logs,
+                    recall_logs,
                     memory_embeddings,
                     memory_tags,
                     tags,

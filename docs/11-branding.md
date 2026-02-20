@@ -3,22 +3,42 @@
 ## Wordmark
 
 - Primary brand text: `thecontextcache™`
-- Keep the ™ symbol visible in product headers and legal pages.
+- Keep the ™ symbol visible in app header, landing, and legal surfaces.
+- Use lower-case spelling exactly as above.
 
-## Logo placement
+## Logo system
 
-- Top-left navigation: logo icon first, then wordmark.
-- Keep icon square and aligned to text baseline.
-- Minimum visual size: 18px.
+- Header logo: compact neural/interlocking-C glyph before the wordmark.
+- Minimum size:
+  - Header icon: `20px`
+  - Favicon: `32x32` SVG
+- Theme-aware colors:
+  - Dark UI: cyan/violet glow
+  - Light UI: teal/indigo contrast
 
-## Favicon (browser tab icon)
+## Theme-dependent assets
 
-- Light mode uses: `/favicon-light.svg`
-- Dark mode uses: `/favicon-dark.svg`
-- The web app switches favicon dynamically based on active theme.
+- Favicons:
+  - `/favicon-dark.svg`
+  - `/favicon-light.svg`
+- Runtime behavior:
+  - Theme provider updates `<link id="dynamic-favicon">` whenever theme changes.
+  - Layout boot script sets favicon before first paint.
+  - Cache busting uses `NEXT_PUBLIC_ASSET_VERSION` query suffix.
 
-## Color usage
+## Placement rules
 
-- Dark mode icon: cyan/violet motif on deep navy background.
-- Light mode icon: teal/indigo motif on pale background.
-- Ensure sufficient contrast against browser tab backgrounds.
+- Top-left nav: `logo + wordmark` (never wordmark-only in app shell).
+- Keep horizontal spacing at `8px` between icon and text.
+- Avoid stretching or recoloring the logo outside the theme tokens.
+
+## Typography
+
+- Product name in nav and legal: `thecontextcache™`
+- Headline style uses display font tokens from `globals.css`.
+- Monospace labels are reserved for technical chips and metadata only.
+
+## Accessibility
+
+- Maintain WCAG AA contrast for logo and wordmark in both themes.
+- Favicon variants should remain distinguishable against browser tab backgrounds.
