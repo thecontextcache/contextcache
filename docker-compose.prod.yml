@@ -13,11 +13,10 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
 
+  # docs is dev-only — not needed in production
   docs:
-    ports:
-      - "127.0.0.1:8001:8001"
+    profiles: ["never"]
 
   db:
     # Never expose Postgres publicly in production compose.
     ports: []
-
