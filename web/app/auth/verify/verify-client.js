@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { buildApiBase } from "../../lib/api";
+import { apiFetch } from "../../lib/api";
 
 export default function VerifyClient({ token }) {
-  const apiBase = useMemo(() => buildApiBase(), []);
   const router = useRouter();
   const [phase, setPhase] = useState("verifying"); // verifying | success | error
   const [errorMsg, setErrorMsg] = useState("");
@@ -20,30 +19,27 @@ export default function VerifyClient({ token }) {
 
     async function verify() {
       try {
-        const res = await fetch(
-          `${apiBase}/auth/verify?token=${encodeURIComponent(token)}`,
-          { method: "GET", credentials: "include" }
-        );
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          setPhase("error");
-          setErrorMsg(
-            res.status === 410
-              ? "This link has expired or already been used. Request a new one."
-              : body.detail || "Verification failed. Request a new sign-in link."
-          );
-          return;
-        }
+        // IMPORTANT: must go through apiFetch (same-origin /api proxy) so the
+        // Set-Cookie response header is from the same origin as the page.
+        // A cross-origin fetch (directly to :8000) would cause browsers to
+        // silently drop the session cookie due to SameSite=Lax rules.
+        await apiFetch(`/auth/verify?token=${encodeURIComponent(token)}`, {
+          method: "GET",
+        });
         setPhase("success");
         setTimeout(() => router.replace("/app"), 1200);
-      } catch {
+      } catch (err) {
         setPhase("error");
-        setErrorMsg("Cannot reach the backend. Make sure the API is running.");
+        setErrorMsg(
+          err?.status === 410
+            ? "This link has expired or already been used. Request a new one."
+            : err?.message || "Verification failed. Request a new sign-in link."
+        );
       }
     }
 
     verify();
-  }, [apiBase, token, router]);
+  }, [token, router]);
 
   return (
     <div className="auth-wrap card">
