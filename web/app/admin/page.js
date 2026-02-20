@@ -33,6 +33,7 @@ export default function AdminPage() {
   const toast = useToast();
   const [activeTab, setActiveTab] = useState("waitlist");
 
+  const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [waitlist, setWaitlist] = useState([]);
   const [invites, setInvites] = useState([]);
@@ -72,10 +73,17 @@ export default function AdminPage() {
     setLoading(true);
     try {
       const me = await apiFetch("/auth/me");
-      if (!me.is_admin) { router.replace("/app"); return; }
+      if (!me.is_admin) {
+        router.replace("/app");
+        return;
+      }
+      setIsAdmin(true);
     } catch (err) {
       handleErr(err);
-      setLoading(false);
+      // Do not unset loading to prevent UI flash before redirect
+      if (!(err instanceof ApiError && (err.kind === "auth" || err.kind === "forbidden"))) {
+        setLoading(false);
+      }
       return;
     }
 
@@ -265,7 +273,7 @@ export default function AdminPage() {
   const maxUsage = Math.max(...usage.map((r) => r.count || 0), 1);
   const pendingCount = waitlist.filter((w) => w.status === "pending").length;
 
-  if (loading) {
+  if (loading || !isAdmin) {
     return (
       <div className="stack-lg">
         <SkeletonCard rows={2} />

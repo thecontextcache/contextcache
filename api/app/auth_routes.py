@@ -131,21 +131,13 @@ def _require_session_auth(request: Request) -> tuple[int, bool]:
     return auth_user_id, auth_is_admin
 
 
-def _require_admin_auth(request: Request) -> int | None:
-    """Allow admin access via session-admin OR API-key org role (owner/admin)."""
+def _require_admin_auth(request: Request) -> int:
+    """Allow admin access exclusively via verified global session-admin claims."""
     auth_user_id = getattr(request.state, "auth_user_id", None)
     auth_is_admin = bool(getattr(request.state, "auth_is_admin", False))
-    if auth_user_id is not None:
-        if not auth_is_admin:
-            raise HTTPException(status_code=403, detail="Forbidden")
-        return auth_user_id
-
-    role = getattr(request.state, "role", None)
-    if role in {"owner", "admin"}:
-        return getattr(request.state, "actor_user_id", None)
-    if role is None:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    raise HTTPException(status_code=403, detail="Forbidden")
+    if auth_user_id is None or not auth_is_admin:
+        raise HTTPException(status_code=403, detail="Forbidden: Global admin access required")
+    return auth_user_id
 
 
 @router.post("/auth/request-link", response_model=AuthRequestLinkOut)
