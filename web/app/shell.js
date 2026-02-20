@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "./theme-provider";
-import { buildApiBase, buildDocsBase, checkHealth } from "./lib/api";
+import { buildApiBase, buildDocsBase, checkHealth, apiFetch } from "./lib/api";
 import { ServiceUnavailable } from "./components/service-unavailable";
 import { DebugPanel } from "./components/debug-panel";
 
@@ -44,9 +44,7 @@ export default function Shell({ children }) {
     if (isPublicPage) return;
     async function checkMe() {
       try {
-        const res = await fetch(`${apiBase}/auth/me`, { credentials: "include" });
-        if (!res.ok) { setIsLoggedIn(false); setIsAdmin(false); return; }
-        const me = await res.json();
+        const me = await apiFetch("/auth/me");
         setIsLoggedIn(true);
         setIsAdmin(Boolean(me.is_admin));
         setSession(me);
@@ -60,7 +58,7 @@ export default function Shell({ children }) {
 
   async function logout() {
     try {
-      await fetch(`${apiBase}/auth/logout`, { method: "POST", credentials: "include" });
+      await apiFetch("/auth/logout", { method: "POST" });
     } catch {
       // Proceed even if logout endpoint fails.
     }
