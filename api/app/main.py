@@ -5,8 +5,9 @@ import os
 import socket
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.exceptions import RequestValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
