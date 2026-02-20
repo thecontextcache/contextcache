@@ -1,30 +1,45 @@
 """CAG (Cache-Augmented Generation) bootstrap for static golden knowledge.
 
-This module is intentionally lightweight:
-- Loads a small static corpus from docs files (when available) + built-ins.
-- Keeps the corpus in-memory as a stand-in for an LLM KV cache.
-- Provides a deterministic query matcher to decide whether to short-circuit
-  recall before database retrieval.
-
-The retrieval/decision algorithm is still server-side only.
+Phase 3 additions:
+- In-memory pheromone + recency (LRU) metadata per cache item.
+- Hybrid eviction (lowest pheromone, LRU tiebreaker).
+- Periodic pheromone evaporation support.
+- KV-cache preparation stub for compressive/Infini-attention integration.
 """
 from __future__ import annotations
 
-import os
-import re
 import hashlib
 import math
+import os
+import re
+import threading
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 CAG_ENABLED = os.getenv("CAG_ENABLED", "true").strip().lower() == "true"
 CAG_MAX_TOKENS = int(os.getenv("CAG_MAX_TOKENS", "180000"))
 CAG_MATCH_THRESHOLD = float(os.getenv("CAG_MATCH_THRESHOLD", "0.58"))
 CAG_MODE = os.getenv("CAG_MODE", "local").strip().lower() or "local"
-CAG_EMBEDDING_MODEL_NAME = os.getenv("CAG_EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2").strip() or "all-MiniLM-L6-v2"
+CAG_EMBEDDING_MODEL_NAME = (
+    os.getenv("CAG_EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2").strip() or "all-MiniLM-L6-v2"
+)
 CAG_EMBEDDING_DIMS = int(os.getenv("CAG_EMBEDDING_DIMS", "384"))
 CAG_EMBEDDING_PROVIDER = os.getenv("CAG_EMBEDDING_PROVIDER", "hash").strip().lower() or "hash"
+
+# Pheromone-guided cache tuning.
+CAG_CACHE_MAX_ITEMS = int(os.getenv("CAG_CACHE_MAX_ITEMS", "512"))
+CAG_PHEROMONE_BASE = float(os.getenv("CAG_PHEROMONE_BASE", "1.0"))
+CAG_PHEROMONE_HIT_BOOST = float(os.getenv("CAG_PHEROMONE_HIT_BOOST", "0.15"))
+CAG_PHEROMONE_MAX = float(os.getenv("CAG_PHEROMONE_MAX", "25.0"))
+CAG_PHEROMONE_MIN = float(os.getenv("CAG_PHEROMONE_MIN", "0.001"))
+CAG_PHEROMONE_EVAPORATION = float(os.getenv("CAG_PHEROMONE_EVAPORATION", "0.95"))
+CAG_EVAPORATION_INTERVAL_SECONDS = int(os.getenv("CAG_EVAPORATION_INTERVAL_SECONDS", "600"))
+
+CAG_KV_STUB_ENABLED = os.getenv("CAG_KV_STUB_ENABLED", "true").strip().lower() == "true"
+
 _DEFAULT_CAG_FILES = (
     "docs/00-overview.md",
     "docs/01-mvp-scope.md",
@@ -52,11 +67,16 @@ _BUILTIN_GOLDEN_KNOWLEDGE = [
 ]
 
 
-@dataclass(frozen=True)
+@dataclass
 class CAGChunk:
     source: str
     content: str
     embedding: tuple[float, ...]
+    kv_tensor_stub: dict[str, Any]
+    created_at: datetime
+    last_accessed_at: datetime
+    pheromone_level: float
+    hit_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -64,6 +84,29 @@ class CAGAnswer:
     source: str
     score: float
     snippets: list[str]
+
+
+@dataclass
+class _CAGState:
+    chunks: list[CAGChunk]
+    warmed_at: datetime | None
+    last_evaporation_at: datetime | None
+    total_queries: int
+    total_hits: int
+    total_misses: int
+    total_evicted: int
+
+
+_STATE = _CAGState(
+    chunks=[],
+    warmed_at=None,
+    last_evaporation_at=None,
+    total_queries=0,
+    total_hits=0,
+    total_misses=0,
+    total_evicted=0,
+)
+_LOCK = threading.Lock()
 
 
 def _chunk_text(text: str, *, max_chars: int = 1400) -> list[str]:
@@ -108,7 +151,6 @@ def _resolve_source_files() -> list[Path]:
 
 
 def _approx_tokens(text: str) -> int:
-    # Coarse estimate: 1 token ~= 4 chars for English prose.
     return max(1, len(text) // 4)
 
 
@@ -156,9 +198,24 @@ def _embed_text(text: str) -> tuple[float, ...]:
     return _hash_embedding(text)
 
 
+def _build_kv_tensor_stub(source: str, content: str) -> dict[str, Any]:
+    if not CAG_KV_STUB_ENABLED:
+        return {}
+    token_est = _approx_tokens(content)
+    digest = hashlib.sha256(f"kv:{source}:{content}".encode("utf-8")).hexdigest()
+    return {
+        "kv_stub_id": digest[:24],
+        "token_estimate": token_est,
+        "compressed_bytes_estimate": int(token_est * 12),
+        "prepared_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 def _build_chunks() -> list[CAGChunk]:
     chunks: list[CAGChunk] = []
     budget = CAG_MAX_TOKENS
+    now = datetime.now(timezone.utc)
+
     for path in _resolve_source_files():
         try:
             content = path.read_text(encoding="utf-8")
@@ -168,30 +225,65 @@ def _build_chunks() -> list[CAGChunk]:
             cost = _approx_tokens(part)
             if cost > budget:
                 return chunks
-            emb = _embed_text(part)
-            chunks.append(CAGChunk(source=str(path), content=part, embedding=emb))
+            chunks.append(
+                CAGChunk(
+                    source=str(path),
+                    content=part,
+                    embedding=_embed_text(part),
+                    kv_tensor_stub=_build_kv_tensor_stub(str(path), part),
+                    created_at=now,
+                    last_accessed_at=now,
+                    pheromone_level=CAG_PHEROMONE_BASE,
+                )
+            )
             budget -= cost
 
     for source, content in _BUILTIN_GOLDEN_KNOWLEDGE:
         cost = _approx_tokens(content)
         if cost > budget:
             break
-        emb = _embed_text(content)
-        chunks.append(CAGChunk(source=source, content=content, embedding=emb))
+        chunks.append(
+            CAGChunk(
+                source=source,
+                content=content,
+                embedding=_embed_text(content),
+                kv_tensor_stub=_build_kv_tensor_stub(source, content),
+                created_at=now,
+                last_accessed_at=now,
+                pheromone_level=CAG_PHEROMONE_BASE,
+            )
+        )
         budget -= cost
     return chunks
 
 
-@lru_cache(maxsize=1)
-def warm_cag_cache() -> tuple[CAGChunk, ...]:
+def _evict_to_capacity(chunks: list[CAGChunk]) -> tuple[list[CAGChunk], int]:
+    if CAG_CACHE_MAX_ITEMS <= 0 or len(chunks) <= CAG_CACHE_MAX_ITEMS:
+        return chunks, 0
+    ordered = sorted(chunks, key=lambda c: (c.pheromone_level, c.last_accessed_at, c.created_at))
+    evicted = len(ordered) - CAG_CACHE_MAX_ITEMS
+    kept = ordered[evicted:]
+    kept.sort(key=lambda c: c.created_at)
+    return kept, evicted
+
+
+def warm_cag_cache(force: bool = False) -> tuple[CAGChunk, ...]:
     if not CAG_ENABLED:
         return tuple()
-    chunks = tuple(_build_chunks())
-    print(
-        f"[cag] preload enabled={CAG_ENABLED} mode={CAG_MODE} embed_model={CAG_EMBEDDING_MODEL_NAME} "
-        f"chunks={len(chunks)} max_tokens={CAG_MAX_TOKENS}"
-    )
-    return chunks
+    with _LOCK:
+        if _STATE.chunks and not force:
+            return tuple(_STATE.chunks)
+        chunks = _build_chunks()
+        chunks, evicted = _evict_to_capacity(chunks)
+        _STATE.chunks = chunks
+        _STATE.warmed_at = datetime.now(timezone.utc)
+        _STATE.last_evaporation_at = _STATE.warmed_at
+        _STATE.total_evicted += evicted
+        print(
+            f"[cag] preload enabled={CAG_ENABLED} mode={CAG_MODE} embed_model={CAG_EMBEDDING_MODEL_NAME} "
+            f"chunks={len(chunks)} max_tokens={CAG_MAX_TOKENS} cache_max_items={CAG_CACHE_MAX_ITEMS}"
+        )
+        return tuple(_STATE.chunks)
 
 
 def is_local_cag() -> bool:
@@ -208,6 +300,7 @@ def maybe_answer_from_cache(query: str, *, max_snippets: int = 3) -> CAGAnswer |
     query_clean = (query or "").strip()
     if not query_clean:
         return None
+
     chunks = warm_cag_cache()
     if not chunks:
         return None
@@ -216,21 +309,107 @@ def maybe_answer_from_cache(query: str, *, max_snippets: int = 3) -> CAGAnswer |
     if not query_embedding:
         return None
 
+    ranked: list[tuple[float, int, CAGChunk]] = []
     best_source = ""
     best_score = 0.0
-    ranked: list[tuple[float, CAGChunk]] = []
-    for chunk in chunks:
+    for idx, chunk in enumerate(chunks):
         score = float(_dot(query_embedding, chunk.embedding))
         if score <= 0:
             continue
-        ranked.append((score, chunk))
+        ranked.append((score, idx, chunk))
         if score > best_score:
             best_score = score
             best_source = chunk.source
 
-    if best_score < CAG_MATCH_THRESHOLD:
+    with _LOCK:
+        _STATE.total_queries += 1
+
+    if best_score < CAG_MATCH_THRESHOLD or not ranked:
+        with _LOCK:
+            _STATE.total_misses += 1
         return None
 
     ranked.sort(key=lambda row: row[0], reverse=True)
-    snippets = [chunk.content for _, chunk in ranked[:max_snippets]]
+    snippets = [chunk.content for _, _, chunk in ranked[:max_snippets]]
+    now = datetime.now(timezone.utc)
+    with _LOCK:
+        _STATE.total_hits += 1
+        for score, idx, _ in ranked[:max_snippets]:
+            chunk = _STATE.chunks[idx]
+            chunk.hit_count += 1
+            chunk.last_accessed_at = now
+            chunk.pheromone_level = max(
+                CAG_PHEROMONE_MIN,
+                min(CAG_PHEROMONE_MAX, chunk.pheromone_level + (CAG_PHEROMONE_HIT_BOOST * max(score, 0.05))),
+            )
     return CAGAnswer(source=best_source, score=round(best_score, 6), snippets=snippets)
+
+
+def evaporate_pheromones() -> dict[str, Any]:
+    with _LOCK:
+        if not _STATE.chunks:
+            return {"status": "ok", "items": 0, "evaporated_at": datetime.now(timezone.utc).isoformat()}
+        factor = max(0.0, min(1.0, CAG_PHEROMONE_EVAPORATION))
+        for chunk in _STATE.chunks:
+            chunk.pheromone_level = max(CAG_PHEROMONE_MIN, chunk.pheromone_level * factor)
+        _STATE.last_evaporation_at = datetime.now(timezone.utc)
+        return {
+            "status": "ok",
+            "items": len(_STATE.chunks),
+            "evaporation_factor": factor,
+            "evaporated_at": _STATE.last_evaporation_at.isoformat(),
+        }
+
+
+def evaporation_interval_seconds() -> int:
+    return max(0, CAG_EVAPORATION_INTERVAL_SECONDS)
+
+
+def maybe_evaporate_due(now: datetime | None = None) -> bool:
+    now = now or datetime.now(timezone.utc)
+    with _LOCK:
+        if not _STATE.chunks:
+            return False
+        if _STATE.last_evaporation_at is None:
+            _STATE.last_evaporation_at = now
+            return False
+        if now - _STATE.last_evaporation_at < timedelta(seconds=evaporation_interval_seconds()):
+            return False
+    evaporate_pheromones()
+    return True
+
+
+def get_cag_cache_stats(*, sample_size: int = 10) -> dict[str, Any]:
+    with _LOCK:
+        entries = list(_STATE.chunks)
+        total = len(entries)
+        avg_pheromone = round(sum(c.pheromone_level for c in entries) / total, 6) if total else 0.0
+        kv_tokens = sum(int(c.kv_tensor_stub.get("token_estimate", 0)) for c in entries if c.kv_tensor_stub)
+        top = sorted(entries, key=lambda c: (-c.pheromone_level, c.last_accessed_at))[: max(1, sample_size)]
+        return {
+            "enabled": CAG_ENABLED,
+            "mode": CAG_MODE,
+            "embedding_model": CAG_EMBEDDING_MODEL_NAME,
+            "cache_items": total,
+            "cache_max_items": CAG_CACHE_MAX_ITEMS,
+            "total_queries": _STATE.total_queries,
+            "total_hits": _STATE.total_hits,
+            "total_misses": _STATE.total_misses,
+            "hit_rate": round((_STATE.total_hits / _STATE.total_queries), 6) if _STATE.total_queries else 0.0,
+            "total_evicted": _STATE.total_evicted,
+            "avg_pheromone": avg_pheromone,
+            "last_evaporation_at": _STATE.last_evaporation_at.isoformat() if _STATE.last_evaporation_at else None,
+            "evaporation_factor": CAG_PHEROMONE_EVAPORATION,
+            "evaporation_interval_seconds": evaporation_interval_seconds(),
+            "kv_stub_enabled": CAG_KV_STUB_ENABLED,
+            "kv_token_budget_used": kv_tokens,
+            "top_entries": [
+                {
+                    "source": entry.source,
+                    "hit_count": entry.hit_count,
+                    "pheromone_level": round(entry.pheromone_level, 6),
+                    "last_accessed_at": entry.last_accessed_at.isoformat(),
+                }
+                for entry in top
+            ],
+        }

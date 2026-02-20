@@ -140,9 +140,9 @@ export default function Shell({ children }) {
       </header>
 
       {isFullWidth ? (
-        <main id="main-content">{children}</main>
+        <main id="main-content" className="page-transition-wrap">{children}</main>
       ) : (
-        <div className="page" id="main-content">{children}</div>
+        <div className="page page-transition-wrap" id="main-content">{children}</div>
       )}
 
       <footer className="footer">

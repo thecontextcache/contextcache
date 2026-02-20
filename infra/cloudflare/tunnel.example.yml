@@ -1,0 +1,17 @@
+# Cloudflare Tunnel example for ContextCache subdomain deployment.
+# Replace placeholders before use.
+
+tunnel: <YOUR_TUNNEL_ID>
+credentials-file: /etc/cloudflared/<YOUR_TUNNEL_ID>.json
+
+ingress:
+  - hostname: thecontextcache.com
+    service: http://localhost:3000
+
+  - hostname: api.thecontextcache.com
+    service: http://localhost:8000
+
+  - hostname: docs.thecontextcache.com
+    service: http://localhost:8001
+
+  - service: http_status:404

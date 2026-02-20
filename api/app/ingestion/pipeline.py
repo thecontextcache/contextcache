@@ -18,7 +18,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.analyzer.algorithm import compute_embedding
+from app.analyzer.algorithm import compute_embedding, compute_hilbert_index
 from app.models import Memory
 
 
@@ -170,6 +170,7 @@ async def ingest_path_incremental(
                 content_hash=c_hash,
                 search_vector=vector,
                 embedding_vector=vector,
+                hilbert_index=compute_hilbert_index(vector),
             )
             db.add(memory)
             inserted += 1

@@ -96,6 +96,9 @@ class Project(Base):
 
 class Memory(Base):
     __tablename__ = "memories"
+    __table_args__ = (
+        Index("ix_memories_project_hilbert_index", "project_id", "hilbert_index"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
@@ -118,6 +121,8 @@ class Memory(Base):
     search_vector: Mapped[list[float] | None] = mapped_column(JSONB, nullable=True)
     # Native pgvector embedding for cosine similarity search.
     embedding_vector: Mapped[list[float] | None] = mapped_column(Vector(1536), nullable=True)
+    # 1D locality-preserving key derived from embeddings for coarse pre-filtering.
+    hilbert_index: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
     # FTS vector — maintained by trig_memories_tsv trigger in the DB
     search_tsv: Mapped[str | None] = mapped_column(TSVECTOR, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

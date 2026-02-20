@@ -199,11 +199,18 @@ export default function AppPage() {
         }
       }
       setOrgId(nextOrgId);
+      setAuth(me);
+      if (!nextOrgId) {
+        setProjects([]);
+        setProjectId("");
+        setUsage(await apiFetch("/me/usage").catch(() => null));
+        toast.warn("No organization membership found. Ask an admin to add you to an org.");
+        return;
+      }
       const [list, usageRes] = await Promise.all([
         apiFetch("/projects"),
         apiFetch("/me/usage").catch(() => null), // non-fatal
       ]);
-      setAuth(me);
       setProjects(list);
       if (list.length) setProjectId(String(list[0].id));
       if (usageRes) setUsage(usageRes);
@@ -218,6 +225,7 @@ export default function AppPage() {
 
   async function switchOrg(nextOrgId) {
     if (!nextOrgId || nextOrgId === orgId) return;
+    const previousOrgId = orgId;
     if (typeof window !== "undefined") {
       window.localStorage.setItem("CONTEXTCACHE_ORG_ID", nextOrgId);
     }
@@ -239,6 +247,14 @@ export default function AppPage() {
       if (usageRes) setUsage(usageRes);
       toast.success("Switched organization.");
     } catch (err) {
+      if (typeof window !== "undefined") {
+        if (previousOrgId) {
+          window.localStorage.setItem("CONTEXTCACHE_ORG_ID", previousOrgId);
+        } else {
+          window.localStorage.removeItem("CONTEXTCACHE_ORG_ID");
+        }
+      }
+      setOrgId(previousOrgId);
       handleApiError(err);
     }
   }
@@ -424,25 +440,33 @@ export default function AppPage() {
 
         {/* Header row */}
         <div className="sidebar-header">
-          {orgs.length > 1 && (
-            <div style={{ paddingBottom: 8 }}>
-              <label htmlFor="org-switch" style={{ fontSize: "0.72rem", marginBottom: 4, color: "var(--muted)" }}>
-                Organization
-              </label>
-              <select
-                id="org-switch"
-                value={orgId}
-                onChange={(e) => switchOrg(e.target.value)}
-                style={{ fontSize: "0.82rem", padding: "6px 10px" }}
-              >
-                {orgs.map((o) => (
+          <div style={{ paddingBottom: 8 }}>
+            <label htmlFor="org-switch" style={{ fontSize: "0.72rem", marginBottom: 4, color: "var(--muted)" }}>
+              Organization Scope
+            </label>
+            <select
+              id="org-switch"
+              value={orgId}
+              onChange={(e) => switchOrg(e.target.value)}
+              style={{ fontSize: "0.82rem", padding: "6px 10px" }}
+              disabled={orgs.length === 0}
+            >
+              {orgs.length === 0 ? (
+                <option value="">No organizations available</option>
+              ) : (
+                orgs.map((o) => (
                   <option key={o.id} value={String(o.id)}>
-                    {o.name}{o.role ? ` (${o.role})` : ""}
+                    {o.name} · id={o.id}{o.role ? ` · ${o.role}` : ""}
                   </option>
-                ))}
-              </select>
+                ))
+              )}
+            </select>
+            <div className="muted" style={{ fontSize: "0.7rem", marginTop: 5 }}>
+              {orgs.length > 1
+                ? "Switch org to view its projects and memories."
+                : "Project list is scoped to this organization."}
             </div>
-          )}
+          </div>
 
           <div className="row spread" style={{ paddingBottom: 6 }}>
             <span className="sidebar-section-label">

@@ -114,6 +114,8 @@ cc admin set-unlimited 5 --value true
 cc admin login-events 5
 cc admin stats 5
 cc admin recall-logs --project 1 --limit 20 --offset 0
+cc admin cag-stats
+cc admin cag-evaporate
 ```
 
 `cc seed-mock-data` uses the SDK and uploads memories through
@@ -219,6 +221,9 @@ users = client.admin.users.list(page=1, limit=20, is_admin=True)
 client.admin.users.set_unlimited(users[0]["id"], unlimited=True)
 events = client.admin.users.login_events(users[0]["id"])
 stats = client.admin.users.stats(users[0]["id"])
+recall_logs = client.admin.recall_logs(limit=20, offset=0, project_id=1)
+cache_stats = client.admin.cag_cache_stats()
+client.admin.evaporate_cag_cache()
 
 # Public waitlist join (no auth required)
 public = ContextCacheClient(api_key="", base_url="https://api.thecontextcache.com")

@@ -34,10 +34,15 @@ Unique: `(org_id, user_id)`.
 - `project_id` (FK -> projects)
 - `type`
 - `content`
+- `search_vector` (`jsonb`, deterministic/local embedding fallback payload)
+- `embedding_vector` (`vector(1536)`, pgvector cosine search)
+- `hilbert_index` (`bigint`, locality-preserving prefilter key)
 - `search_tsv` (`tsvector`)
 - `created_at`
 
 FTS index: `GIN(search_tsv)`.
+Vector index: `ivfflat(embedding_vector vector_cosine_ops)`.
+Prefilter index: `BTREE(project_id, hilbert_index)`.
 
 ### `api_keys`
 - `id` (PK)
@@ -117,10 +122,12 @@ FTS index: `GIN(search_tsv)`.
 
 ## Recall behavior
 
-Primary retrieval uses Postgres FTS:
+Primary retrieval uses hybrid ranking:
 - `websearch_to_tsquery('english', query)`
-- filter: `search_tsv @@ tsquery`
-- rank: `ts_rank_cd(search_tsv, tsquery)`
+- FTS filter/rank: `search_tsv @@ tsquery`, `ts_rank_cd(search_tsv, tsquery)`
+- vector kNN: `ORDER BY embedding_vector <=> query_vector ASC`
+- Hilbert prefilter: `hilbert_index BETWEEN low AND high` before vector kNN
+- CAG pre-check: in-memory static corpus with semantic match
 - tie-break: `created_at desc`
 
-Fallback: latest memories when no FTS match.
+Fallback: latest memories when hybrid candidates are empty.

@@ -101,7 +101,7 @@ Recall uses a two-stage decision:
    - Default provider is deterministic hash embeddings for speed/stability; optional sentence-transformers can be enabled.
 2. **RAG fallback**: if CAG confidence is low, run hybrid retrieval over project memories:
    - PostgreSQL FTS (`websearch_to_tsquery`)
-   - pgvector cosine similarity
+   - Hilbert prefilter (`hilbert_index` range) + pgvector cosine similarity
    - recency boost
 
 This means global/product answers can return instantly, while project-specific queries still use memory retrieval.
@@ -116,8 +116,18 @@ CAG_MATCH_THRESHOLD=0.58
 CAG_EMBEDDING_MODEL_NAME=all-MiniLM-L6-v2
 CAG_EMBEDDING_PROVIDER=hash
 CAG_EMBEDDING_DIMS=384
+CAG_CACHE_MAX_ITEMS=512
+CAG_PHEROMONE_HIT_BOOST=0.15
+CAG_PHEROMONE_EVAPORATION=0.95
+CAG_EVAPORATION_INTERVAL_SECONDS=600
+CAG_KV_STUB_ENABLED=true
 CAG_SOURCE_FILES=docs/00-overview.md,docs/01-mvp-scope.md,docs/04-api-contract.md,docs/legal.md
 ```
+
+Phase 3 cache behavior:
+- CAG entries reinforce `pheromone_level` on hits.
+- A background evaporation loop decays pheromone every 10 minutes.
+- Eviction removes the lowest pheromone entries, then least-recently-accessed ties.
 
 ## CocoIndex ingestion baseline
 

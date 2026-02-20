@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .analyzer.algorithm import (
     HybridRecallConfig,
     compute_embedding,
+    compute_hilbert_index,
     fetch_memories_by_ids,
     run_hybrid_rag_recall,
 )
@@ -1078,6 +1079,7 @@ async def create_memory(
         content_hash=_content_hash(payload.content),
         search_vector=embedding,
         embedding_vector=embedding,
+        hilbert_index=compute_hilbert_index(embedding),
     )
     db.add(memory)
     await db.flush()

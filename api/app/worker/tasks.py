@@ -447,6 +447,7 @@ def compute_memory_embedding(self, memory_id: int, model: str = "text-embedding-
     logger.info("[worker] compute_memory_embedding started memory_id=%s model=%s", memory_id, model)
 
     from app.analyzer.core import compute_embedding
+    from app.analyzer.algorithm import compute_hilbert_index
     from app.models import Memory, MemoryEmbedding
 
     async def _upsert(session):
@@ -463,6 +464,7 @@ def compute_memory_embedding(self, memory_id: int, model: str = "text-embedding-
         vector = compute_embedding(text, model=model)
         mem.search_vector = vector
         mem.embedding_vector = vector
+        mem.hilbert_index = compute_hilbert_index(vector)
 
         from sqlalchemy import select
         row = (

@@ -38,6 +38,7 @@ from app.models import (
     Project,
     Memory,
 )
+from app.analyzer.algorithm import compute_embedding, compute_hilbert_index
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
@@ -267,6 +268,8 @@ async def seed(
 
             mems = pdata["memories"][:mems_per_project]
             for mem_type, content, title in mems:
+                embedding_input = " ".join(part for part in [title or "", content or ""] if part).strip()
+                embedding = compute_embedding(embedding_input)
                 mem = Memory(
                     project_id=proj.id,
                     created_by_user_id=auth_user.id,
@@ -274,6 +277,9 @@ async def seed(
                     source=random.choice(SOURCES),
                     title=title,
                     content=content,
+                    search_vector=embedding,
+                    embedding_vector=embedding,
+                    hilbert_index=compute_hilbert_index(embedding),
                     created_at=_ts(days_ago=random.randint(0, 14)),
                 )
                 session.add(mem)

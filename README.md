@@ -96,6 +96,7 @@ docker compose --profile test down -v
 # API style checks (inside dev container or local venv)
 uv --project api run black --check app tests
 uv --project api run flake8 app tests
+uv --project api run bandit -r app -x tests
 
 # Web lint (requires npm deps)
 npm --prefix web run lint
@@ -139,6 +140,24 @@ If logs mention pgvector/`vector` extension failures, use the pgvector DB image
 docker compose up -d --build db api web
 ```
 
+If CAG cache diagnostics are needed (admin key/session required):
+
+```bash
+python cli/cc.py admin cag-stats --api-base https://api.thecontextcache.com --api-key cck_xxx --org-id 1
+python cli/cc.py admin cag-evaporate --api-base https://api.thecontextcache.com --api-key cck_xxx --org-id 1
+```
+
+If seeded projects are missing in `/app`, verify org scope:
+
+- Open `/app` and use the **Organization Scope** selector in the sidebar.
+- The UI stores selected org in `CONTEXTCACHE_ORG_ID` (localStorage).
+- Clear and reload if needed:
+
+```js
+localStorage.removeItem("CONTEXTCACHE_ORG_ID")
+location.reload()
+```
+
 ## Worker profile
 
 ```bash
@@ -149,6 +168,15 @@ When `WORKER_ENABLED=true`, background tasks run for:
 - embeddings/contextualization
 - magic link cleanup
 - session/invite/waitlist retention cleanup
+- recall hedge p95 cache refresh
+
+## Infra baseline
+
+`infra/` now includes a lightweight starter:
+
+- `infra/README.md`
+- `infra/terraform/` reference variables/outputs for Postgres + Redis wiring
+- `infra/cloudflare/tunnel.example.yml`
 
 ## Load test (optional)
 
@@ -182,6 +210,10 @@ SES production note:
 Copy `.env.example` to `.env`. Key variables are documented inline in that file.
 
 Never commit `.env` — it is git-ignored.
+
+Note: Docker Compose reads `.env` automatically. You generally do **not** need
+to run `source .env`. If you do source it in a shell, quote values containing
+spaces (example: `BOOTSTRAP_ORG_NAME="Demo Org"`).
 
 ---
 

@@ -23,7 +23,6 @@
   - `/favicon-light.svg`
 - Runtime behavior:
   - Theme provider updates `<link id="dynamic-favicon">` whenever theme changes.
-  - Theme provider also updates `<link id="dynamic-shortcut-favicon">` for browser compatibility.
   - Layout boot script sets favicon before first paint.
   - Cache busting uses `NEXT_PUBLIC_ASSET_VERSION` query suffix.
 

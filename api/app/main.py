@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import socket
 from urllib.parse import urlparse
@@ -11,7 +12,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .analyzer.cag import warm_cag_cache
+from .analyzer.cag import evaporation_interval_seconds, evaporate_pheromones, warm_cag_cache
 from .auth_utils import SESSION_COOKIE_NAME, hash_token, now_utc
 from .db import AsyncSessionLocal, hash_api_key
 from .models import ApiKey, AuthSession, AuthUser, Membership, Organization, User
@@ -28,6 +29,7 @@ BOOTSTRAP_KEY_NAME = os.getenv("BOOTSTRAP_KEY_NAME", "dev-key").strip() or "dev-
 BOOTSTRAP_ORG_NAME = os.getenv("BOOTSTRAP_ORG_NAME", "Demo Org").strip() or "Demo Org"
 BOOTSTRAP_OWNER_EMAIL = "demo@local"
 BOOTSTRAP_OWNER_NAME = "Demo Owner"
+_CAG_EVAPORATION_TASK: asyncio.Task | None = None
 
 raw_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000")
 cors_origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
@@ -319,8 +321,26 @@ def _check_env_var_names() -> None:
 
 @app.on_event("startup")
 async def startup() -> None:
+    global _CAG_EVAPORATION_TASK
     _check_env_var_names()
-    warm_cag_cache()
+    cached_chunks = warm_cag_cache()
+    interval = evaporation_interval_seconds()
+    if interval > 0 and cached_chunks:
+        async def _evaporation_loop() -> None:
+            while True:
+                try:
+                    await asyncio.sleep(interval)
+                    result = await asyncio.to_thread(evaporate_pheromones)
+                    print(
+                        f"[cag] evaporated items={result.get('items', 0)} "
+                        f"factor={result.get('evaporation_factor', 'n/a')}"
+                    )
+                except asyncio.CancelledError:
+                    break
+                except Exception as exc:
+                    print(f"[cag] evaporation loop warning: {exc}")
+
+        _CAG_EVAPORATION_TASK = asyncio.create_task(_evaporation_loop())
     if APP_ENV == "dev":
         print(
             f"[bootstrap] APP_ENV=dev BOOTSTRAP_API_KEY_present="
@@ -332,6 +352,18 @@ async def startup() -> None:
             f"[bootstrap] startup_bootstrap_ran={'yes' if ran_bootstrap else 'no'} "
             f"active_api_keys={active_key_count}"
         )
+
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    global _CAG_EVAPORATION_TASK
+    if _CAG_EVAPORATION_TASK is not None:
+        _CAG_EVAPORATION_TASK.cancel()
+        try:
+            await _CAG_EVAPORATION_TASK
+        except asyncio.CancelledError:
+            pass
+        _CAG_EVAPORATION_TASK = None
 
 
 app.include_router(router)

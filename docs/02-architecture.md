@@ -123,9 +123,9 @@ sequenceDiagram
 ### 5. Backend module layout (`api/app/`)
 
 - `analyzer/algorithm.py`: single source of truth for scoring/ranking logic
-  (FTS/vector/recency weighting, normalization, embedding helpers).
+  (FTS/vector/recency weighting, normalization, embedding helpers, Hilbert prefilter mapping).
 - `analyzer/core.py`: compatibility shim; delegates to `algorithm.py`.
-- `analyzer/cag.py`: cache-augmented generation preload + lookup.
+- `analyzer/cag.py`: cache-augmented generation preload + lookup, pheromone reinforcement/evaporation, KV-cache prep stub.
 - `auth_routes.py`: magic-link/session/admin auth endpoints.
 - `routes.py`: API orchestration and IO; calls analyzer functions for ranking.
 - `ingestion/`: incremental ingestion scaffolding (`cocoindex_flow.py`, `pipeline.py`).
@@ -159,9 +159,11 @@ User                    API                     Postgres
   │                      │                         │
   │  GET /recall?query=  │                         │
   │─────────────────────▶│                         │
-  │                      │  CAG pre-check (golden docs) │
+  │                      │  CAG pre-check (golden docs)  │
+  │                      │  + pheromone cache metadata   │
   │                      │  if miss: hybrid query        │
-  │                      │  FTS + pgvector + recency     │
+  │                      │  FTS + Hilbert prefilter +    │
+  │                      │  pgvector + recency           │
   │                      │────────────────────────▶│
   │                      │                         │
   │                      │  Return matching rows   │

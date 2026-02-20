@@ -84,6 +84,15 @@ HEDGE_DELAY_MS=120
 HEDGE_MIN_DELAY_MS=25
 HEDGE_USE_P95_CACHE=true
 HEDGE_P95_CACHE_TTL_SECONDS=900
+HILBERT_BITS=16
+HILBERT_PREFILTER_WINDOW=5000000
+HILBERT_PREFILTER_MIN_CANDIDATES=12
+CAG_CACHE_MAX_ITEMS=512
+CAG_PHEROMONE_BASE=1.0
+CAG_PHEROMONE_HIT_BOOST=0.15
+CAG_PHEROMONE_EVAPORATION=0.95
+CAG_EVAPORATION_INTERVAL_SECONDS=600
+CAG_KV_STUB_ENABLED=true
 ```
 
 ### 6. Start
@@ -135,6 +144,25 @@ Worker job:
 
 Recommendation:
 - Start with `HEDGE_DELAY_MS=120`, then tune using observed `recall_timings` in production.
+
+### CAG pheromone cache behavior
+
+CAG now maintains in-memory cache metadata for each golden-knowledge chunk:
+
+- `pheromone_level` (reinforced on cache hits)
+- `last_accessed_at` (LRU signal)
+
+Eviction policy:
+- Lowest pheromone first
+- LRU tiebreaker when pheromone is equal
+
+Evaporation:
+- API process runs an async evaporation loop every `CAG_EVAPORATION_INTERVAL_SECONDS` (default 600s).
+- Each pass multiplies pheromone by `CAG_PHEROMONE_EVAPORATION` (default `0.95`).
+
+Admin controls:
+- `GET /admin/cag/cache-stats`
+- `POST /admin/cag/evaporate`
 
 ### 7. Stale code/cache troubleshooting (root vs `/app`)
 

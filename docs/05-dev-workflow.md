@@ -6,6 +6,9 @@
 docker compose up -d --build
 ```
 
+`docker compose` loads `.env` automatically. Prefer that over `source .env`.
+If you source manually, quote values that contain spaces.
+
 Services:
 - API: `:8000`
 - Web: `:3000`
@@ -23,6 +26,8 @@ docker compose --profile test run --rm api-test
 ```bash
 uv --project api run black --check app tests
 uv --project api run flake8 app tests
+uv --project api run bandit -r app -x tests
+uv --project api run pip-audit -r requirements.lock
 npm --prefix web run lint
 ```
 
@@ -48,6 +53,13 @@ docker compose --profile test down -v
 3. User opens `/auth` and requests link.
 4. In dev, if SES fails/sandbox blocks, use `debug_link` returned by `/auth/request-link`.
 5. `/auth/verify` sets session cookie and redirects to `/app`.
+
+### Multi-org behavior in the web UI
+
+- The `/app` sidebar always shows current **Organization Scope**.
+- If your user belongs to multiple orgs, use the org selector to switch project context.
+- The selected org id is saved in browser localStorage as `CONTEXTCACHE_ORG_ID`.
+- If you seed data into another org and do not see it, switch org scope first.
 
 Admin guidance:
 - `POST /admin/invites` is for direct access grants (known email).
@@ -93,6 +105,13 @@ Manual run:
 
 ```bash
 docker compose exec api uv run python -m app.migrate
+```
+
+## CAG cache diagnostics (admin)
+
+```bash
+python cli/cc.py admin cag-stats --api-base https://api.thecontextcache.com --api-key cck_xxx --org-id 1
+python cli/cc.py admin cag-evaporate --api-base https://api.thecontextcache.com --api-key cck_xxx --org-id 1
 ```
 
 ## Server docs link

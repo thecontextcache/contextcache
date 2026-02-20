@@ -218,6 +218,28 @@ async def test_admin_requires_auth(client) -> None:
     assert response.status_code == 401
 
 
+async def test_admin_cag_stats_requires_admin(client, db_session: AsyncSession) -> None:
+    unauth = await client.get("/admin/cag/cache-stats")
+    assert unauth.status_code == 401
+
+    db_session.add(AuthUser(email="plain-user@example.com", is_admin=False))
+    db_session.add(
+        AuthMagicLink(
+            email="plain-user@example.com",
+            token_hash=hash_token("tok_plain_user"),
+            expires_at=now_utc() + timedelta(minutes=10),
+            purpose="login",
+            send_status="logged",
+        )
+    )
+    await db_session.commit()
+
+    verified = await client.get("/auth/verify?token=tok_plain_user")
+    assert verified.status_code == 200
+    forbidden = await client.get("/admin/cag/cache-stats")
+    assert forbidden.status_code == 403
+
+
 async def test_disabled_user_cannot_login(client, db_session: AsyncSession) -> None:
     db_session.add(
         AuthUser(

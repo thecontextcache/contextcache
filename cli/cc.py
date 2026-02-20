@@ -30,6 +30,9 @@ Usage:
     cc admin users [--limit 20 --offset 0 --email-q foo --status active]
     cc admin set-unlimited USER_ID [--value true|false]
     cc admin login-events USER_ID
+    cc admin recall-logs [--project-id 3] [--limit 50]
+    cc admin cag-stats
+    cc admin cag-evaporate
 
 Global flags (work with any command):
     --api-base URL
@@ -516,7 +519,7 @@ def cmd_seed_mock_data(args: list[str]) -> None:
 
 
 def cmd_admin(args: list[str]) -> None:
-    """cc admin users|set-unlimited|login-events|stats|recall-logs|invites|waitlist|projects ..."""
+    """cc admin users|set-unlimited|login-events|stats|recall-logs|cag-stats|cag-evaporate|invites|waitlist|projects ..."""
     sub = args[0] if args else ""
     if sub == "invites":
         cmd_invites(args[1:])
@@ -571,8 +574,15 @@ def cmd_admin(args: list[str]) -> None:
         suffix = f"?{urlencode(query)}" if query else ""
         rows = _request("GET", f"/admin/recall/logs{suffix}") or []
         _print_table(rows, ["id", "project_id", "strategy", "query_text", "created_at"])
+    elif sub == "cag-stats":
+        out = _request("GET", "/admin/cag/cache-stats")
+        print(json.dumps(out, indent=2))
+    elif sub == "cag-evaporate":
+        out = _request("POST", "/admin/cag/evaporate")
+        _ok("CAG pheromone evaporation applied.")
+        print(json.dumps(out, indent=2))
     else:
-        print("Usage: cc admin [users|set-unlimited|login-events|stats|recall-logs|invites|waitlist|projects] ...")
+        print("Usage: cc admin [users|set-unlimited|login-events|stats|recall-logs|cag-stats|cag-evaporate|invites|waitlist|projects] ...")
 
 
 # ── Argument parsing helpers ──────────────────────────────────────────────

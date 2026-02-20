@@ -9,7 +9,7 @@ from typing import Any
 
 from sqlalchemy import func, select
 
-from .analyzer.algorithm import compute_embedding
+from .analyzer.algorithm import compute_embedding, compute_hilbert_index
 from .db import AsyncSessionLocal
 from .models import (
     AuthUser,
@@ -292,6 +292,7 @@ async def _ensure_memory(
         content_hash=content_hash,
         search_vector=embedding,
         embedding_vector=embedding,
+        hilbert_index=compute_hilbert_index(embedding),
         created_at=created_at,
         updated_at=created_at,
     )

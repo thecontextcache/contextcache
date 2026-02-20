@@ -249,6 +249,33 @@ class AdminRecallLogOut(BaseModel):
     created_at: datetime
 
 
+class CagCacheEntryOut(BaseModel):
+    source: str
+    hit_count: int
+    pheromone_level: float
+    last_accessed_at: str
+
+
+class CagCacheStatsOut(BaseModel):
+    enabled: bool
+    mode: str
+    embedding_model: str
+    cache_items: int
+    cache_max_items: int
+    total_queries: int
+    total_hits: int
+    total_misses: int
+    hit_rate: float
+    total_evicted: int
+    avg_pheromone: float
+    last_evaporation_at: str | None = None
+    evaporation_factor: float
+    evaporation_interval_seconds: int
+    kv_stub_enabled: bool
+    kv_token_budget_used: int
+    top_entries: list[CagCacheEntryOut] = Field(default_factory=list)
+
+
 # ---------------------------------------------------------------------------
 # Admin — usage
 # ---------------------------------------------------------------------------

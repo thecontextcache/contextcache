@@ -308,10 +308,29 @@ class _AdminUsers:
 
 class _Admin:
     def __init__(self, t: _Transport) -> None:
+        self._t = t
         self.users = _AdminUsers(t)
         self.invites = _Invites(t)
         self.waitlist = _Waitlist(t)
         self.projects = _Projects(t)
+
+    def recall_logs(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        project_id: int | None = None,
+    ) -> list[dict]:
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+        if project_id is not None:
+            params["project_id"] = project_id
+        return self._t.request("GET", "/admin/recall/logs", params=params)
+
+    def cag_cache_stats(self) -> dict:
+        return self._t.request("GET", "/admin/cag/cache-stats")
+
+    def evaporate_cag_cache(self) -> dict:
+        return self._t.request("POST", "/admin/cag/evaporate")
 
 
 # ---------------------------------------------------------------------------

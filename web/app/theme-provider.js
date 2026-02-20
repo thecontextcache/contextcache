@@ -35,8 +35,6 @@ function applyFavicon(resolvedTheme) {
     : `/favicon-light.svg?v=${ASSET_REV}`;
   const favicon = document.getElementById("dynamic-favicon");
   if (favicon) favicon.setAttribute("href", href);
-  const shortcut = document.getElementById("dynamic-shortcut-favicon");
-  if (shortcut) shortcut.setAttribute("href", href);
 }
 
 export function ThemeProvider({ children }) {

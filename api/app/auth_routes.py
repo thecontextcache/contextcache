@@ -18,6 +18,7 @@ from .auth_utils import (
     session_expiry,
     ua_hash,
 )
+from .analyzer.cag import evaporate_pheromones, get_cag_cache_stats
 from .db import get_db
 from .emailer import send_magic_link
 from .models import (
@@ -37,6 +38,7 @@ from .rate_limit import check_request_link_limits, check_verify_limits
 from .schemas import (
     AdminInviteCreateIn,
     AdminInviteOut,
+    CagCacheStatsOut,
     AdminRecallLogOut,
     AdminUsageOut,
     AdminUserOut,
@@ -801,6 +803,21 @@ async def admin_recall_logs(
         )
         for row in rows
     ]
+
+
+@router.get("/admin/cag/cache-stats", response_model=CagCacheStatsOut)
+async def admin_cag_cache_stats(request: Request) -> CagCacheStatsOut:
+    _require_admin_auth(request)
+    stats = get_cag_cache_stats()
+    return CagCacheStatsOut(**stats)
+
+
+@router.post("/admin/cag/evaporate", response_model=CagCacheStatsOut)
+async def admin_cag_evaporate(request: Request) -> CagCacheStatsOut:
+    _require_admin_auth(request)
+    evaporate_pheromones()
+    stats = get_cag_cache_stats()
+    return CagCacheStatsOut(**stats)
 
 
 # ---------------------------------------------------------------------------

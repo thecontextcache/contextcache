@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select
 
+from .analyzer.algorithm import compute_embedding, compute_hilbert_index
 from .db import AsyncSessionLocal, generate_api_key, hash_api_key
 from .migrate import run_migrations
 from .models import ApiKey, Membership, Memory, Organization, Project, User
@@ -145,7 +146,17 @@ async def seed() -> None:
             ).first()
             if existing_memories is None:
                 for memory_type, content in DEMO_MEMORIES:
-                    session.add(Memory(project_id=project.id, type=memory_type, content=content))
+                    vector = compute_embedding(content)
+                    session.add(
+                        Memory(
+                            project_id=project.id,
+                            type=memory_type,
+                            content=content,
+                            search_vector=vector,
+                            embedding_vector=vector,
+                            hilbert_index=compute_hilbert_index(vector),
+                        )
+                    )
 
         await session.commit()
 

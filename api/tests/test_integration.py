@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 
 import pytest
 from sqlalchemy.dialects import postgresql
@@ -8,9 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analyzer.algorithm import build_vector_candidate_stmt
+from app.auth_utils import hash_token, now_utc
 from app.db import hash_api_key
 from app.ingestion.pipeline import IngestionConfig, ingest_path_incremental
-from app.models import ApiKey, Memory, Organization
+from app.models import ApiKey, AuthMagicLink, Membership, Memory, Organization, User
 from app.seed import seed
 from .conftest import Ctx, auth_headers
 
@@ -34,6 +36,45 @@ async def test_me_requires_key_and_returns_context(client, app_ctx: Ctx) -> None
     assert body["role"] == "owner"
     assert body["api_key_prefix"].startswith("cck_")
     assert body["actor_user_id"] is not None
+
+
+async def test_me_orgs_lists_all_memberships_for_session_user(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    owner_email = app_ctx.users["owner"]
+    owner_user = (
+        await db_session.execute(
+            select(User).where(User.email == owner_email).limit(1)
+        )
+    ).scalar_one()
+
+    second_org = Organization(name=f"Second Org {uuid.uuid4().hex[:6]}")
+    db_session.add(second_org)
+    await db_session.flush()
+    db_session.add(Membership(org_id=second_org.id, user_id=owner_user.id, role="member"))
+
+    raw_token = f"tok_orgs_{uuid.uuid4().hex}"
+    db_session.add(
+        AuthMagicLink(
+            email=owner_email,
+            token_hash=hash_token(raw_token),
+            expires_at=now_utc() + timedelta(minutes=10),
+            purpose="login",
+            send_status="logged",
+        )
+    )
+    await db_session.commit()
+
+    verify = await client.get(f"/auth/verify?token={raw_token}")
+    assert verify.status_code == 200
+
+    orgs_resp = await client.get("/me/orgs")
+    assert orgs_resp.status_code == 200
+    org_ids = {row["id"] for row in orgs_resp.json()}
+    assert app_ctx.org_id in org_ids
+    assert second_org.id in org_ids
 
 
 async def test_seed_smoke_and_list_projects(client, db_session: AsyncSession) -> None:
@@ -246,6 +287,28 @@ async def test_vector_query_orders_by_raw_distance_operator() -> None:
     compiled = str(stmt.compile(dialect=postgresql.dialect()))
     assert "ORDER BY memories.embedding_vector <=>" in compiled
     assert "DESC" not in compiled
+
+
+async def test_vector_query_uses_hilbert_prefilter_when_enabled() -> None:
+    stmt = build_vector_candidate_stmt(
+        project_id=7,
+        query_vector=[0.0, 0.1, 0.2],
+        vector_candidates=25,
+        use_hilbert=True,
+        hilbert_window=2048,
+    )
+    compiled = str(stmt.compile(dialect=postgresql.dialect()))
+    assert "memories.hilbert_index" in compiled
+    assert "ORDER BY memories.embedding_vector <=>" in compiled
+
+
+async def test_x_user_email_header_ignored_outside_dev(client, app_ctx: Ctx) -> None:
+    owner_me = await client.get("/me", headers=auth_headers(app_ctx, role="owner"))
+    viewer_me = await client.get("/me", headers=auth_headers(app_ctx, role="viewer"))
+    assert owner_me.status_code == 200
+    assert viewer_me.status_code == 200
+    # APP_ENV=test should ignore X-User-Email to prevent header-based privilege escalation.
+    assert owner_me.json()["actor_user_id"] == viewer_me.json()["actor_user_id"]
 
 
 async def test_ingestion_hash_ignores_mtime_for_embedding_reuse(

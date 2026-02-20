@@ -6,6 +6,27 @@ IMPORTANT MAINTAINER NOTE:
   weighting, normalization, recency, and model-based scoring decisions.
 - This design allows swapping to an external analyzer service later without
   touching route-level business logic.
+
+- This module is used to rank memories by relevance to a query.
+- It uses a hybrid approach of FTS (full-text search) and vector search.
+- It uses a Hilbert index to speed up the vector search.
+- It uses a recency boost to favor more recent memories.
+- It uses a type boost to favor memories of a certain type.
+- It uses a token overlap score to measure the similarity of a query and a memory.
+- It uses a Jaccard similarity score to measure the similarity of a query and a memory.
+- It uses a density score to measure the similarity of a query and a memory.
+- It uses a total score to measure the similarity of a query and a memory.
+
+author: Nikhil Dodda
+date: 2026-02-19
+version: 1.0.0
+license: proprietary
+copyright: 2024-2026 Nikhil Dodda
+copyright: 2024-2026 thecontextcache
+trademark: thecontextcache™
+notice: This software is proprietary and confidential. Unauthorized use, disclosure, or distribution is strictly prohibited.
+
+
 """
 from __future__ import annotations
 
@@ -41,6 +62,9 @@ _TYPE_PRIORITY: dict[str, int] = {
 }
 
 _PACK_ORDER = ["decision", "definition", "finding", "todo", "code", "doc", "link", "note"]
+_HILBERT_BITS = int(os.getenv("HILBERT_BITS", "16"))
+_HILBERT_PREFILTER_WINDOW = int(os.getenv("HILBERT_PREFILTER_WINDOW", "5000000"))
+_HILBERT_PREFILTER_MIN_CANDIDATES = int(os.getenv("HILBERT_PREFILTER_MIN_CANDIDATES", "12"))
 
 
 @dataclass(frozen=True)
@@ -197,6 +221,51 @@ def _normalize_vec(vec: list[float]) -> list[float]:
     return [v / norm for v in vec]
 
 
+def _rot_2d(n: int, x: int, y: int, rx: int, ry: int) -> tuple[int, int]:
+    if ry == 0:
+        if rx == 1:
+            x = n - 1 - x
+            y = n - 1 - y
+        x, y = y, x
+    return x, y
+
+
+def _hilbert_xy_to_index(x: int, y: int, bits: int) -> int:
+    n = 1 << bits
+    d = 0
+    s = n // 2
+    while s > 0:
+        rx = 1 if (x & s) > 0 else 0
+        ry = 1 if (y & s) > 0 else 0
+        d += s * s * ((3 * rx) ^ ry)
+        x, y = _rot_2d(s, x, y, rx, ry)
+        s //= 2
+    return int(d)
+
+
+def _project_embedding_to_2d(vec: list[float]) -> tuple[float, float]:
+    if not vec:
+        return 0.0, 0.0
+    even = vec[0::2]
+    odd = vec[1::2]
+    x = sum(even) / max(1, len(even))
+    y = sum(odd) / max(1, len(odd))
+    x = max(-1.0, min(1.0, x))
+    y = max(-1.0, min(1.0, y))
+    return x, y
+
+
+def compute_hilbert_index(vec: list[float], *, bits: int | None = None) -> int:
+    bits = max(2, int(bits or _HILBERT_BITS))
+    x_norm, y_norm = _project_embedding_to_2d(vec)
+    scale = (1 << bits) - 1
+    x = int(round((x_norm + 1.0) * 0.5 * scale))
+    y = int(round((y_norm + 1.0) * 0.5 * scale))
+    x = max(0, min(scale, x))
+    y = max(0, min(scale, y))
+    return _hilbert_xy_to_index(x, y, bits)
+
+
 def _openai_embedding(text: str, model: str) -> list[float] | None:
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
@@ -292,18 +361,37 @@ async def fetch_memories_by_ids(db: "AsyncSession", memory_ids: list[int]) -> li
     return [by_id[mid] for mid in memory_ids if mid in by_id]
 
 
-def build_vector_candidate_stmt(project_id: int, query_vector: list[float], vector_candidates: int):
+def build_vector_candidate_stmt(
+    project_id: int,
+    query_vector: list[float],
+    vector_candidates: int,
+    *,
+    use_hilbert: bool = True,
+    hilbert_window: int | None = None,
+):
     """Build the vector candidate query with index-friendly ordering."""
     from app.models import Memory
 
     vector_distance_expr = Memory.embedding_vector.cosine_distance(query_vector)
     vector_rank_expr = (1 - vector_distance_expr).label("vector_score")
-    return (
+    stmt = (
         select(Memory, vector_rank_expr)
         .where(Memory.project_id == project_id, Memory.embedding_vector.is_not(None))
         .order_by(vector_distance_expr.asc())
         .limit(vector_candidates)
     )
+    if use_hilbert:
+        window = int(hilbert_window if hilbert_window is not None else _HILBERT_PREFILTER_WINDOW)
+        if window > 0:
+            center = compute_hilbert_index(query_vector)
+            lower = max(0, center - window)
+            upper = center + window
+            stmt = stmt.where(
+                Memory.hilbert_index.is_not(None),
+                Memory.hilbert_index >= lower,
+                Memory.hilbert_index <= upper,
+            )
+    return stmt
 
 
 async def run_hybrid_rag_recall(
@@ -335,17 +423,46 @@ async def run_hybrid_rag_recall(
 
     vector_scores: dict[int, float] = {}
     vector_rows: list[tuple[Any, float | None]] = []
+    vector_meta: dict[str, Any] = {}
     try:
         query_vector = compute_embedding(query_text)
-        vector_rows = (
+        query_hilbert = compute_hilbert_index(query_vector)
+        filtered_rows = (
             await db.execute(
                 build_vector_candidate_stmt(
                     project_id=project_id,
                     query_vector=query_vector,
                     vector_candidates=config.vector_candidates,
+                    use_hilbert=True,
                 )
             )
         ).all()
+        vector_rows = list(filtered_rows)
+        # If Hilbert prefilter is too narrow (or rows are not backfilled yet),
+        # top up candidates using the full pgvector search path.
+        if len(vector_rows) < max(limit, _HILBERT_PREFILTER_MIN_CANDIDATES):
+            fallback_rows = (
+                await db.execute(
+                    build_vector_candidate_stmt(
+                        project_id=project_id,
+                        query_vector=query_vector,
+                        vector_candidates=config.vector_candidates,
+                        use_hilbert=False,
+                    )
+                )
+            ).all()
+            seen = {mem.id for mem, _ in vector_rows}
+            for mem, score in fallback_rows:
+                if mem.id not in seen:
+                    vector_rows.append((mem, score))
+                    seen.add(mem.id)
+                if len(vector_rows) >= config.vector_candidates:
+                    break
+        vector_meta = {
+            "query_hilbert_index": query_hilbert,
+            "vector_candidates_examined": len(vector_rows),
+            "hilbert_prefilter_window": _HILBERT_PREFILTER_WINDOW,
+        }
     except Exception:
         vector_rows = []
 
@@ -370,6 +487,8 @@ async def run_hybrid_rag_recall(
         ),
         limit=limit,
     )
+    if vector_meta:
+        score_details["_meta"] = vector_meta
 
     if ranked_pairs:
         return {

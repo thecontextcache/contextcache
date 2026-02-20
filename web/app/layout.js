@@ -9,16 +9,6 @@ export const metadata = {
   title: "TheContextCache™ — Project Brain for AI Teams",
   description:
     "Capture high-signal decisions and findings, then recall paste-ready context packs for any LLM. Invite-only alpha.",
-  icons: {
-    icon: [
-      { url: `/favicon-light.svg?v=${ASSET_REV}`, media: "(prefers-color-scheme: light)", type: "image/svg+xml" },
-      { url: `/favicon-dark.svg?v=${ASSET_REV}`, media: "(prefers-color-scheme: dark)", type: "image/svg+xml" },
-    ],
-    shortcut: [
-      { url: `/favicon-light.svg?v=${ASSET_REV}`, media: "(prefers-color-scheme: light)" },
-      { url: `/favicon-dark.svg?v=${ASSET_REV}`, media: "(prefers-color-scheme: dark)" },
-    ],
-  },
 };
 
 export default function RootLayout({ children }) {
@@ -36,7 +26,6 @@ export default function RootLayout({ children }) {
           }}
         />
         <link id="dynamic-favicon" rel="icon" href={`/favicon-dark.svg?v=${ASSET_REV}`} type="image/svg+xml" />
-        <link id="dynamic-shortcut-favicon" rel="shortcut icon" href={`/favicon-dark.svg?v=${ASSET_REV}`} type="image/svg+xml" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
           rel="preconnect"

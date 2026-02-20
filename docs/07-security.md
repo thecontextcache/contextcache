@@ -58,12 +58,14 @@ Session controls:
 
 ## Rate limiting
 
-Current limiter is in-memory:
+Current limiter is Redis-backed:
 - `/auth/request-link`: per-IP + per-email
 - `/auth/verify`: per-IP
 - `/projects/{id}/recall`: per-IP + per-account
 
-This is sufficient for single-instance alpha. For multi-instance prod, move limiter state to Redis or another shared store.
+Behavior:
+- `APP_ENV=prod`: Redis is required; if Redis is unavailable, protected rate-limited routes return `503`.
+- `APP_ENV=dev/test`: temporary in-memory fallback is allowed for local convenience.
 
 ## Auditing and usage
 
@@ -87,3 +89,15 @@ This is sufficient for single-instance alpha. For multi-instance prod, move limi
 - Restrict dashboard/API access by IP at the firewall when possible.
 - Retain audit logs and usage records per your policy; purge old rows on schedule.
 - Confirm only the last 10 login events per user are retained and older rows are purged after 90 days.
+
+## Security audit automation
+
+CI now runs a dedicated security job:
+
+- Bandit static analysis over `api/app`
+- Python dependency audit (`pip-audit`) using locked requirements
+- NPM dependency audit (`npm audit --audit-level=critical`) for web runtime deps
+
+Workflow file: `.github/workflows/ci.yml` (`security-scan` job).
+
+Use this as baseline coverage and add provider-native tooling (e.g. GitHub Advanced Security or Aikido) when available.

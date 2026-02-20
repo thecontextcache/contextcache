@@ -23,6 +23,7 @@
 
 ### Infrastructure
 - Docker Compose with Redis in default stack + optional Celery worker profile
+- `infra/` baseline folder with Terraform + Cloudflare tunnel reference templates
 - Celery Beat with nightly cleanup tasks:
   - Purge expired magic links (hourly)
   - Purge old usage counters (nightly, 90-day rolling)
@@ -41,10 +42,13 @@
 ### Retrieval
 - Hybrid recall in production path:
   - FTS (`websearch_to_tsquery` + `ts_rank_cd`)
+  - Hilbert prefilter (`memories.hilbert_index`) before vector search
   - pgvector cosine similarity (`memories.embedding_vector`)
   - recency boost
 - Weight tuning via `FTS_WEIGHT`, `VECTOR_WEIGHT`, `RECENCY_WEIGHT`
 - Deterministic local embedding fallback when external providers are unavailable
+- CAG pheromone-guided cache reinforcement + evaporation + LRU tiebreak eviction
+- KV-cache prep stub path for future compressive memory integration
 
 ### UX
 - Next.js App Router with dark/light theme
@@ -63,6 +67,7 @@
 - Deployment guide with Cloudflare Mode C (`06-deployment.md`)
 - Security model (`07-security.md`)
 - CLI & SDK reference (`09-cli-sdk.md`)
+- Branding guideline (`11-branding.md`)
 - Legal & licensing (`legal.md`)
 
 ---
