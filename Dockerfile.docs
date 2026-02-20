@@ -1,0 +1,26 @@
+# Build stage: Generate static HTML from MkDocs
+FROM python:3.11-alpine AS builder
+
+WORKDIR /docs
+
+# Install MkDocs and the Material theme
+RUN pip install --no-cache-dir mkdocs-material
+
+# Copy the configuration and Markdown source files
+COPY mkdocs.yml .
+COPY docs/ ./docs/
+
+# Build the static site (outputs to /docs/site)
+RUN mkdocs build
+
+# Serve stage: Host the static files using Nginx
+FROM nginx:alpine
+
+# Copy the generated static site to Nginx's default public directory
+COPY --from=builder /docs/site /usr/share/nginx/html
+
+# Expose HTTP port
+EXPOSE 80
+
+# Start Nginx automatically
+CMD ["nginx", "-g", "daemon off;"]

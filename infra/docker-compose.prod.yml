@@ -115,6 +115,15 @@ services:
       redis:
         condition: service_healthy
 
+  docs:
+    build:
+      context: ../
+      dockerfile: Dockerfile.docs
+    restart: always
+    ports:
+      # Cloudflare tunnel explicitly expects localhost:8001
+      - "8001:80"
+
 volumes:
   prod-db-data:
   prod-redis-data:
