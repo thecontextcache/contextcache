@@ -3,15 +3,10 @@ services:
     environment:
       - APP_ENV=prod
       - RUN_MIGRATIONS=1
-    # Cloudflared on host can reach localhost ports; external network cannot.
-    ports:
-      - "127.0.0.1:8000:8000"
 
   web:
     environment:
       - APP_ENV=prod
-    ports:
-      - "127.0.0.1:3000:3000"
 
   # docs is dev-only — not needed in production
   docs:
