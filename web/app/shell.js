@@ -38,10 +38,8 @@ export default function Shell({ children }) {
     return () => { mounted = false; };
   }, []);
 
-  // Auth probe — only on protected pages
-  const isPublicPage = pathname === "/" || pathname.startsWith("/auth") || pathname.startsWith("/legal") || pathname.startsWith("/waitlist") || pathname === "/pricing";
+  // Auth probe — run globally to keep the topbar perfectly in sync
   useEffect(() => {
-    if (isPublicPage) return;
     async function checkMe() {
       try {
         const me = await apiFetch("/auth/me");
@@ -54,7 +52,7 @@ export default function Shell({ children }) {
       }
     }
     checkMe();
-  }, [apiBase, isPublicPage, pathname]);
+  }, [apiBase, pathname]);
 
   async function logout() {
     try {
@@ -138,9 +136,13 @@ export default function Shell({ children }) {
       </header>
 
       {isFullWidth ? (
-        <main id="main-content" className="page-transition-wrap">{children}</main>
+        <main id="main-content" className="page-transition-wrap">
+          {children}
+        </main>
       ) : (
-        <div className="page page-transition-wrap" id="main-content">{children}</div>
+        <main id="main-content" className="page-transition-wrap page">
+          {children}
+        </main>
       )}
 
       <footer className="footer">
