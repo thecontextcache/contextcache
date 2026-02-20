@@ -79,7 +79,7 @@ services:
       context: ../api
       dockerfile: Dockerfile
     restart: always
-    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=2
+    command: uv run celery -A app.worker.celery_app worker --loglevel=info --concurrency=2
     environment:
       - APP_ENV=prod
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-contextcache}
@@ -98,7 +98,7 @@ services:
       context: ../api
       dockerfile: Dockerfile
     restart: always
-    command: celery -A app.worker.celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule
+    command: uv run celery -A app.worker.celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule
     environment:
       - APP_ENV=prod
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-contextcache}
