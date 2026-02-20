@@ -61,6 +61,7 @@ nav:
     - Deployment: 06-deployment.md
     - Security Model: 07-security.md
   - Integrations: 10-integrations.md
+  - Branding: 11-branding.md
   - CLI & SDK: 09-cli-sdk.md
   - Roadmap: 08-roadmap.md
   - Legal: legal.md

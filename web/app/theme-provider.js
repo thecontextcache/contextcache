@@ -16,6 +16,13 @@ function resolveTheme(theme) {
   return theme;
 }
 
+function applyFavicon(resolvedTheme) {
+  if (typeof document === "undefined") return;
+  const favicon = document.getElementById("dynamic-favicon");
+  if (!favicon) return;
+  favicon.setAttribute("href", resolvedTheme === "dark" ? "/favicon-dark.svg" : "/favicon-light.svg");
+}
+
 export function ThemeProvider({ children }) {
   const [theme, setTheme] = useState(getInitialTheme);
   const [resolvedTheme, setResolvedTheme] = useState("dark"); // dark is the default
@@ -24,6 +31,7 @@ export function ThemeProvider({ children }) {
     const resolved = resolveTheme(theme);
     setResolvedTheme(resolved);
     document.documentElement.setAttribute("data-theme", resolved);
+    applyFavicon(resolved);
     window.localStorage.setItem("contextcache_theme", theme);
   }, [theme]);
 
@@ -31,8 +39,10 @@ export function ThemeProvider({ children }) {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const onChange = () => {
       if (theme === "system") {
-        setResolvedTheme(resolveTheme("system"));
-        document.documentElement.setAttribute("data-theme", resolveTheme("system"));
+        const resolved = resolveTheme("system");
+        setResolvedTheme(resolved);
+        document.documentElement.setAttribute("data-theme", resolved);
+        applyFavicon(resolved);
       }
     };
     media.addEventListener("change", onChange);

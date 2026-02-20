@@ -7,6 +7,10 @@ export const metadata = {
   title: "TheContextCache™ — Project Brain for AI Teams",
   description:
     "Capture high-signal decisions and findings, then recall paste-ready context packs for any LLM. Invite-only alpha.",
+  icons: {
+    icon: "/favicon-dark.svg",
+    shortcut: "/favicon-dark.svg",
+  },
 };
 
 export default function RootLayout({ children }) {
@@ -20,9 +24,11 @@ export default function RootLayout({ children }) {
         */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('contextcache_theme')||'dark';var r=t==='system'?(window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):t;document.documentElement.setAttribute('data-theme',r);}catch(e){}})();`,
+            __html: `(function(){try{var t=localStorage.getItem('contextcache_theme')||'dark';var r=t==='system'?(window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):t;document.documentElement.setAttribute('data-theme',r);var f=document.getElementById('dynamic-favicon');if(f){f.setAttribute('href',r==='dark'?'/favicon-dark.svg':'/favicon-light.svg');}}catch(e){}})();`,
           }}
         />
+        <link id="dynamic-favicon" rel="icon" href="/favicon-dark.svg" type="image/svg+xml" />
+        <link rel="alternate icon" href="/favicon-dark.svg" type="image/svg+xml" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
           rel="preconnect"
