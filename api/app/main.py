@@ -14,7 +14,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .analyzer.cag import evaporation_interval_seconds, evaporate_pheromones, warm_cag_cache
 from .auth_utils import SESSION_COOKIE_NAME, hash_token, now_utc
-from .db import AsyncSessionLocal, hash_api_key
+from .db import AsyncSessionLocal, hash_api_key, get_db
 from .models import ApiKey, AuthSession, AuthUser, Membership, Organization, User
 from .auth_routes import router as auth_router
 from .routes import router
@@ -401,6 +401,22 @@ async def unhandled_exception_handler(_: Request, exc: Exception) -> JSONRespons
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/health/perf")
+async def health_perf(db: AsyncSession = Depends(get_db)):
+    start = asyncio.get_running_loop().time()
+    await db.execute(select(func.now()))
+    elapsed_ms = int((asyncio.get_running_loop().time() - start) * 1000)
+    
+    from .analyzer.cag import get_cag_cache_stats
+    cag_stats = get_cag_cache_stats()
+
+    return {
+        "status": "ok",
+        "db_ping_ms": elapsed_ms,
+        "cag_perf": cag_stats,
+    }
 
 
 @app.get("/health/worker")

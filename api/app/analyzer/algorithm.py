@@ -45,6 +45,8 @@ from sqlalchemy import desc, func, select
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
+from .cag import promote_cag_chunk
+
 
 _TYPE_PRIORITY: dict[str, int] = {
     "decision": 10,
@@ -491,6 +493,19 @@ async def run_hybrid_rag_recall(
         score_details["_meta"] = vector_meta
 
     if ranked_pairs:
+        # Promote the top result into the CAG organic memory
+        top_id, top_score = ranked_pairs[0]
+        if top_score >= config.vector_min_score:
+            top_mem = candidate_by_id[top_id]
+            vector = getattr(top_mem, "embedding_vector", None)
+            content = str(getattr(top_mem, "content", ""))
+            if vector and content:
+                promote_cag_chunk(
+                    source=f"project_{project_id}_mem_{top_id}", 
+                    content=content, 
+                    embedding=vector
+                )
+
         return {
             "strategy": "hybrid",
             "input_ids": input_ids,

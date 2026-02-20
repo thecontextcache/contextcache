@@ -286,6 +286,79 @@ def warm_cag_cache(force: bool = False) -> tuple[CAGChunk, ...]:
         return tuple(_STATE.chunks)
 
 
+def get_cag_cache_stats() -> dict[str, Any]:
+    with _LOCK:
+        return {
+            "enabled": CAG_ENABLED,
+            "mode": CAG_MODE,
+            "items": len(_STATE.chunks),
+            "max_items": CAG_CACHE_MAX_ITEMS,
+            "max_tokens": CAG_MAX_TOKENS,
+            "total_evicted": _STATE.total_evicted,
+            "warmed_at": _STATE.warmed_at.isoformat() if _STATE.warmed_at else None,
+            "last_evaporation_at": _STATE.last_evaporation_at.isoformat() if _STATE.last_evaporation_at else None,
+        }
+
+
+def promote_cag_chunk(source: str, content: str, embedding: list[float] | tuple[float, ...]) -> bool:
+    """Promote a high-signal text chunk into the in-memory CAG."""
+    if not CAG_ENABLED:
+        return False
+    
+    clean_content = (content or "").strip()
+    if not clean_content:
+        return False
+
+    now = datetime.now(timezone.utc)
+    with _LOCK:
+        # Check if already present by exact content
+        for chunk in _STATE.chunks:
+            if chunk.content == clean_content:
+                # Update existing chunk's recency/pheromone instead of duplicate
+                chunk.last_accessed_at = now
+                chunk.pheromone_level = max(
+                    CAG_PHEROMONE_MIN,
+                    min(CAG_PHEROMONE_MAX, chunk.pheromone_level + CAG_PHEROMONE_HIT_BOOST)
+                )
+                return True
+
+        new_chunk = CAGChunk(
+            source=source,
+            content=clean_content,
+            embedding=tuple(embedding),
+            kv_tensor_stub=_build_kv_tensor_stub(source, clean_content),
+            created_at=now,
+            last_accessed_at=now,
+            pheromone_level=CAG_PHEROMONE_BASE,
+            hit_count=1,
+        )
+
+        cost = _approx_tokens(clean_content)
+        current_cost = sum(_approx_tokens(c.content) for c in _STATE.chunks)
+
+        _STATE.chunks.append(new_chunk)
+        
+        # Enforce budget either by count or tokens
+        chunks, evicted = _evict_to_capacity(_STATE.chunks)
+        _STATE.chunks = chunks
+        _STATE.total_evicted += evicted
+        
+        # If still over token budget, evict the lowest pheromones until under
+        current_cost = sum(_approx_tokens(c.content) for c in _STATE.chunks)
+        while current_cost > CAG_MAX_TOKENS and len(_STATE.chunks) > 0:
+            # sort by lowest pheromone, oldest accessed, oldest created
+            ordered = sorted(_STATE.chunks, key=lambda c: (c.pheromone_level, c.last_accessed_at, c.created_at))
+            evicted_chunk = ordered.pop(0)
+            current_cost -= _approx_tokens(evicted_chunk.content)
+            _STATE.chunks = ordered
+            _STATE.total_evicted += 1
+            
+        # Keep time-sorted for internal logic
+        _STATE.chunks.sort(key=lambda c: c.created_at)
+
+    return True
+
+
 def is_local_cag() -> bool:
     return CAG_MODE in {"local", "inproc", "in-memory", "in_memory"}
 

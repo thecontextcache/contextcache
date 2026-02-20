@@ -5,27 +5,28 @@ import { useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "../lib/api";
 import { useToast } from "../components/toast";
 import { SkeletonCard, Skeleton } from "../components/skeleton";
+import { motion, AnimatePresence } from "framer-motion";
 
 const MEMORY_TYPES = ["decision", "finding", "definition", "note", "link", "todo", "chat", "doc", "code"];
 const MEMORY_SOURCES = ["manual", "chatgpt", "claude", "cursor", "codex", "api"];
 
 // Dark-mode-aware type colors using the design system palette
 const TYPE_COLORS = {
-  decision:   { color: "#00D4FF", bg: "rgba(0,212,255,0.12)"   },
-  finding:    { color: "#A78BFA", bg: "rgba(167,139,250,0.12)" },
-  definition: { color: "#00E5A0", bg: "rgba(0,229,160,0.12)"   },
-  note:       { color: "#FFB800", bg: "rgba(255,184,0,0.12)"   },
-  link:       { color: "#FF6B6B", bg: "rgba(255,107,107,0.12)" },
-  todo:       { color: "#F472B6", bg: "rgba(244,114,182,0.12)" },
+  decision: { color: "#00D4FF", bg: "rgba(0,212,255,0.12)" },
+  finding: { color: "#A78BFA", bg: "rgba(167,139,250,0.12)" },
+  definition: { color: "#00E5A0", bg: "rgba(0,229,160,0.12)" },
+  note: { color: "#FFB800", bg: "rgba(255,184,0,0.12)" },
+  link: { color: "#FF6B6B", bg: "rgba(255,107,107,0.12)" },
+  todo: { color: "#F472B6", bg: "rgba(244,114,182,0.12)" },
 };
 
 function fmtTime(iso) {
   try {
     const d = new Date(iso);
     const diff = Date.now() - d.getTime();
-    if (diff < 60_000)      return "just now";
-    if (diff < 3_600_000)   return `${Math.floor(diff / 60_000)}m ago`;
-    if (diff < 86_400_000)  return `${Math.floor(diff / 3_600_000)}h ago`;
+    if (diff < 60_000) return "just now";
+    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+    if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
     if (diff < 604_800_000) return `${Math.floor(diff / 86_400_000)}d ago`;
     return d.toLocaleDateString();
   } catch { return ""; }
@@ -58,8 +59,8 @@ function UsageMeter({ usage, isUnlimited }) {
   const lim = usage?.limits ?? {};
   const rows = [
     { label: "memories", used: usage?.memories_created ?? 0, max: lim.memories_per_day ?? 0, color: "#00D4FF" },
-    { label: "recalls",  used: usage?.recall_queries    ?? 0, max: lim.recalls_per_day   ?? 0, color: "#A78BFA" },
-    { label: "projects", used: usage?.projects_created  ?? 0, max: lim.projects_per_day  ?? 0, color: "#00E5A0" },
+    { label: "recalls", used: usage?.recall_queries ?? 0, max: lim.recalls_per_day ?? 0, color: "#A78BFA" },
+    { label: "projects", used: usage?.projects_created ?? 0, max: lim.projects_per_day ?? 0, color: "#00E5A0" },
   ];
 
   return (
@@ -131,49 +132,49 @@ function UsageMeter({ usage, isUnlimited }) {
 }
 
 export default function AppPage() {
-  const router  = useRouter();
-  const toast   = useToast();
+  const router = useRouter();
+  const toast = useToast();
 
-  const [loading, setLoading]         = useState(true);
-  const [auth, setAuth]               = useState(null);
-  const [usage, setUsage]             = useState(null);
-  const [projects, setProjects]       = useState([]);
-  const [orgs, setOrgs]               = useState([]);
-  const [orgId, setOrgId]             = useState("");
-  const [projectId, setProjectId]     = useState("");
-  const [tab, setTab]                 = useState("compose");
+  const [loading, setLoading] = useState(true);
+  const [auth, setAuth] = useState(null);
+  const [usage, setUsage] = useState(null);
+  const [projects, setProjects] = useState([]);
+  const [orgs, setOrgs] = useState([]);
+  const [orgId, setOrgId] = useState("");
+  const [projectId, setProjectId] = useState("");
+  const [tab, setTab] = useState("compose");
   const [projectSearch, setProjectSearch] = useState("");
 
   // Create project
   const [newProjectName, setNewProjectName] = useState("");
   const [creatingProject, setCreatingProject] = useState(false);
-  const [showNewProject, setShowNewProject]   = useState(false);
+  const [showNewProject, setShowNewProject] = useState(false);
 
   // Memory composer
-  const [memoryType, setMemoryType]       = useState("decision");
-  const [memorySource, setMemorySource]   = useState("manual");
-  const [memoryTitle, setMemoryTitle]     = useState("");
+  const [memoryType, setMemoryType] = useState("decision");
+  const [memorySource, setMemorySource] = useState("manual");
+  const [memoryTitle, setMemoryTitle] = useState("");
   const [memoryContent, setMemoryContent] = useState("");
-  const [memoryTags, setMemoryTags]       = useState("");
-  const [memoryMeta, setMemoryMeta]       = useState({ url: "", file_path: "", language: "", model: "" });
-  const [savingMemory, setSavingMemory]   = useState(false);
+  const [memoryTags, setMemoryTags] = useState("");
+  const [memoryMeta, setMemoryMeta] = useState({ url: "", file_path: "", language: "", model: "" });
+  const [savingMemory, setSavingMemory] = useState(false);
 
   // Memories list
-  const [memories, setMemories]           = useState([]);
+  const [memories, setMemories] = useState([]);
   const [loadingMemories, setLoadingMemories] = useState(false);
 
   // Recall
-  const [recallQuery, setRecallQuery]   = useState("");
-  const [recallItems, setRecallItems]   = useState([]);
-  const [memoryPack, setMemoryPack]     = useState("");
-  const [recalling, setRecalling]       = useState(false);
+  const [recallQuery, setRecallQuery] = useState("");
+  const [recallItems, setRecallItems] = useState([]);
+  const [memoryPack, setMemoryPack] = useState("");
+  const [recalling, setRecalling] = useState(false);
 
   function handleApiError(err) {
     if (err instanceof ApiError) {
-      if (err.kind === "auth")       { router.replace("/auth?reason=expired"); return; }
-      if (err.kind === "forbidden")  { toast.error("You don't have permission for this action."); return; }
+      if (err.kind === "auth") { router.replace("/auth?reason=expired"); return; }
+      if (err.kind === "forbidden") { toast.error("You don't have permission for this action."); return; }
       if (err.kind === "rate_limit") { toast.warn("Too many requests. Please wait a moment."); return; }
-      if (err.kind === "network")    { toast.error("Backend unreachable. Check server status."); return; }
+      if (err.kind === "network") { toast.error("Backend unreachable. Check server status."); return; }
     }
     toast.error(err.message || "Something went wrong.");
   }
@@ -410,7 +411,7 @@ export default function AppPage() {
     toast.success("Memory pack downloaded.");
   }
 
-  const currentProject  = projects.find((p) => String(p.id) === projectId);
+  const currentProject = projects.find((p) => String(p.id) === projectId);
   const filteredProjects = projects.filter((p) =>
     !projectSearch || p.name.toLowerCase().includes(projectSearch.toLowerCase())
   );
@@ -602,9 +603,9 @@ export default function AppPage() {
             {/* Tab bar */}
             <div className="tab-bar" role="tablist">
               {[
-                { id: "compose",  label: "Compose" },
+                { id: "compose", label: "Compose" },
                 { id: "memories", label: `Memories${memories.length ? ` (${memories.length})` : ""}` },
-                { id: "recall",   label: "Recall" },
+                { id: "recall", label: "Recall" },
               ].map(({ id, label }) => (
                 <button
                   key={id}
@@ -612,337 +613,355 @@ export default function AppPage() {
                   aria-selected={tab === id}
                   className={`tab${tab === id ? " active" : ""}`}
                   onClick={() => setTab(id)}
+                  style={{ position: 'relative' }}
                 >
                   {label}
+                  {tab === id && (
+                    <motion.div
+                      layoutId="activeAppTabIndicator"
+                      style={{
+                        position: 'absolute',
+                        bottom: -2,
+                        left: 0,
+                        right: 0,
+                        height: 2,
+                        backgroundColor: 'var(--brand)',
+                        borderRadius: '2px 2px 0 0'
+                      }}
+                      transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                    />
+                  )}
                 </button>
               ))}
             </div>
 
-            {/* ── Compose ── */}
-            {tab === "compose" && (
-              <div className="card">
-                <h2 style={{ marginBottom: 14, fontSize: "1rem" }}>Add a memory</h2>
-                <form onSubmit={saveMemory} className="stack">
+            <AnimatePresence mode="wait">
+              {/* ── Compose ── */}
+              {tab === "compose" && (
+                <motion.div key="compose" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} className="card">
+                  <h2 style={{ marginBottom: 14, fontSize: "1rem" }}>Add a memory</h2>
+                  <form onSubmit={saveMemory} className="stack">
 
-                  {/* Type chips */}
-                  <div className="field">
-                    <label>Memory type</label>
-                    <div className="memory-type-grid" role="group" aria-label="Memory type">
-                      {MEMORY_TYPES.map((t) => (
-                        <button
-                          key={t}
-                          type="button"
-                          className={`type-chip${memoryType === t ? " selected" : ""}`}
-                          onClick={() => setMemoryType(t)}
-                          aria-pressed={memoryType === t}
-                          style={memoryType === t ? {
-                            background: TYPE_COLORS[t]?.bg,
-                            borderColor: TYPE_COLORS[t]?.color,
-                            color: TYPE_COLORS[t]?.color,
-                          } : {}}
-                        >
-                          {t}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Source + Title row */}
-                  <div className="grid-2" style={{ gap: 12 }}>
-                    <div className="field" style={{ marginBottom: 0 }}>
-                      <label htmlFor="memory-source">Source</label>
-                      <select
-                        id="memory-source"
-                        value={memorySource}
-                        onChange={(e) => setMemorySource(e.target.value)}
-                        disabled={savingMemory}
-                      >
-                        {MEMORY_SOURCES.map((s) => (
-                          <option key={s} value={s}>{s}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="field" style={{ marginBottom: 0 }}>
-                      <label htmlFor="memory-title">Title <span className="muted">(optional)</span></label>
-                      <input
-                        id="memory-title"
-                        type="text"
-                        value={memoryTitle}
-                        onChange={(e) => setMemoryTitle(e.target.value)}
-                        placeholder="Short descriptive title"
-                        disabled={savingMemory}
-                        maxLength={500}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Content */}
-                  <div className="field">
-                    <label htmlFor="memory-content">Content</label>
-                    <textarea
-                      id="memory-content"
-                      value={memoryContent}
-                      onChange={(e) => setMemoryContent(e.target.value)}
-                      placeholder="What should future AI conversations remember about this project?"
-                      required
-                      disabled={savingMemory}
-                      maxLength={10000}
-                      style={{ minHeight: 120 }}
-                    />
-                    <span className="field-hint">
-                      {memoryContent.length > 0 ? `${memoryContent.length.toLocaleString()} / 10,000` : "Up to 10,000 characters"}
-                    </span>
-                  </div>
-
-                  {/* Tags */}
-                  <div className="field">
-                    <label htmlFor="memory-tags">Tags <span className="muted">(comma-separated)</span></label>
-                    <input
-                      id="memory-tags"
-                      type="text"
-                      value={memoryTags}
-                      onChange={(e) => setMemoryTags(e.target.value)}
-                      placeholder="e.g. auth, postgres, api-design"
-                      disabled={savingMemory}
-                    />
-                    <span className="field-hint">Tags are shared across the project and clickable in search.</span>
-                  </div>
-
-                  {/* Advanced accordion */}
-                  <details className="advanced-accordion">
-                    <summary className="advanced-summary">Advanced metadata</summary>
-                    <div className="stack-sm" style={{ paddingTop: 10 }}>
-                      <div className="grid-2" style={{ gap: 12 }}>
-                        <div className="field" style={{ marginBottom: 0 }}>
-                          <label htmlFor="meta-url">URL</label>
-                          <input
-                            id="meta-url"
-                            type="url"
-                            value={memoryMeta.url}
-                            onChange={(e) => setMemoryMeta((m) => ({ ...m, url: e.target.value }))}
-                            placeholder="https://…"
-                            disabled={savingMemory}
-                          />
-                        </div>
-                        <div className="field" style={{ marginBottom: 0 }}>
-                          <label htmlFor="meta-file">File path</label>
-                          <input
-                            id="meta-file"
-                            type="text"
-                            value={memoryMeta.file_path}
-                            onChange={(e) => setMemoryMeta((m) => ({ ...m, file_path: e.target.value }))}
-                            placeholder="src/app/auth.py"
-                            disabled={savingMemory}
-                          />
-                        </div>
-                        <div className="field" style={{ marginBottom: 0 }}>
-                          <label htmlFor="meta-lang">Language</label>
-                          <input
-                            id="meta-lang"
-                            type="text"
-                            value={memoryMeta.language}
-                            onChange={(e) => setMemoryMeta((m) => ({ ...m, language: e.target.value }))}
-                            placeholder="python, typescript…"
-                            disabled={savingMemory}
-                          />
-                        </div>
-                        <div className="field" style={{ marginBottom: 0 }}>
-                          <label htmlFor="meta-model">Model / tool</label>
-                          <input
-                            id="meta-model"
-                            type="text"
-                            value={memoryMeta.model}
-                            onChange={(e) => setMemoryMeta((m) => ({ ...m, model: e.target.value }))}
-                            placeholder="gpt-4o, claude-3-5-sonnet…"
-                            disabled={savingMemory}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </details>
-
-                  {/* Actions */}
-                  <div className="row" style={{ gap: 8 }}>
-                    <button
-                      type="submit"
-                      className="btn primary"
-                      disabled={!memoryContent.trim() || savingMemory}
-                      aria-busy={savingMemory}
-                    >
-                      {savingMemory && <span className="spinner" />}
-                      {savingMemory ? "Saving…" : "Publish memory"}
-                    </button>
-                    {(memoryContent || memoryTitle || memoryTags) && (
-                      <button
-                        type="button"
-                        className="btn ghost sm"
-                        onClick={() => {
-                          setMemoryContent("");
-                          setMemoryTitle("");
-                          setMemoryTags("");
-                          setMemoryMeta({ url: "", file_path: "", language: "", model: "" });
-                        }}
-                      >
-                        Clear
-                      </button>
-                    )}
-                  </div>
-                </form>
-              </div>
-            )}
-
-            {/* ── Memories ── */}
-            {tab === "memories" && (
-              <div className="card">
-                <div className="row spread" style={{ marginBottom: 14 }}>
-                  <h2 style={{ margin: 0, fontSize: "1rem" }}>
-                    All memories
-                    {memories.length > 0 && (
-                      <span className="badge badge-brand" style={{ marginLeft: 8, verticalAlign: "middle" }}>
-                        {memories.length}
-                      </span>
-                    )}
-                  </h2>
-                  <button className="btn secondary sm" onClick={loadMemories} disabled={loadingMemories}>
-                    {loadingMemories ? <span className="spinner" /> : "Refresh"}
-                  </button>
-                </div>
-
-                {loadingMemories ? (
-                  <div className="stack">
-                    {[1, 2, 3].map((i) => <Skeleton key={i} height="64px" radius="8px" />)}
-                  </div>
-                ) : memories.length === 0 ? (
-                  <div className="empty-state">
-                    <span className="empty-icon">💭</span>
-                    <p>No memories yet. Go to Compose to add the first one.</p>
-                    <button className="btn primary sm" onClick={() => setTab("compose")} style={{ marginTop: 8 }}>
-                      Add memory
-                    </button>
-                  </div>
-                ) : (
-                  <div className="memory-list" role="list">
-                    {memories.map((m) => (
-                      <div key={m.id} className="memory-row" role="listitem" style={{ flexWrap: "wrap", gap: 8 }}>
-                        <div className="row" style={{ gap: 6, flexShrink: 0, alignItems: "center" }}>
-                          <TypeBadge type={m.type} />
-                          {m.source && m.source !== "manual" && (
-                            <span style={{ fontSize: "0.68rem", color: "var(--muted)", fontFamily: "var(--mono)" }}>
-                              {m.source}
-                            </span>
-                          )}
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          {m.title && (
-                            <p style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--ink)", margin: "0 0 2px" }}>
-                              {m.title}
-                            </p>
-                          )}
-                          <span className="memory-row-content">{m.content}</span>
-                          {m.tags?.length > 0 && (
-                            <div className="row" style={{ gap: 4, marginTop: 5, flexWrap: "wrap" }}>
-                              {m.tags.map((tag) => (
-                                <span key={tag} style={{
-                                  fontSize: "0.68rem", color: "var(--brand)",
-                                  background: "var(--brand-light)", border: "1px solid rgba(0,212,255,0.2)",
-                                  borderRadius: 999, padding: "1px 7px", fontFamily: "var(--mono)",
-                                }}>
-                                  {tag}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                        <span className="memory-row-time" title={new Date(m.created_at).toLocaleString()}>
-                          {fmtTime(m.created_at)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── Recall ── */}
-            {tab === "recall" && (
-              <div className="stack">
-                <div className="card">
-                  <h2 style={{ marginBottom: 12, fontSize: "1rem" }}>Recall context</h2>
-                  <form onSubmit={runRecall} className="stack">
+                    {/* Type chips */}
                     <div className="field">
-                      <label htmlFor="recall-q">What do you need context on?</label>
-                      <input
-                        id="recall-q"
-                        value={recallQuery}
-                        onChange={(e) => setRecallQuery(e.target.value)}
-                        placeholder="e.g. database migrations, auth model, performance…"
-                        disabled={recalling}
-                        autoComplete="off"
-                      />
-                      <span className="field-hint">Leave blank to get the most recent memories.</span>
+                      <label>Memory type</label>
+                      <div className="memory-type-grid" role="group" aria-label="Memory type">
+                        {MEMORY_TYPES.map((t) => (
+                          <button
+                            key={t}
+                            type="button"
+                            className={`type-chip${memoryType === t ? " selected" : ""}`}
+                            onClick={() => setMemoryType(t)}
+                            aria-pressed={memoryType === t}
+                            style={memoryType === t ? {
+                              background: TYPE_COLORS[t]?.bg,
+                              borderColor: TYPE_COLORS[t]?.color,
+                              color: TYPE_COLORS[t]?.color,
+                            } : {}}
+                          >
+                            {t}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    <div className="row">
-                      <button type="submit" className="btn primary" disabled={recalling} aria-busy={recalling}>
-                        {recalling && <span className="spinner" />}
-                        {recalling ? "Recalling…" : "Run recall"}
+
+                    {/* Source + Title row */}
+                    <div className="grid-2" style={{ gap: 12 }}>
+                      <div className="field" style={{ marginBottom: 0 }}>
+                        <label htmlFor="memory-source">Source</label>
+                        <select
+                          id="memory-source"
+                          value={memorySource}
+                          onChange={(e) => setMemorySource(e.target.value)}
+                          disabled={savingMemory}
+                        >
+                          {MEMORY_SOURCES.map((s) => (
+                            <option key={s} value={s}>{s}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="field" style={{ marginBottom: 0 }}>
+                        <label htmlFor="memory-title">Title <span className="muted">(optional)</span></label>
+                        <input
+                          id="memory-title"
+                          type="text"
+                          value={memoryTitle}
+                          onChange={(e) => setMemoryTitle(e.target.value)}
+                          placeholder="Short descriptive title"
+                          disabled={savingMemory}
+                          maxLength={500}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Content */}
+                    <div className="field">
+                      <label htmlFor="memory-content">Content</label>
+                      <textarea
+                        id="memory-content"
+                        value={memoryContent}
+                        onChange={(e) => setMemoryContent(e.target.value)}
+                        placeholder="What should future AI conversations remember about this project?"
+                        required
+                        disabled={savingMemory}
+                        maxLength={10000}
+                        style={{ minHeight: 120 }}
+                      />
+                      <span className="field-hint">
+                        {memoryContent.length > 0 ? `${memoryContent.length.toLocaleString()} / 10,000` : "Up to 10,000 characters"}
+                      </span>
+                    </div>
+
+                    {/* Tags */}
+                    <div className="field">
+                      <label htmlFor="memory-tags">Tags <span className="muted">(comma-separated)</span></label>
+                      <input
+                        id="memory-tags"
+                        type="text"
+                        value={memoryTags}
+                        onChange={(e) => setMemoryTags(e.target.value)}
+                        placeholder="e.g. auth, postgres, api-design"
+                        disabled={savingMemory}
+                      />
+                      <span className="field-hint">Tags are shared across the project and clickable in search.</span>
+                    </div>
+
+                    {/* Advanced accordion */}
+                    <details className="advanced-accordion">
+                      <summary className="advanced-summary">Advanced metadata</summary>
+                      <div className="stack-sm" style={{ paddingTop: 10 }}>
+                        <div className="grid-2" style={{ gap: 12 }}>
+                          <div className="field" style={{ marginBottom: 0 }}>
+                            <label htmlFor="meta-url">URL</label>
+                            <input
+                              id="meta-url"
+                              type="url"
+                              value={memoryMeta.url}
+                              onChange={(e) => setMemoryMeta((m) => ({ ...m, url: e.target.value }))}
+                              placeholder="https://…"
+                              disabled={savingMemory}
+                            />
+                          </div>
+                          <div className="field" style={{ marginBottom: 0 }}>
+                            <label htmlFor="meta-file">File path</label>
+                            <input
+                              id="meta-file"
+                              type="text"
+                              value={memoryMeta.file_path}
+                              onChange={(e) => setMemoryMeta((m) => ({ ...m, file_path: e.target.value }))}
+                              placeholder="src/app/auth.py"
+                              disabled={savingMemory}
+                            />
+                          </div>
+                          <div className="field" style={{ marginBottom: 0 }}>
+                            <label htmlFor="meta-lang">Language</label>
+                            <input
+                              id="meta-lang"
+                              type="text"
+                              value={memoryMeta.language}
+                              onChange={(e) => setMemoryMeta((m) => ({ ...m, language: e.target.value }))}
+                              placeholder="python, typescript…"
+                              disabled={savingMemory}
+                            />
+                          </div>
+                          <div className="field" style={{ marginBottom: 0 }}>
+                            <label htmlFor="meta-model">Model / tool</label>
+                            <input
+                              id="meta-model"
+                              type="text"
+                              value={memoryMeta.model}
+                              onChange={(e) => setMemoryMeta((m) => ({ ...m, model: e.target.value }))}
+                              placeholder="gpt-4o, claude-3-5-sonnet…"
+                              disabled={savingMemory}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </details>
+
+                    {/* Actions */}
+                    <div className="row" style={{ gap: 8 }}>
+                      <button
+                        type="submit"
+                        className="btn primary"
+                        disabled={!memoryContent.trim() || savingMemory}
+                        aria-busy={savingMemory}
+                      >
+                        {savingMemory && <span className="spinner" />}
+                        {savingMemory ? "Saving…" : "Publish memory"}
                       </button>
-                      {recallQuery && (
-                        <button type="button" className="btn ghost sm" onClick={() => setRecallQuery("")}>
+                      {(memoryContent || memoryTitle || memoryTags) && (
+                        <button
+                          type="button"
+                          className="btn ghost sm"
+                          onClick={() => {
+                            setMemoryContent("");
+                            setMemoryTitle("");
+                            setMemoryTags("");
+                            setMemoryMeta({ url: "", file_path: "", language: "", model: "" });
+                          }}
+                        >
                           Clear
                         </button>
                       )}
                     </div>
                   </form>
-                </div>
+                </motion.div>
+              )}
 
-                {(recallItems.length > 0 || memoryPack) && (
-                  <div className="card">
-                    <div className="row spread" style={{ marginBottom: 12 }}>
-                      <h2 style={{ margin: 0, fontSize: "1rem" }}>
-                        Results
-                        {recallItems.length > 0 && (
-                          <span className="badge badge-brand" style={{ marginLeft: 8, verticalAlign: "middle" }}>
-                            {recallItems.length}
-                          </span>
-                        )}
-                      </h2>
-                      <div className="row" style={{ gap: 6 }}>
-                        <button className="btn secondary sm" onClick={copyPack} disabled={!memoryPack}>
-                          Copy
-                        </button>
-                        <button className="btn secondary sm" onClick={downloadPack} disabled={!memoryPack}>
-                          Download .txt
-                        </button>
-                      </div>
+              {/* ── Memories ── */}
+              {tab === "memories" && (
+                <motion.div key="memories" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} className="card">
+                  <div className="row spread" style={{ marginBottom: 14 }}>
+                    <h2 style={{ margin: 0, fontSize: "1rem" }}>
+                      All memories
+                      {memories.length > 0 && (
+                        <span className="badge badge-brand" style={{ marginLeft: 8, verticalAlign: "middle" }}>
+                          {memories.length}
+                        </span>
+                      )}
+                    </h2>
+                    <button className="btn secondary sm" onClick={loadMemories} disabled={loadingMemories}>
+                      {loadingMemories ? <span className="spinner" /> : "Refresh"}
+                    </button>
+                  </div>
+
+                  {loadingMemories ? (
+                    <div className="stack">
+                      {[1, 2, 3].map((i) => <Skeleton key={i} height="64px" radius="8px" />)}
                     </div>
-
-                    <div className="recall-result" style={{ marginBottom: 16 }}>
-                      {recallItems.map((item) => (
-                        <div key={item.id} className="recall-item">
-                          <div className="recall-item-header">
-                            <TypeBadge type={item.type} size="xs" />
-                            {item.rank_score != null && (
-                              <span className="recall-rank" title="FTS relevance score">
-                                ★ {item.rank_score.toFixed(3)}
+                  ) : memories.length === 0 ? (
+                    <div className="empty-state">
+                      <span className="empty-icon">💭</span>
+                      <p>No memories yet. Go to Compose to add the first one.</p>
+                      <button className="btn primary sm" onClick={() => setTab("compose")} style={{ marginTop: 8 }}>
+                        Add memory
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="memory-list" role="list">
+                      {memories.map((m) => (
+                        <div key={m.id} className="memory-row" role="listitem" style={{ flexWrap: "wrap", gap: 8 }}>
+                          <div className="row" style={{ gap: 6, flexShrink: 0, alignItems: "center" }}>
+                            <TypeBadge type={m.type} />
+                            {m.source && m.source !== "manual" && (
+                              <span style={{ fontSize: "0.68rem", color: "var(--muted)", fontFamily: "var(--mono)" }}>
+                                {m.source}
                               </span>
                             )}
-                            <span className="memory-row-time" title={new Date(item.created_at).toLocaleString()}>
-                              {fmtTime(item.created_at)}
-                            </span>
                           </div>
-                          <p style={{ fontSize: "0.88rem", color: "var(--ink-2)", lineHeight: 1.55, margin: 0 }}>
-                            {item.content}
-                          </p>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            {m.title && (
+                              <p style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--ink)", margin: "0 0 2px" }}>
+                                {m.title}
+                              </p>
+                            )}
+                            <span className="memory-row-content">{m.content}</span>
+                            {m.tags?.length > 0 && (
+                              <div className="row" style={{ gap: 4, marginTop: 5, flexWrap: "wrap" }}>
+                                {m.tags.map((tag) => (
+                                  <span key={tag} style={{
+                                    fontSize: "0.68rem", color: "var(--brand)",
+                                    background: "var(--brand-light)", border: "1px solid rgba(0,212,255,0.2)",
+                                    borderRadius: 999, padding: "1px 7px", fontFamily: "var(--mono)",
+                                  }}>
+                                    {tag}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <span className="memory-row-time" title={new Date(m.created_at).toLocaleString()}>
+                            {fmtTime(m.created_at)}
+                          </span>
                         </div>
                       ))}
                     </div>
+                  )}
+                </motion.div>
+              )}
 
-                    <label className="label" style={{ marginBottom: 6 }}>Memory pack (paste-ready)</label>
-                    <pre className="pre">{memoryPack}</pre>
+              {/* ── Recall ── */}
+              {tab === "recall" && (
+                <motion.div key="recall" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} className="stack">
+                  <div className="card">
+                    <h2 style={{ marginBottom: 12, fontSize: "1rem" }}>Recall context</h2>
+                    <form onSubmit={runRecall} className="stack">
+                      <div className="field">
+                        <label htmlFor="recall-q">What do you need context on?</label>
+                        <input
+                          id="recall-q"
+                          value={recallQuery}
+                          onChange={(e) => setRecallQuery(e.target.value)}
+                          placeholder="e.g. database migrations, auth model, performance…"
+                          disabled={recalling}
+                          autoComplete="off"
+                        />
+                        <span className="field-hint">Leave blank to get the most recent memories.</span>
+                      </div>
+                      <div className="row">
+                        <button type="submit" className="btn primary" disabled={recalling} aria-busy={recalling}>
+                          {recalling && <span className="spinner" />}
+                          {recalling ? "Recalling…" : "Run recall"}
+                        </button>
+                        {recallQuery && (
+                          <button type="button" className="btn ghost sm" onClick={() => setRecallQuery("")}>
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                    </form>
                   </div>
-                )}
-              </div>
-            )}
+
+                  {(recallItems.length > 0 || memoryPack) && (
+                    <div className="card">
+                      <div className="row spread" style={{ marginBottom: 12 }}>
+                        <h2 style={{ margin: 0, fontSize: "1rem" }}>
+                          Results
+                          {recallItems.length > 0 && (
+                            <span className="badge badge-brand" style={{ marginLeft: 8, verticalAlign: "middle" }}>
+                              {recallItems.length}
+                            </span>
+                          )}
+                        </h2>
+                        <div className="row" style={{ gap: 6 }}>
+                          <button className="btn secondary sm" onClick={copyPack} disabled={!memoryPack}>
+                            Copy
+                          </button>
+                          <button className="btn secondary sm" onClick={downloadPack} disabled={!memoryPack}>
+                            Download .txt
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="recall-result" style={{ marginBottom: 16 }}>
+                        {recallItems.map((item) => (
+                          <div key={item.id} className="recall-item">
+                            <div className="recall-item-header">
+                              <TypeBadge type={item.type} size="xs" />
+                              {item.rank_score != null && (
+                                <span className="recall-rank" title="FTS relevance score">
+                                  ★ {item.rank_score.toFixed(3)}
+                                </span>
+                              )}
+                              <span className="memory-row-time" title={new Date(item.created_at).toLocaleString()}>
+                                {fmtTime(item.created_at)}
+                              </span>
+                            </div>
+                            <p style={{ fontSize: "0.88rem", color: "var(--ink-2)", lineHeight: 1.55, margin: 0 }}>
+                              {item.content}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+
+                      <label className="label" style={{ marginBottom: 6 }}>Memory pack (paste-ready)</label>
+                      <pre className="pre">{memoryPack}</pre>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </>
         )}
       </main>

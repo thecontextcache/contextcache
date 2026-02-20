@@ -1,0 +1,78 @@
+version: "3.8"
+
+services:
+  db:
+    image: ankane/pgvector:v0.4.2
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-contextcache}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-contextcache}
+      POSTGRES_DB: ${POSTGRES_DB:-contextcache}
+    volumes:
+      - prod-db-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    volumes:
+      - prod-redis-data:/data
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    restart: always
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD:-contextcache}@db:5432/${POSTGRES_DB:-contextcache}
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET=${JWT_SECRET:-super-secret-default-key-change-me}
+      - ENVIRONMENT=production
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    restart: always
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+  worker:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    restart: always
+    command: celery -A app.worker.celery_app worker --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD:-contextcache}@db:5432/${POSTGRES_DB:-contextcache}
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+
+  beat:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    restart: always
+    command: celery -A app.worker.celery_app beat --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD:-contextcache}@db:5432/${POSTGRES_DB:-contextcache}
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+
+volumes:
+  prod-db-data:
+  prod-redis-data:

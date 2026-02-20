@@ -19,28 +19,28 @@ import { useEffect, useRef } from "react";
 // ── Palette ──────────────────────────────────────────────────────────────────
 
 const TYPE_COLORS = {
-  decision:   "#00D4FF",
-  finding:    "#A78BFA",
+  decision: "#00D4FF",
+  finding: "#A78BFA",
   definition: "#00E5A0",
-  note:       "#FFB800",
-  link:       "#FF6B6B",
-  todo:       "#F472B6",
-  chat:       "#38BDF8",
-  doc:        "#6EE7B7",
-  code:       "#FCD34D",
+  note: "#FFB800",
+  link: "#FF6B6B",
+  todo: "#F472B6",
+  chat: "#38BDF8",
+  doc: "#6EE7B7",
+  code: "#FCD34D",
 };
 const PROJECT_COLOR = "#00D4FF";
-const BG            = "#060C18";
-const LABEL_COLOR   = "rgba(226,238,249,0.8)";
-const MUTED_LABEL   = "rgba(100,140,180,0.7)";
-const MAX_NODES     = 150;
+const BG = "#060C18";
+const LABEL_COLOR = "rgba(226,238,249,0.8)";
+const MUTED_LABEL = "rgba(100,140,180,0.7)";
+const MAX_NODES = 150;
 
 // ── Physics ───────────────────────────────────────────────────────────────────
-const REPULSION   = 2800;
-const SPRING_REST = 95;
-const SPRING_K    = 0.022;
-const GRAVITY     = 0.0018;
-const DAMPING     = 0.83;
+const REPULSION = 3200;
+const SPRING_REST = 110;
+const SPRING_K = 0.015;
+const GRAVITY = 0.0025;
+const DAMPING = 0.88;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -69,15 +69,15 @@ function buildGraph(projects, memoriesByProject, W, H) {
     const hy = cy + Math.sin(angle) * hubR + (Math.random() - 0.5) * 40;
 
     nodes.push({
-      id:      `proj-${p.id}`,
-      kind:    "project",
-      label:   p.name,
-      rawId:   p.id,
+      id: `proj-${p.id}`,
+      kind: "project",
+      label: p.name,
+      rawId: p.id,
       x: hx, y: hy,
       vx: 0, vy: 0,
       radius: 16,
-      color:  PROJECT_COLOR,
-      pulse:  Math.random() * Math.PI * 2, // phase offset for breathing
+      color: PROJECT_COLOR,
+      pulse: Math.random() * Math.PI * 2, // phase offset for breathing
       hitPulse: 0,
       created: p.created_at,
     });
@@ -87,19 +87,19 @@ function buildGraph(projects, memoriesByProject, W, H) {
       const ma = angle + (mi - mems.length / 2) * 0.35 + (Math.random() - 0.5) * 0.2;
       const md = SPRING_REST * 1.1 + Math.random() * 40;
       nodes.push({
-        id:      `mem-${m.id}`,
-        kind:    "memory",
-        label:   m.title || m.content?.slice(0, 35) || m.type,
-        rawId:   m.id,
-        projId:  `proj-${p.id}`,
-        type:    m.type,
-        x:       hx + Math.cos(ma) * md,
-        y:       hy + Math.sin(ma) * md,
+        id: `mem-${m.id}`,
+        kind: "memory",
+        label: m.title || m.content?.slice(0, 35) || m.type,
+        rawId: m.id,
+        projId: `proj-${p.id}`,
+        type: m.type,
+        x: hx + Math.cos(ma) * md,
+        y: hy + Math.sin(ma) * md,
         vx: (Math.random() - 0.5) * 0.5,
         vy: (Math.random() - 0.5) * 0.5,
         radius: 7,
-        color:  TYPE_COLORS[m.type] || "#4A6685",
-        pulse:  Math.random() * Math.PI * 2,
+        color: TYPE_COLORS[m.type] || "#4A6685",
+        pulse: Math.random() * Math.PI * 2,
         hitPulse: 0,
         created: m.created_at,
       });
@@ -111,10 +111,10 @@ function buildGraph(projects, memoriesByProject, W, H) {
 
 function buildStars(count, W, H) {
   return Array.from({ length: count }, () => ({
-    x:  Math.random() * W,
-    y:  Math.random() * H,
-    r:  Math.random() * 1.2 + 0.3,
-    a:  Math.random() * 0.25 + 0.05,
+    x: Math.random() * W,
+    y: Math.random() * H,
+    r: Math.random() * 1.2 + 0.3,
+    a: Math.random() * 0.25 + 0.05,
     vx: (Math.random() - 0.5) * 0.05,
     vy: (Math.random() - 0.5) * 0.05,
   }));
@@ -130,19 +130,19 @@ export default function BrainGraph({
   filterTypes = null,   // Set<string> | null — null means show all
   pauseAnimation = false,
 }) {
-  const canvasRef    = useRef(null);
-  const animRef      = useRef(null);
-  const stateRef     = useRef({ nodes: [], edges: [], stars: [], w: 800, h: 500 });
-  const hoverRef     = useRef(null);
+  const canvasRef = useRef(null);
+  const animRef = useRef(null);
+  const stateRef = useRef({ nodes: [], edges: [], stars: [], w: 800, h: 500 });
+  const hoverRef = useRef(null);
   const highlightRef = useRef(new Set(highlightIds));
-  const reducedRef   = useRef(false);
-  const pauseRef     = useRef(pauseAnimation);
-  const filterRef    = useRef(filterTypes);
-  const timeRef      = useRef(0);
+  const reducedRef = useRef(false);
+  const pauseRef = useRef(pauseAnimation);
+  const filterRef = useRef(filterTypes);
+  const timeRef = useRef(0);
 
   // Sync pause + filter via refs so the animation loop picks them up without restart
-  useEffect(() => { pauseRef.current  = pauseAnimation; }, [pauseAnimation]);
-  useEffect(() => { filterRef.current = filterTypes;    }, [filterTypes]);
+  useEffect(() => { pauseRef.current = pauseAnimation; }, [pauseAnimation]);
+  useEffect(() => { filterRef.current = filterTypes; }, [filterTypes]);
 
   // Sync highlight set
   useEffect(() => {
@@ -182,7 +182,7 @@ export default function BrainGraph({
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) return;
-      canvas.width  = rect.width  * dpr;
+      canvas.width = rect.width * dpr;
       canvas.height = rect.height * dpr;
       const ctx = canvas.getContext("2d");
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -202,8 +202,8 @@ export default function BrainGraph({
       timeRef.current += 0.016;
       const t = timeRef.current;
       const { nodes, edges, stars, w: W, h: H } = stateRef.current;
-      const paused  = pauseRef.current || reducedRef.current;
-      const ftypes  = filterRef.current; // Set<string> | null
+      const paused = pauseRef.current || reducedRef.current;
+      const ftypes = filterRef.current; // Set<string> | null
 
       // ── Physics ─────────────────────────────────────────────────────────────
       if (!paused && nodes.length) {
@@ -217,8 +217,8 @@ export default function BrainGraph({
             const b = nodes[j];
             const dx = b.x - a.x, dy = b.y - a.y;
             const d2 = dx * dx + dy * dy + 0.01;
-            const d  = Math.sqrt(d2);
-            const f  = REPULSION / d2;
+            const d = Math.sqrt(d2);
+            const f = REPULSION / d2;
             const fx = (dx / d) * f, fy = (dy / d) * f;
             a.vx -= fx; a.vy -= fy;
             b.vx += fx; b.vy += fy;
@@ -230,7 +230,7 @@ export default function BrainGraph({
           const a = nm[e.from], b = nm[e.to];
           if (!a || !b) continue;
           const dx = b.x - a.x, dy = b.y - a.y;
-          const d  = Math.sqrt(dx * dx + dy * dy) || 1;
+          const d = Math.sqrt(dx * dx + dy * dy) || 1;
           const stretch = (d - SPRING_REST) * SPRING_K;
           const fx = (dx / d) * stretch, fy = (dy / d) * stretch;
           a.vx += fx; a.vy += fy;
@@ -287,7 +287,7 @@ export default function BrainGraph({
 
       const nm2 = {};
       for (const n of nodes) nm2[n.id] = n;
-      const hoverId    = hoverRef.current;
+      const hoverId = hoverRef.current;
       const highlights = highlightRef.current;
 
       // ── Edges ─────────────────────────────────────────────────────────────────
@@ -306,7 +306,7 @@ export default function BrainGraph({
 
         const aHot = a.id === hoverId || highlights.has(String(a.rawId));
         const bHot = b.id === hoverId || highlights.has(String(b.rawId));
-        const hot  = aHot || bHot || a.id === hoverId || b.id === hoverId;
+        const hot = aHot || bHot || a.id === hoverId || b.id === hoverId;
 
         if (hot) {
           const grad = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
@@ -327,16 +327,16 @@ export default function BrainGraph({
       // ── Nodes ─────────────────────────────────────────────────────────────────
       for (const n of nodes) {
         const isHover = n.id === hoverId;
-        const isHot   = highlights.has(String(n.rawId));
+        const isHot = highlights.has(String(n.rawId));
 
         // Type filter: dim nodes whose type is not in the active filter set
         // Project hubs are never dimmed; null filterTypes = no filter
         const typeMuted = ftypes !== null && n.kind === "memory" && !ftypes.has(n.type);
-        const dimAlpha  = typeMuted ? 0.12 : 1.0;
+        const dimAlpha = typeMuted ? 0.12 : 1.0;
 
-        const breath  = n.kind === "project" ? 0.12 * Math.sin(t * 1.4 + n.pulse) : 0;
-        const baseR   = n.radius + (isHover && !typeMuted ? 3 : 0) + breath;
-        const hp      = n.hitPulse;
+        const breath = n.kind === "project" ? 0.12 * Math.sin(t * 1.4 + n.pulse) : 0;
+        const baseR = n.radius + (isHover && !typeMuted ? 3 : 0) + breath;
+        const hp = n.hitPulse;
 
         // Hit pulse ring
         if (hp > 0.01) {
@@ -384,23 +384,23 @@ export default function BrainGraph({
         const showLabel = (!typeMuted || isHover) && (n.kind === "project" || isHover || isHot);
         if (showLabel) {
           const text = n.label.length > 24 ? n.label.slice(0, 23) + "…" : n.label;
-          const lY   = n.y + baseR + 14;
+          const lY = n.y + baseR + 14;
           ctx.font = n.kind === "project"
             ? `bold 11px "Space Grotesk", system-ui, sans-serif`
             : `10px "Space Grotesk", system-ui, sans-serif`;
 
           // Shadow
           ctx.shadowColor = n.kind === "project" ? rgbaStr(n.color, 0.6) : "transparent";
-          ctx.shadowBlur  = n.kind === "project" ? 8 : 0;
-          ctx.fillStyle   = n.kind === "project" ? LABEL_COLOR : MUTED_LABEL;
-          ctx.textAlign   = "center";
+          ctx.shadowBlur = n.kind === "project" ? 8 : 0;
+          ctx.fillStyle = n.kind === "project" ? LABEL_COLOR : MUTED_LABEL;
+          ctx.textAlign = "center";
           ctx.fillText(text, n.x, lY);
-          ctx.shadowBlur  = 0;
+          ctx.shadowBlur = 0;
         }
       }
 
-      ctx.textAlign  = "left";
-      ctx.lineWidth  = 1;
+      ctx.textAlign = "left";
+      ctx.lineWidth = 1;
 
       // ── Hover tooltip ──────────────────────────────────────────────────────────
       if (hoverId && nm2[hoverId]) {
@@ -521,10 +521,10 @@ function drawTooltip(ctx, n, W, H) {
   const FONT = "11px 'Space Grotesk', system-ui, sans-serif";
   ctx.font = FONT;
 
-  const PAD   = 10;
-  const LH    = 17;
-  const boxW  = Math.min(Math.max(...lines.map((l) => ctx.measureText(l).width)) + PAD * 2, 220);
-  const boxH  = lines.length * LH + PAD * 1.4;
+  const PAD = 10;
+  const LH = 17;
+  const boxW = Math.min(Math.max(...lines.map((l) => ctx.measureText(l).width)) + PAD * 2, 220);
+  const boxH = lines.length * LH + PAD * 1.4;
 
   let bx = n.x + n.radius + 10;
   let by = n.y - boxH / 2;
@@ -532,15 +532,15 @@ function drawTooltip(ctx, n, W, H) {
   by = Math.max(4, Math.min(by, H - boxH - 4));
 
   // Glass panel
-  ctx.shadowBlur  = 16;
+  ctx.shadowBlur = 16;
   ctx.shadowColor = rgbaStr(n.color, 0.3);
-  ctx.fillStyle   = "rgba(10,20,36,0.92)";
+  ctx.fillStyle = "rgba(10,20,36,0.92)";
   roundRect(ctx, bx, by, boxW, boxH, 8);
   ctx.fill();
   ctx.shadowBlur = 0;
 
   ctx.strokeStyle = rgbaStr(n.color, 0.4);
-  ctx.lineWidth   = 1;
+  ctx.lineWidth = 1;
   roundRect(ctx, bx, by, boxW, boxH, 8);
   ctx.stroke();
 

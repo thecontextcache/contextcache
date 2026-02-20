@@ -606,6 +606,7 @@ tr:hover td { background: rgba(0,212,255,0.03); }
   padding-right: 2px;       /* breathing room next to scrollbar */
   padding-bottom: 8px;
   overscroll-behavior: contain;
+  scroll-behavior: smooth;
 }
 /* Thin scrollbar — Webkit */
 .sidebar-projects::-webkit-scrollbar        { width: 4px; }
@@ -638,6 +639,7 @@ tr:hover td { background: rgba(0,212,255,0.03); }
   border-color: rgba(0,212,255,0.25);
   color: var(--brand);
   font-weight: 600;
+  transform: translateX(2px);
 }
 .project-item .proj-dot {
   width: 6px; height: 6px; border-radius: 50%; background: var(--muted-2); flex-shrink: 0;
@@ -653,6 +655,7 @@ tr:hover td { background: rgba(0,212,255,0.03); }
   margin-bottom: 18px;
 }
 .tab {
+  position: relative;
   padding: 8px 16px; font-size: 0.86rem; font-weight: 600;
   color: var(--muted); border: none; background: none; cursor: pointer;
   border-bottom: 2px solid transparent; margin-bottom: -1px;
