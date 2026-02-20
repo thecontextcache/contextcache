@@ -41,6 +41,7 @@ services:
     build:
       context: ../api
       dockerfile: Dockerfile
+      target: runtime
     restart: always
     environment:
       - APP_ENV=prod
@@ -78,6 +79,7 @@ services:
     build:
       context: ../api
       dockerfile: Dockerfile
+      target: runtime
     restart: always
     command: uv run celery -A app.worker.celery_app worker --loglevel=info --concurrency=2
     environment:
@@ -97,6 +99,7 @@ services:
     build:
       context: ../api
       dockerfile: Dockerfile
+      target: runtime
     restart: always
     command: uv run celery -A app.worker.celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule
     environment:
