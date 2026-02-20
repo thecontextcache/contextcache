@@ -1,4 +1,3 @@
-version: "3.8"
 
 services:
   db:
@@ -21,7 +20,7 @@ services:
 
   api:
     build:
-      context: ./api
+      context: ../api
       dockerfile: Dockerfile
     restart: always
     environment:
@@ -38,7 +37,7 @@ services:
 
   web:
     build:
-      context: ./web
+      context: ../web
       dockerfile: Dockerfile
     restart: always
     environment:
@@ -50,7 +49,7 @@ services:
 
   worker:
     build:
-      context: ./api
+      context: ../api
       dockerfile: Dockerfile
     restart: always
     command: celery -A app.worker.celery_app worker --loglevel=info
@@ -64,7 +63,7 @@ services:
 
   beat:
     build:
-      context: ./api
+      context: ../api
       dockerfile: Dockerfile
     restart: always
     command: celery -A app.worker.celery_app beat --loglevel=info
