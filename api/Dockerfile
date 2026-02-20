@@ -21,6 +21,7 @@ FROM runtime-deps AS runtime
 COPY app /app/app
 COPY alembic /app/alembic
 COPY alembic.ini /app/alembic.ini
+COPY scripts /app/scripts
 
 EXPOSE 8000
 CMD ["sh", "-c", "if [ \"${RUN_MIGRATIONS:-1}\" = \"1\" ]; then uv run python -m app.migrate; fi && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000"]
@@ -31,4 +32,5 @@ COPY tests /app/tests
 COPY pytest.ini /app/pytest.ini
 COPY alembic /app/alembic
 COPY alembic.ini /app/alembic.ini
+COPY scripts /app/scripts
 CMD ["uv", "run", "pytest", "-q"]
