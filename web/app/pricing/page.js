@@ -212,9 +212,6 @@ export default function PricingPage() {
             color: "var(--ink-2)",
           }}>
             <strong style={{ color: "var(--ink)" }}>{activeTier.name}</strong>: {activeTier.description}
-            <div style={{ marginTop: 6, color: "var(--muted)" }}>
-              Limits are configured by environment variables. Accounts with `is_unlimited=true` bypass quota throttles.
-            </div>
           </div>
         </div>
 
@@ -420,15 +417,15 @@ export default function PricingPage() {
               </thead>
               <tbody>
                 {[
-                  ["Memories / day",      "100",          "1 000",      "10 000",     "Custom"],
-                  ["Recalls / day",        "50",           "500",        "5 000",      "Custom"],
-                  ["Projects / day",       "10",           "100",        "Unlimited",  "Unlimited"],
-                  ["Projects total",       "Unlimited",    "Unlimited",  "Unlimited",  "Unlimited"],
-                  ["Memory pack size",     "10 000 chars", "50 000",     "100 000",    "Custom"],
-                  ["API key access",       "✓",            "✓",          "✓",          "✓"],
-                  ["is_unlimited flag",    "Admin-only",   "Per account","Per account","Per account"],
-                  ["Data retention",       "Yours",        "Yours",      "Yours",      "Custom SLA"],
-                  ["Support",              "Founder direct","Email","Priority email","Dedicated SLA"],
+                  ["Memories / day", "100", "1 000", "10 000", "Custom"],
+                  ["Recalls / day", "50", "500", "5 000", "Custom"],
+                  ["Projects / day", "10", "100", "Unlimited", "Unlimited"],
+                  ["Projects total", "Unlimited", "Unlimited", "Unlimited", "Unlimited"],
+                  ["Memory pack size", "10 000 chars", "50 000", "100 000", "Custom"],
+                  ["API key access", "✓", "✓", "✓", "✓"],
+                  ["is_unlimited flag", "Admin-only", "Per account", "Per account", "Per account"],
+                  ["Data retention", "Yours", "Yours", "Yours", "Custom SLA"],
+                  ["Support", "Founder direct", "Email", "Priority email", "Dedicated SLA"],
                 ].map(([limit, ...vals]) => (
                   <tr key={limit} style={{ borderBottom: "1px solid rgba(0,212,255,0.06)" }}>
                     <td style={{ padding: "10px 14px", fontWeight: 600, color: "var(--ink)", whiteSpace: "nowrap" }}>

@@ -11,7 +11,7 @@ const CLIENTS = [
         icon: <Terminal size={32} color="#00E5A0" />,
         color: "#00E5A0",
         description: "The official command-line interface. Ideal for scripting, CI pipelines, and rapid terminal capture.",
-        installCode: "pip install contextcache",
+        installCode: "cd cli && pip install -e .",
         features: ["Instant memory commits", "Bulk history backfill", "Manage API Keys"],
         cta: "View Documentation",
         href: "/docs#cli" // Assuming a generic docs anchor for now
@@ -22,10 +22,10 @@ const CLIENTS = [
         icon: <Code2 size={32} color="#00D4FF" />,
         color: "#00D4FF",
         description: "Connect your IDE context window directly to your project brain. Recall code architecture without switching tabs.",
-        installCode: "ext install thecontextcache",
+        installCode: "Coming soon to Marketplace",
         features: ["Automatic .cursorrules generation", "Inline recall snippets", "Syntax-aware context"],
-        cta: "Download Extension",
-        href: "#"
+        cta: "Join Waitlist",
+        href: "/waitlist"
     },
     {
         id: "chrome",
@@ -33,10 +33,10 @@ const CLIENTS = [
         icon: <Chrome size={32} color="#7C3AFF" />,
         color: "#7C3AFF",
         description: "Capture findings from Jira, GitHub, or StackOverflow directly into the project brain with one click.",
-        installCode: "Available on Chrome Web Store",
+        installCode: "Coming soon to Web Store",
         features: ["Highlight to capture", "Auto-attaches URL metadata", "Syncs instantly"],
-        cta: "Get for Chrome",
-        href: "#"
+        cta: "Join Waitlist",
+        href: "/waitlist"
     }
 ];
 

@@ -124,15 +124,6 @@ export default function Shell({ children }) {
           ) : !onAuthPage && !isLoggedIn ? (
             <Link href="/auth" className={nav("/auth")}>Sign in</Link>
           ) : null}
-          <button
-            type="button"
-            className="theme-toggle"
-            onClick={toggleTheme}
-            aria-label={`Switch to ${resolvedTheme === "dark" ? "light" : "dark"} mode`}
-            title={`Switch to ${resolvedTheme === "dark" ? "light" : "dark"} mode`}
-          >
-            {resolvedTheme === "dark" ? "☀" : "☾"}
-          </button>
         </nav>
       </header>
 

@@ -63,26 +63,6 @@
   --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
 }
 
-/* Light mode override — keeps app pages readable */
-html[data-theme="light"] {
-  --bg: #F0F4F8;
-  --bg-2: #E8EEF5;
-  --panel: #FFFFFF;
-  --panel-2: #F8FAFC;
-  --panel-3: #F0F4F8;
-  --ink: #111827;
-  --ink-2: #374151;
-  --muted: #6B7280;
-  --muted-2: #9CA3AF;
-  --line: #E5E7EB;
-  --line-2: #D1D5DB;
-  --brand: #0891B2;
-  --brand-dark: #0E7490;
-  --brand-light: #CFFAFE;
-  --brand-ink: #FFFFFF;
-  --brand-glow: 0 0 12px rgba(8, 145, 178, 0.2);
-}
-
 /* ═══════════════════════════════════════════════════════════════════════════
    RESET
    ═══════════════════════════════════════════════════════════════════════════ */

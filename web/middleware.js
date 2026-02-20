@@ -6,7 +6,7 @@ const SESSION_COOKIE = "contextcache_session";
 const AUTH_REQUIRED = ["/app", "/admin", "/brain"];
 // Only root redirects when a session cookie exists.
 // Keep /auth accessible to avoid redirect loops when a stale cookie exists.
-const AUTHED_REDIRECT = ["/"];
+const AUTHED_REDIRECT = [];
 
 export function middleware(request) {
   const { pathname } = request.nextUrl;
@@ -24,7 +24,7 @@ export function middleware(request) {
   if (needsAuth && !hasSession) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth";
-    url.search   = "";
+    url.search = "";
     return NextResponse.redirect(url);
   }
 

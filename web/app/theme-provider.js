@@ -3,29 +3,21 @@
 import { createContext, useContext, useEffect, useState } from "react";
 
 const DEFAULT_THEME = "dark";
-const VALID_THEMES = new Set(["dark", "light", "system"]);
+const VALID_THEMES = new Set(["dark"]);
 const ASSET_REV = process.env.NEXT_PUBLIC_ASSET_VERSION || "20260221";
+
 const ThemeContext = createContext({
   theme: DEFAULT_THEME,
   resolvedTheme: DEFAULT_THEME,
-  toggleTheme: () => {},
+  toggleTheme: () => { },
 });
 
 function getInitialTheme() {
-  if (typeof window === "undefined") return DEFAULT_THEME;
-  const saved = window.localStorage.getItem("contextcache_theme") || DEFAULT_THEME;
-  return VALID_THEMES.has(saved) ? saved : DEFAULT_THEME;
+  return DEFAULT_THEME;
 }
 
-function resolveTheme(theme) {
-  const normalizedTheme = VALID_THEMES.has(theme) ? theme : DEFAULT_THEME;
-  if (typeof window === "undefined") {
-    return normalizedTheme === "light" ? "light" : "dark";
-  }
-  if (normalizedTheme === "system") {
-    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-  }
-  return normalizedTheme;
+function resolveTheme() {
+  return DEFAULT_THEME;
 }
 
 function applyFavicon(resolvedTheme) {
@@ -46,38 +38,19 @@ export function ThemeProvider({ children }) {
     setTheme(getInitialTheme());
   }, []);
 
-  useEffect(() => {
-    const activeTheme = theme || DEFAULT_THEME;
-    const resolved = resolveTheme(activeTheme);
-    setResolvedTheme(resolved);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem("contextcache_theme", activeTheme);
-    }
-  }, [theme]);
+  // Remove local storage effect and matchMedia effects as they are no longer needed
+  // since the theme is permanently set to dark.
 
-  // Favicon + document theme should track resolved theme changes.
   useEffect(() => {
-    const active = resolvedTheme || DEFAULT_THEME;
+    const active = DEFAULT_THEME;
     if (typeof document !== "undefined") {
       document.documentElement.setAttribute("data-theme", active);
     }
     applyFavicon(active);
-  }, [resolvedTheme]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const onChange = () => {
-      if ((theme || DEFAULT_THEME) === "system") {
-        setResolvedTheme(resolveTheme("system"));
-      }
-    };
-    media.addEventListener("change", onChange);
-    return () => media.removeEventListener("change", onChange);
-  }, [theme]);
+  }, []);
 
   function toggleTheme() {
-    setTheme((prev) => (resolveTheme(prev || DEFAULT_THEME) === "dark" ? "light" : "dark"));
+    // No-op for now since it's hardcoded.
   }
 
   return (

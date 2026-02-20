@@ -70,3 +70,6 @@ extra:
   social:
     - icon: fontawesome/solid/envelope
       link: mailto:support@thecontextcache.com
+
+extra_javascript:
+  - https://unpkg.com/mermaid@10.4.0/dist/mermaid.min.js
