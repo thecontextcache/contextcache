@@ -227,9 +227,19 @@ python cli/cc.py usage
 # Integrations
 python cli/cc.py integrations upload --project 1 --type note --text "Captured from CLI"
 python cli/cc.py integrations list --project 1 --limit 20 --offset 0
+python cli/cc.py seed-mock-data
 
 # Global runtime overrides (works with any command)
 python cli/cc.py projects list --api-base http://127.0.0.1:8000 --api-key cck_xxx --org-id 1
+```
+
+Direct SQLAlchemy mock seed utility:
+
+```bash
+docker compose exec api uv run python -m app.seed_mock_data
+
+# Host wrapper (if your DATABASE_URL targets localhost DB)
+python scripts/seed_mock_data.py
 ```
 
 ### Alias (optional)

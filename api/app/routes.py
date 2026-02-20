@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import os
@@ -13,9 +14,14 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .analyzer.algorithm import HybridWeights, compute_embedding, merge_hybrid_scores
+from .analyzer.algorithm import (
+    HybridRecallConfig,
+    compute_embedding,
+    fetch_memories_by_ids,
+    run_hybrid_rag_recall,
+)
 from .analyzer.cag import maybe_answer_from_cache
-from .db import generate_api_key, get_db, hash_api_key
+from .db import AsyncSessionLocal, generate_api_key, get_db, hash_api_key
 from .billing import emit_usage_event
 from .models import (
     ApiKey,
@@ -27,6 +33,7 @@ from .models import (
     Organization,
     Project,
     RecallLog,
+    RecallTiming,
     Tag,
     UsageCounter,
     UsageEvent,
@@ -75,6 +82,9 @@ RECALL_WEIGHT_VECTOR = float(os.getenv("VECTOR_WEIGHT", os.getenv("RECALL_WEIGHT
 RECALL_WEIGHT_RECENCY = float(os.getenv("RECENCY_WEIGHT", os.getenv("RECALL_WEIGHT_RECENCY", "0.10")))
 RECALL_VECTOR_MIN_SCORE = float(os.getenv("RECALL_VECTOR_MIN_SCORE", "0.20"))
 RECALL_VECTOR_CANDIDATES = int(os.getenv("RECALL_VECTOR_CANDIDATES", "200"))
+HEDGE_DELAY_MS = int(os.getenv("HEDGE_DELAY_MS", "120"))
+HEDGE_MIN_DELAY_MS = int(os.getenv("HEDGE_MIN_DELAY_MS", "25"))
+HEDGE_USE_P95 = os.getenv("HEDGE_USE_P95", "true").strip().lower() == "true"
 
 router = APIRouter()
 
@@ -909,6 +919,103 @@ async def _write_recall_log(
     )
 
 
+async def _write_recall_timing(
+    db: AsyncSession,
+    *,
+    project: Project,
+    ctx: RequestContext,
+    served_by: str,
+    strategy: str,
+    hedge_delay_ms: int,
+    cag_duration_ms: int | None,
+    rag_duration_ms: int | None,
+    total_duration_ms: int,
+) -> None:
+    db.add(
+        RecallTiming(
+            org_id=project.org_id,
+            project_id=project.id,
+            actor_user_id=ctx.actor_user_id,
+            served_by=served_by,
+            strategy=strategy,
+            hedge_delay_ms=hedge_delay_ms,
+            cag_duration_ms=cag_duration_ms,
+            rag_duration_ms=rag_duration_ms,
+            total_duration_ms=total_duration_ms,
+        )
+    )
+
+
+async def _resolve_hedge_delay_ms(db: AsyncSession, org_id: int) -> int:
+    if not HEDGE_USE_P95:
+        return max(HEDGE_MIN_DELAY_MS, HEDGE_DELAY_MS)
+    p95 = (
+        await db.execute(
+            select(func.percentile_cont(0.95).within_group(RecallTiming.cag_duration_ms))
+            .where(
+                RecallTiming.org_id == org_id,
+                RecallTiming.cag_duration_ms.is_not(None),
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if p95 is None:
+        return max(HEDGE_MIN_DELAY_MS, HEDGE_DELAY_MS)
+    try:
+        return max(HEDGE_MIN_DELAY_MS, int(float(p95)))
+    except (TypeError, ValueError):
+        return max(HEDGE_MIN_DELAY_MS, HEDGE_DELAY_MS)
+
+
+async def _timed_cag_lookup(query_text: str) -> tuple[Any, int]:
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    answer = await asyncio.to_thread(maybe_answer_from_cache, query_text)
+    elapsed = int((loop.time() - started) * 1000)
+    return answer, elapsed
+
+
+async def _run_rag_recall_with_timing(
+    *,
+    db: AsyncSession,
+    project_id: int,
+    query_text: str,
+    limit: int,
+) -> tuple[dict[str, Any], int]:
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    result = await run_hybrid_rag_recall(
+        db,
+        project_id=project_id,
+        query_text=query_text,
+        limit=limit,
+        config=HybridRecallConfig(
+            fts_weight=RECALL_WEIGHT_FTS,
+            vector_weight=RECALL_WEIGHT_VECTOR,
+            recency_weight=RECALL_WEIGHT_RECENCY,
+            vector_min_score=RECALL_VECTOR_MIN_SCORE,
+            vector_candidates=RECALL_VECTOR_CANDIDATES,
+        ),
+    )
+    elapsed = int((loop.time() - started) * 1000)
+    return result, elapsed
+
+
+async def _run_rag_recall(
+    *,
+    project_id: int,
+    query_text: str,
+    limit: int,
+) -> tuple[dict[str, Any], int]:
+    async with AsyncSessionLocal() as rag_db:
+        return await _run_rag_recall_with_timing(
+            db=rag_db,
+            project_id=project_id,
+            query_text=query_text,
+            limit=limit,
+        )
+
+
 @router.post("/projects/{project_id}/memories", response_model=MemoryOut, status_code=201)
 async def create_memory(
     project_id: int,
@@ -1170,8 +1277,11 @@ async def recall(
     await _check_daily_limit(db, auth_user_id, "recall_queries", DAILY_RECALL_LIMIT)
 
     query_clean = query.strip()
+    loop = asyncio.get_running_loop()
+    request_started = loop.time()
     top_with_rank: list[tuple[Memory, float | None]] = []
     strategy = "recency"
+    served_by = "rag"
     input_memory_ids: list[int] = []
     ranked_memory_ids: list[int] = []
     score_details: dict[str, Any] = {}
@@ -1180,118 +1290,111 @@ async def recall(
         "vector": RECALL_WEIGHT_VECTOR,
         "recency": RECALL_WEIGHT_RECENCY,
     }
+    hedge_delay_ms = 0
+    cag_duration_ms: int | None = None
+    rag_duration_ms: int | None = None
+    cag_pack: str | None = None
 
     if query_clean:
-        cag_answer = maybe_answer_from_cache(query_clean)
-        if cag_answer is not None:
-            strategy = "cag"
-            score_details = {
-                "source": cag_answer.source,
-                "score": cag_answer.score,
-                "snippets": len(cag_answer.snippets),
-            }
-            pack = build_memory_pack(query_clean, [("doc", snippet) for snippet in cag_answer.snippets])
-            await write_usage(
-                db,
-                request=request,
-                ctx=ctx,
-                event_type="recall_called",
-                org_id=project.org_id,
-                project_id=project.id,
-            )
-            await _increment_daily_counter(db, auth_user_id, "recall_queries")
-            await _increment_usage_period(db, auth_user_id, "recall_queries")
-            _billing_hook("recall_called", auth_user_id)
-            await _write_recall_log(
-                db,
-                project=project,
-                ctx=ctx,
-                strategy=strategy,
-                query_text=query_clean,
-                input_memory_ids=[],
-                ranked_memory_ids=[],
-                weights=weight_details,
-                score_details=score_details,
-            )
-            await db.commit()
-            return RecallOut(
-                project_id=project.id,
-                query=query_clean,
-                memory_pack_text=pack,
-                items=[],
-            )
-
-        tsquery = func.websearch_to_tsquery("english", query_clean)
-        rank = func.ts_rank_cd(Memory.search_tsv, tsquery).label("rank_score")
-        fts_result = await db.execute(
-            select(Memory, rank)
-            .where(Memory.project_id == project.id)
-            .where(Memory.search_tsv.op("@@")(tsquery))
-            .order_by(desc(rank), Memory.created_at.desc(), Memory.id.desc())
-            .limit(max(limit * 3, 25))
-        )
-        fts_rows = fts_result.all()
-        fts_scores = {row[0].id: float(row[1]) for row in fts_rows}
-        vector_scores: dict[int, float] = {}
-        vector_rows: list[tuple[Memory, float | None]] = []
+        hedge_delay_ms = await _resolve_hedge_delay_ms(db, project.org_id)
+        cag_task = asyncio.create_task(_timed_cag_lookup(query_clean))
+        rag_task: asyncio.Task | None = None
         try:
-            query_vector = compute_embedding(query_clean)
-            vector_rank_expr = (1 - Memory.embedding_vector.cosine_distance(query_vector)).label("vector_score")
-            vector_rows = (
-                await db.execute(
-                    select(Memory, vector_rank_expr)
-                    .where(Memory.project_id == project.id, Memory.embedding_vector.is_not(None))
-                    .order_by(desc(vector_rank_expr), Memory.created_at.desc(), Memory.id.desc())
-                    .limit(RECALL_VECTOR_CANDIDATES)
+            # Give CAG a head-start. If it answers quickly, we avoid launching RAG.
+            done, _ = await asyncio.wait({cag_task}, timeout=hedge_delay_ms / 1000.0)
+            if cag_task in done:
+                cag_answer, cag_duration_ms = await cag_task
+                if cag_answer is not None:
+                    served_by = "cag"
+                    strategy = "cag"
+                    score_details = {
+                        "source": cag_answer.source,
+                        "score": cag_answer.score,
+                        "snippets": len(cag_answer.snippets),
+                    }
+                    cag_pack = build_memory_pack(query_clean, [("doc", snippet) for snippet in cag_answer.snippets])
+                else:
+                    rag_result, rag_duration_ms = await _run_rag_recall(
+                        project_id=project.id,
+                        query_text=query_clean,
+                        limit=limit,
+                    )
+                    served_by = "rag"
+                    strategy = rag_result["strategy"]
+                    input_memory_ids = rag_result["input_ids"]
+                    ranked_memory_ids = rag_result["ranked_ids"]
+                    score_details = rag_result["score_details"]
+                    memories = await fetch_memories_by_ids(db, ranked_memory_ids)
+                    score_by_id = rag_result["scores"]
+                    top_with_rank = [(mem, score_by_id.get(mem.id)) for mem in memories]
+            else:
+                # CAG is slow: hedge by launching RAG and take the first useful result.
+                rag_task = asyncio.create_task(
+                    _run_rag_recall(project_id=project.id, query_text=query_clean, limit=limit)
                 )
-            ).all()
-        except Exception:
-            # Keep recall deterministic even if pgvector query path fails.
-            vector_rows = []
-        vector_candidates: list[Memory] = []
-        for mem, raw_score in vector_rows:
-            score = float(raw_score) if raw_score is not None else 0.0
-            if score >= RECALL_VECTOR_MIN_SCORE:
-                vector_scores[mem.id] = score
-                vector_candidates.append(mem)
-
-        candidate_by_id: dict[int, Memory] = {}
-        for m, _ in fts_rows:
-            candidate_by_id[m.id] = m
-        for m in vector_candidates:
-            candidate_by_id[m.id] = m
-
-        input_memory_ids = sorted(candidate_by_id.keys())
-        ranked_pairs, score_details = merge_hybrid_scores(
-            fts_scores=fts_scores,
-            vector_scores=vector_scores,
-            created_at_by_id={mem_id: mem.created_at for mem_id, mem in candidate_by_id.items()},
-            weights=HybridWeights(
-                fts=RECALL_WEIGHT_FTS,
-                vector=RECALL_WEIGHT_VECTOR,
-                recency=RECALL_WEIGHT_RECENCY,
-            ),
-            limit=limit,
-        )
-        if ranked_pairs:
-            strategy = "hybrid"
-            ranked_memory_ids = [mem_id for mem_id, _ in ranked_pairs]
-            top_with_rank = [
-                (candidate_by_id[mem_id], score)
-                for mem_id, score in ranked_pairs
-                if mem_id in candidate_by_id
-            ]
-        else:
-            fallback_result = await db.execute(
-                select(Memory)
-                .where(Memory.project_id == project.id)
-                .order_by(Memory.created_at.desc(), Memory.id.desc())
-                .limit(limit)
-            )
-            top_with_rank = [(m, None) for m in fallback_result.scalars().all()]
-            ranked_memory_ids = [m.id for m, _ in top_with_rank]
-            score_details = {"reason": "no_hybrid_matches"}
+                done, _ = await asyncio.wait({cag_task, rag_task}, return_when=asyncio.FIRST_COMPLETED)
+                if rag_task in done:
+                    rag_result, rag_duration_ms = await rag_task
+                    served_by = "rag"
+                    strategy = rag_result["strategy"]
+                    input_memory_ids = rag_result["input_ids"]
+                    ranked_memory_ids = rag_result["ranked_ids"]
+                    score_details = rag_result["score_details"]
+                    memories = await fetch_memories_by_ids(db, ranked_memory_ids)
+                    score_by_id = rag_result["scores"]
+                    top_with_rank = [(mem, score_by_id.get(mem.id)) for mem in memories]
+                    if not cag_task.done():
+                        cag_task.cancel()
+                        try:
+                            await cag_task
+                        except asyncio.CancelledError:
+                            pass
+                else:
+                    cag_answer, cag_duration_ms = await cag_task
+                    if cag_answer is not None:
+                        served_by = "cag"
+                        strategy = "cag"
+                        score_details = {
+                            "source": cag_answer.source,
+                            "score": cag_answer.score,
+                            "snippets": len(cag_answer.snippets),
+                        }
+                        cag_pack = build_memory_pack(query_clean, [("doc", snippet) for snippet in cag_answer.snippets])
+                        if rag_task is not None and not rag_task.done():
+                            rag_task.cancel()
+                            try:
+                                await rag_task
+                            except asyncio.CancelledError:
+                                pass
+                    else:
+                        if rag_task is None:
+                            rag_task = asyncio.create_task(
+                                _run_rag_recall(project_id=project.id, query_text=query_clean, limit=limit)
+                            )
+                        rag_result, rag_duration_ms = await rag_task
+                        served_by = "rag"
+                        strategy = rag_result["strategy"]
+                        input_memory_ids = rag_result["input_ids"]
+                        ranked_memory_ids = rag_result["ranked_ids"]
+                        score_details = rag_result["score_details"]
+                        memories = await fetch_memories_by_ids(db, ranked_memory_ids)
+                        score_by_id = rag_result["scores"]
+                        top_with_rank = [(mem, score_by_id.get(mem.id)) for mem in memories]
+        finally:
+            if not cag_task.done():
+                cag_task.cancel()
+                try:
+                    await cag_task
+                except asyncio.CancelledError:
+                    pass
+            if rag_task is not None and not rag_task.done():
+                rag_task.cancel()
+                try:
+                    await rag_task
+                except asyncio.CancelledError:
+                    pass
     else:
+        rag_started = loop.time()
         recent_result = await db.execute(
             select(Memory)
             .where(Memory.project_id == project.id)
@@ -1301,8 +1404,14 @@ async def recall(
         top_with_rank = [(m, None) for m in recent_result.scalars().all()]
         ranked_memory_ids = [m.id for m, _ in top_with_rank]
         score_details = {"reason": "empty_query"}
+        rag_duration_ms = int((loop.time() - rag_started) * 1000)
 
-    pack = build_memory_pack(query_clean, [(m.type, m.content) for m, _ in top_with_rank])
+    if cag_pack is None:
+        pack = build_memory_pack(query_clean, [(m.type, m.content) for m, _ in top_with_rank])
+    else:
+        pack = cag_pack
+
+    total_duration_ms = int((loop.time() - request_started) * 1000)
     await write_usage(
         db,
         request=request,
@@ -1325,9 +1434,20 @@ async def recall(
         weights=weight_details if query_clean else {},
         score_details=score_details,
     )
+    await _write_recall_timing(
+        db,
+        project=project,
+        ctx=ctx,
+        served_by=served_by,
+        strategy=strategy,
+        hedge_delay_ms=hedge_delay_ms,
+        cag_duration_ms=cag_duration_ms,
+        rag_duration_ms=rag_duration_ms,
+        total_duration_ms=total_duration_ms,
+    )
     await db.commit()
 
-    tag_map = await _load_tag_names(db, [m.id for m, _ in top_with_rank])
+    tag_map = await _load_tag_names(db, [m.id for m, _ in top_with_rank]) if top_with_rank else {}
     out_items = [_recall_item_to_out(m, tag_map.get(m.id, []), rs) for m, rs in top_with_rank]
     return RecallOut(
         project_id=project.id,

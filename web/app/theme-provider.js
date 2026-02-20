@@ -2,19 +2,30 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 
-const ThemeContext = createContext({ theme: "dark", resolvedTheme: "dark", toggleTheme: () => {} });
+const DEFAULT_THEME = "dark";
+const VALID_THEMES = new Set(["dark", "light", "system"]);
 const ASSET_REV = process.env.NEXT_PUBLIC_ASSET_VERSION || "20260220";
+const ThemeContext = createContext({
+  theme: DEFAULT_THEME,
+  resolvedTheme: DEFAULT_THEME,
+  toggleTheme: () => {},
+});
 
 function getInitialTheme() {
-  if (typeof window === "undefined") return "dark";
-  return window.localStorage.getItem("contextcache_theme") || "dark";
+  if (typeof window === "undefined") return DEFAULT_THEME;
+  const saved = window.localStorage.getItem("contextcache_theme") || DEFAULT_THEME;
+  return VALID_THEMES.has(saved) ? saved : DEFAULT_THEME;
 }
 
 function resolveTheme(theme) {
-  if (theme === "system") {
+  const normalizedTheme = VALID_THEMES.has(theme) ? theme : DEFAULT_THEME;
+  if (typeof window === "undefined") {
+    return normalizedTheme === "light" ? "light" : "dark";
+  }
+  if (normalizedTheme === "system") {
     return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   }
-  return theme;
+  return normalizedTheme;
 }
 
 function applyFavicon(resolvedTheme) {
@@ -30,25 +41,38 @@ function applyFavicon(resolvedTheme) {
 }
 
 export function ThemeProvider({ children }) {
-  const [theme, setTheme] = useState(getInitialTheme);
-  const [resolvedTheme, setResolvedTheme] = useState("dark"); // dark is the default
+  const [theme, setTheme] = useState(DEFAULT_THEME);
+  const [resolvedTheme, setResolvedTheme] = useState(DEFAULT_THEME);
+
+  // Hydration-safe theme boot: fallback to DEFAULT_THEME when storage is empty.
+  useEffect(() => {
+    setTheme(getInitialTheme());
+  }, []);
 
   useEffect(() => {
-    const resolved = resolveTheme(theme);
+    const activeTheme = theme || DEFAULT_THEME;
+    const resolved = resolveTheme(activeTheme);
     setResolvedTheme(resolved);
-    document.documentElement.setAttribute("data-theme", resolved);
-    applyFavicon(resolved);
-    window.localStorage.setItem("contextcache_theme", theme);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("contextcache_theme", activeTheme);
+    }
   }, [theme]);
 
+  // Favicon + document theme should track resolved theme changes.
   useEffect(() => {
+    const active = resolvedTheme || DEFAULT_THEME;
+    if (typeof document !== "undefined") {
+      document.documentElement.setAttribute("data-theme", active);
+    }
+    applyFavicon(active);
+  }, [resolvedTheme]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const onChange = () => {
-      if (theme === "system") {
-        const resolved = resolveTheme("system");
-        setResolvedTheme(resolved);
-        document.documentElement.setAttribute("data-theme", resolved);
-        applyFavicon(resolved);
+      if ((theme || DEFAULT_THEME) === "system") {
+        setResolvedTheme(resolveTheme("system"));
       }
     };
     media.addEventListener("change", onChange);
@@ -56,7 +80,7 @@ export function ThemeProvider({ children }) {
   }, [theme]);
 
   function toggleTheme() {
-    setTheme((prev) => (resolveTheme(prev) === "dark" ? "light" : "dark"));
+    setTheme((prev) => (resolveTheme(prev || DEFAULT_THEME) === "dark" ? "light" : "dark"));
   }
 
   return (

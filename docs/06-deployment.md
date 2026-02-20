@@ -78,6 +78,11 @@ POSTGRES_DB=contextcache
 DAILY_MAX_MEMORIES=100
 DAILY_MAX_RECALLS=50
 DAILY_MAX_PROJECTS=10
+
+# Recall hedging (latency optimization)
+HEDGE_DELAY_MS=120
+HEDGE_MIN_DELAY_MS=25
+HEDGE_USE_P95=true
 ```
 
 ### 6. Start
@@ -103,6 +108,25 @@ docker compose --profile test run --rm api-test
 # worker stack
 docker compose --profile worker up -d worker beat
 ```
+
+### Hedged recall tuning
+
+Recall uses speculative execution between:
+- CAG (cache/golden-knowledge lookup)
+- RAG (hybrid FTS + vector retrieval)
+
+Behavior:
+- CAG starts first.
+- If CAG is still running after hedge delay, RAG starts.
+- First completed result wins; the slower task is canceled.
+
+Config:
+- `HEDGE_DELAY_MS`: base hedge delay in milliseconds.
+- `HEDGE_MIN_DELAY_MS`: lower bound guardrail.
+- `HEDGE_USE_P95=true`: use org-local p95 of recent CAG durations from `recall_timings` instead of static delay.
+
+Recommendation:
+- Start with `HEDGE_DELAY_MS=120`, then tune using observed `recall_timings` in production.
 
 ### 7. Stale code/cache troubleshooting (root vs `/app`)
 

@@ -105,6 +105,7 @@ async def clean_db(test_engine: AsyncEngine) -> AsyncIterator[None]:
                     usage_counters,
                     usage_periods,
                     usage_events,
+                    recall_timings,
                     auth_login_events,
                     auth_sessions,
                     auth_magic_links,

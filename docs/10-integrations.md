@@ -156,4 +156,25 @@ python cli/cc.py integrations list --project 1 --limit 20 --offset 0
 
 # Contextualize memory with Ollama worker
 python cli/cc.py integrations contextualize --memory-id 42
+
+# Seed demo projects/memories via HTTP integration API (uses SDK)
+python cli/cc.py seed-mock-data
 ```
+
+## SQLAlchemy seed utility
+
+For direct DB-side seeding (admin/demo setup), use:
+
+```bash
+docker compose exec api uv run python -m app.seed_mock_data
+
+# Host wrapper (only when DATABASE_URL is reachable from host)
+python scripts/seed_mock_data.py
+```
+
+This script:
+- ensures `dn@thecontextcache.com` exists and is admin (target auth user id `2`)
+- ensures a demo org + ownership membership
+- creates mock projects (`Alpha Launch`, `Q2 Planning`, `Research Roadmap`)
+- creates typed memories with metadata/tags over multiple dates
+- writes `memory_embeddings` rows and vector fields via SQLAlchemy

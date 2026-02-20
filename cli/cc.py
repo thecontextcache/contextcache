@@ -26,6 +26,7 @@ Usage:
     cc integrations upload --project 1 --type note --text "hello"
     cc integrations list --project 1 --limit 20 --offset 0
     cc integrations contextualize --memory-id 42
+    cc seed-mock-data
     cc admin users [--limit 20 --offset 0 --email-q foo --status active]
     cc admin set-unlimited USER_ID [--value true|false]
     cc admin login-events USER_ID
@@ -126,6 +127,17 @@ def _request(
         _err(f"HTTP {exc.code}: {detail}")
     except urllib.error.URLError as exc:
         _err(f"Connection failed: {exc.reason}. Is the API reachable?")
+
+
+def _resolved_runtime_auth(cfg: dict | None = None) -> tuple[str, str, str]:
+    cfg = cfg or _load_config()
+    env_base = os.getenv("CC_BASE_URL") or os.getenv("CONTEXTCACHE_API_BASE_URL")
+    env_key = os.getenv("CC_API_KEY") or os.getenv("API_KEY")
+    env_org = os.getenv("CC_ORG_ID") or os.getenv("ORG_ID")
+    base_url = (_GLOBAL_OVERRIDES.get("base_url") or env_base or cfg.get("base_url") or DEFAULT_BASE_URL).rstrip("/")
+    api_key = str(_GLOBAL_OVERRIDES.get("api_key") or env_key or cfg.get("api_key") or "")
+    org_id = str(_GLOBAL_OVERRIDES.get("org_id") or env_org or cfg.get("org_id") or "")
+    return base_url, api_key, org_id
 
 
 def _err(msg: str) -> None:
@@ -401,6 +413,122 @@ def cmd_integrations(args: list[str]) -> None:
         print("Usage: cc integrations [upload|list|contextualize] ...")
 
 
+def cmd_seed_mock_data(_args: list[str]) -> None:
+    """cc seed-mock-data
+
+    Seeds demo projects + memories through HTTP integration endpoints
+    using the Python SDK, preserving API lineage/audit behavior.
+    """
+    cfg = _load_config()
+    base_url, api_key, org_id_raw = _resolved_runtime_auth(cfg)
+    if not api_key:
+        _err("Missing API key. Run `cc login --api-key ...` first.")
+    if not org_id_raw:
+        _err("Missing org id. Run `cc login ... --org-id N` or pass --org-id.")
+    try:
+        org_id = int(org_id_raw)
+    except ValueError:
+        _err("Invalid org id. Use an integer value.")
+
+    try:
+        try:
+            from .sdk import ContextCacheClient, ContextCacheError
+        except ImportError:
+            from sdk import ContextCacheClient, ContextCacheError
+    except Exception as exc:
+        _err(f"Could not import SDK: {exc}")
+
+    client = ContextCacheClient(api_key=api_key, base_url=base_url, org_id=org_id)
+
+    project_seed: dict[str, list[dict[str, Any]]] = {
+        "Alpha Launch": [
+            {
+                "type": "decision",
+                "title": "Beta rollout sequence",
+                "content": "Ship invite-only beta first, then expand to waitlist cohorts in weekly waves.",
+                "tags": ["launch", "beta", "ops"],
+                "metadata": {"seeded_by": "cc seed-mock-data", "labels": ["launch"]},
+            },
+            {
+                "type": "finding",
+                "title": "Support demand pattern",
+                "content": "Most onboarding questions were about org scoping and API key setup.",
+                "tags": ["support", "onboarding"],
+                "metadata": {"seeded_by": "cc seed-mock-data", "source": "support-review"},
+            },
+        ],
+        "Q2 Planning": [
+            {
+                "type": "definition",
+                "title": "Qualified memory",
+                "content": "A qualified memory is concise, actionable, and references a project decision.",
+                "tags": ["framework", "knowledge"],
+                "metadata": {"seeded_by": "cc seed-mock-data", "taxonomy": "memory-quality"},
+            },
+            {
+                "type": "todo",
+                "title": "Ops checklist",
+                "content": "Run migration and backup dry-run before increasing beta limits.",
+                "tags": ["todo", "infra"],
+                "metadata": {"seeded_by": "cc seed-mock-data", "priority": "high"},
+            },
+        ],
+        "Research Roadmap": [
+            {
+                "type": "note",
+                "title": "Hybrid ranking hypothesis",
+                "content": "Combine FTS + vectors + recency; keep weights configurable via env.",
+                "tags": ["recall", "ranking"],
+                "metadata": {"seeded_by": "cc seed-mock-data", "experiment": "hybrid-v1"},
+            },
+            {
+                "type": "link",
+                "title": "Deployment docs",
+                "content": "https://docs.thecontextcache.com/06-deployment/",
+                "tags": ["docs", "ops"],
+                "metadata": {"seeded_by": "cc seed-mock-data", "kind": "url"},
+            },
+        ],
+    }
+
+    try:
+        existing = client.projects.list()
+        project_by_name = {p.get("name"): p for p in existing if isinstance(p, dict)}
+        created_projects = 0
+        uploaded_memories = 0
+
+        for project_name, entries in project_seed.items():
+            project = project_by_name.get(project_name)
+            if project is None:
+                project = client.projects.create(project_name)
+                project_by_name[project_name] = project
+                created_projects += 1
+
+            project_id = int(project["id"])
+            for entry in entries:
+                client.integrations.upload_memory(
+                    project_id=project_id,
+                    type=entry["type"],
+                    title=entry["title"],
+                    content=entry["content"],
+                    source="api",
+                    metadata=entry["metadata"],
+                    tags=entry["tags"],
+                )
+                uploaded_memories += 1
+
+    except ContextCacheError as exc:
+        _err(f"Seeding failed: HTTP {exc.status} - {exc.detail}")
+    except Exception as exc:
+        _err(f"Seeding failed: {exc}")
+
+    _ok("Mock data upload complete.")
+    print(f"   base_url: {base_url}")
+    print(f"   org_id:   {org_id}")
+    print(f"   projects created: {created_projects}")
+    print(f"   memories uploaded: {uploaded_memories}")
+
+
 def cmd_admin(args: list[str]) -> None:
     """cc admin users|set-unlimited|login-events|stats|recall-logs|invites|waitlist|projects ..."""
     sub = args[0] if args else ""
@@ -518,6 +646,7 @@ COMMANDS = {
     "invites":  cmd_invites,
     "waitlist": cmd_waitlist,
     "integrations": cmd_integrations,
+    "seed-mock-data": cmd_seed_mock_data,
     "admin": cmd_admin,
 }
 

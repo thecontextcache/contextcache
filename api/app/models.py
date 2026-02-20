@@ -263,6 +263,26 @@ class RecallLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class RecallTiming(Base):
+    __tablename__ = "recall_timings"
+    __table_args__ = (
+        Index("ix_recall_timings_org_created", "org_id", "created_at"),
+        Index("ix_recall_timings_served_by_created", "served_by", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    actor_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    served_by: Mapped[str] = mapped_column(String(16), nullable=False)
+    strategy: Mapped[str] = mapped_column(String(32), nullable=False)
+    hedge_delay_ms: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    cag_duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rag_duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total_duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 # ---------------------------------------------------------------------------
 # Auth models
 # ---------------------------------------------------------------------------

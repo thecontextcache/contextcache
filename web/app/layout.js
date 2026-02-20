@@ -26,7 +26,7 @@ export default function RootLayout({ children }) {
         */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('contextcache_theme')||'dark';var r=t==='system'?(window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):t;document.documentElement.setAttribute('data-theme',r);var v='${ASSET_REV}';var f=document.getElementById('dynamic-favicon');if(f){f.setAttribute('href',r==='dark'?('/favicon-dark.svg?v='+v):('/favicon-light.svg?v='+v));}}catch(e){}})();`,
+            __html: `(function(){try{var t=localStorage.getItem('contextcache_theme')||'dark';if(t!=='dark'&&t!=='light'&&t!=='system'){t='dark';}var r=t==='system'?(window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):t;document.documentElement.setAttribute('data-theme',r);var v='${ASSET_REV}';var f=document.getElementById('dynamic-favicon');if(f){f.setAttribute('href',r==='dark'?('/favicon-dark.svg?v='+v):('/favicon-light.svg?v='+v));}}catch(e){}})();`,
           }}
         />
         <link id="dynamic-favicon" rel="icon" href={`/favicon-dark.svg?v=${ASSET_REV}`} type="image/svg+xml" />

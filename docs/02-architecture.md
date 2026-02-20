@@ -118,7 +118,19 @@ sequenceDiagram
 - Next.js app-router frontend
 - Runs in Docker container
 - Exposes port 3000
-- Calls FastAPI directly (CORS-enabled)
+- Proxies `/api/*` server-side to FastAPI (`api:8000`) in production mode
+
+### 5. Backend module layout (`api/app/`)
+
+- `analyzer/algorithm.py`: single source of truth for scoring/ranking logic
+  (FTS/vector/recency weighting, normalization, embedding helpers).
+- `analyzer/core.py`: compatibility shim; delegates to `algorithm.py`.
+- `analyzer/cag.py`: cache-augmented generation preload + lookup.
+- `auth_routes.py`: magic-link/session/admin auth endpoints.
+- `routes.py`: API orchestration and IO; calls analyzer functions for ranking.
+- `ingestion/`: incremental ingestion scaffolding (`cocoindex_flow.py`, `pipeline.py`).
+- `worker/`: Celery app/tasks for embeddings and cleanup.
+- `rate_limit.py`: Redis-backed limits and counters.
 
 ---
 

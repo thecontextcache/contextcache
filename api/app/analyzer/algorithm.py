@@ -1,7 +1,11 @@
-"""Algorithm module for retrieval, ranking, and embedding.
+"""ContextCache ranking/embedding algorithm module.
 
-All scoring/embedding logic should live here so the rest of the app can
-switch implementations (or move this to a microservice) with minimal changes.
+IMPORTANT MAINTAINER NOTE:
+- Keep all scoring and ranking logic in THIS file only.
+- Routes/services may fetch data, but they must call functions here for
+  weighting, normalization, recency, and model-based scoring decisions.
+- This design allows swapping to an external analyzer service later without
+  touching route-level business logic.
 """
 from __future__ import annotations
 
@@ -12,8 +16,13 @@ import os
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib import request as urllib_request
+
+from sqlalchemy import desc, func, select
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 _TYPE_PRIORITY: dict[str, int] = {
@@ -39,6 +48,15 @@ class HybridWeights:
     fts: float
     vector: float
     recency: float
+
+
+@dataclass(frozen=True)
+class HybridRecallConfig:
+    fts_weight: float
+    vector_weight: float
+    recency_weight: float
+    vector_min_score: float
+    vector_candidates: int
 
 
 def tokenize(text: str) -> set[str]:
@@ -258,3 +276,108 @@ def compute_embedding(text: str, *, model: str = "text-embedding-3-small", dims:
             n = (cur[i] << 8) | cur[i + 1]
             vec.append((n / 32767.5) - 1.0)
     return _normalize_vec(vec)
+
+
+async def fetch_memories_by_ids(db: "AsyncSession", memory_ids: list[int]) -> list[Any]:
+    """Load memories preserving the given ID ordering.
+
+    Ranking order is computed elsewhere; this only hydrates model rows.
+    """
+    if not memory_ids:
+        return []
+    from app.models import Memory
+
+    rows = (await db.execute(select(Memory).where(Memory.id.in_(memory_ids)))).scalars().all()
+    by_id = {row.id: row for row in rows}
+    return [by_id[mid] for mid in memory_ids if mid in by_id]
+
+
+async def run_hybrid_rag_recall(
+    db: "AsyncSession",
+    *,
+    project_id: int,
+    query_text: str,
+    limit: int,
+    config: HybridRecallConfig,
+) -> dict[str, Any]:
+    """Execute hybrid FTS + vector + recency ranking for one project.
+
+    This is the single source of truth for recall ranking decisions.
+    """
+    from app.models import Memory
+
+    tsquery = func.websearch_to_tsquery("english", query_text)
+    rank = func.ts_rank_cd(Memory.search_tsv, tsquery).label("rank_score")
+    fts_rows = (
+        await db.execute(
+            select(Memory, rank)
+            .where(Memory.project_id == project_id)
+            .where(Memory.search_tsv.op("@@")(tsquery))
+            .order_by(desc(rank), Memory.created_at.desc(), Memory.id.desc())
+            .limit(max(limit * 3, 25))
+        )
+    ).all()
+    fts_scores = {row[0].id: float(row[1]) for row in fts_rows}
+
+    vector_scores: dict[int, float] = {}
+    vector_rows: list[tuple[Any, float | None]] = []
+    try:
+        query_vector = compute_embedding(query_text)
+        vector_rank_expr = (1 - Memory.embedding_vector.cosine_distance(query_vector)).label("vector_score")
+        vector_rows = (
+            await db.execute(
+                select(Memory, vector_rank_expr)
+                .where(Memory.project_id == project_id, Memory.embedding_vector.is_not(None))
+                .order_by(desc(vector_rank_expr), Memory.created_at.desc(), Memory.id.desc())
+                .limit(config.vector_candidates)
+            )
+        ).all()
+    except Exception:
+        vector_rows = []
+
+    candidate_by_id: dict[int, Any] = {}
+    for mem, raw_score in vector_rows:
+        score = float(raw_score) if raw_score is not None else 0.0
+        if score >= config.vector_min_score:
+            vector_scores[mem.id] = score
+            candidate_by_id[mem.id] = mem
+    for mem, _ in fts_rows:
+        candidate_by_id[mem.id] = mem
+
+    input_ids = sorted(candidate_by_id.keys())
+    ranked_pairs, score_details = merge_hybrid_scores(
+        fts_scores=fts_scores,
+        vector_scores=vector_scores,
+        created_at_by_id={mem_id: mem.created_at for mem_id, mem in candidate_by_id.items()},
+        weights=HybridWeights(
+            fts=config.fts_weight,
+            vector=config.vector_weight,
+            recency=config.recency_weight,
+        ),
+        limit=limit,
+    )
+
+    if ranked_pairs:
+        return {
+            "strategy": "hybrid",
+            "input_ids": input_ids,
+            "ranked_ids": [mem_id for mem_id, _ in ranked_pairs],
+            "scores": {mem_id: score for mem_id, score in ranked_pairs},
+            "score_details": score_details,
+        }
+
+    fallback_ids = (
+        await db.execute(
+            select(Memory.id)
+            .where(Memory.project_id == project_id)
+            .order_by(Memory.created_at.desc(), Memory.id.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return {
+        "strategy": "recency",
+        "input_ids": input_ids,
+        "ranked_ids": list(fallback_ids),
+        "scores": {},
+        "score_details": {"reason": "no_hybrid_matches"},
+    }
