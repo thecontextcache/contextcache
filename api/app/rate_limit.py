@@ -16,6 +16,7 @@ AUTH_RATE_LIMIT_PER_EMAIL_PER_HOUR = int(os.getenv("AUTH_RATE_LIMIT_PER_EMAIL_PE
 AUTH_VERIFY_RATE_LIMIT_PER_IP_PER_HOUR = int(os.getenv("AUTH_VERIFY_RATE_LIMIT_PER_IP_PER_HOUR", "20"))
 RECALL_RATE_LIMIT_PER_IP_PER_HOUR = int(os.getenv("RECALL_RATE_LIMIT_PER_IP_PER_HOUR", "240"))
 RECALL_RATE_LIMIT_PER_ACCOUNT_PER_HOUR = int(os.getenv("RECALL_RATE_LIMIT_PER_ACCOUNT_PER_HOUR", "240"))
+HEDGE_P95_CACHE_TTL_SECONDS = int(os.getenv("HEDGE_P95_CACHE_TTL_SECONDS", "900"))
 
 _REQUESTS: dict[str, deque[datetime]] = defaultdict(deque)
 _REDIS_CLIENT = None
@@ -75,6 +76,32 @@ def incr_counter(key: str, ttl_seconds: int) -> int:
         return count
     except Exception:
         return 0
+
+
+def get_cached_hedge_p95_ms(org_id: int) -> int | None:
+    client = _get_redis_client()
+    if client is None:
+        return None
+    try:
+        value = client.get(f"hedge:p95:org:{org_id}")
+        if value is None:
+            return None
+        parsed = int(value)
+        return parsed if parsed > 0 else None
+    except Exception:
+        return None
+
+
+def set_cached_hedge_p95_ms(org_id: int, delay_ms: int, ttl_seconds: int | None = None) -> bool:
+    client = _get_redis_client()
+    if client is None:
+        return False
+    ttl = ttl_seconds if ttl_seconds is not None else HEDGE_P95_CACHE_TTL_SECONDS
+    try:
+        client.setex(f"hedge:p95:org:{org_id}", max(1, ttl), max(1, int(delay_ms)))
+        return True
+    except Exception:
+        return False
 
 
 def _window_start() -> datetime:

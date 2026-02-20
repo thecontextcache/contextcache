@@ -287,6 +287,72 @@ def cleanup_expired_invites(self) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Task: refresh_recall_hedge_p95_cache
+# ---------------------------------------------------------------------------
+
+@celery_app.task(name="contextcache.refresh_recall_hedge_p95_cache", bind=True, max_retries=2)
+def refresh_recall_hedge_p95_cache(
+    self,
+    lookback_hours: int = 24,
+    min_samples: int = 5,
+) -> dict:
+    """Compute per-org CAG p95 latency and cache in Redis for fast hedge lookup."""
+    skipped = _skip_if_disabled("refresh_recall_hedge_p95_cache")
+    if skipped is not None:
+        return skipped
+    logger.info(
+        "[worker] refresh_recall_hedge_p95_cache started lookback_hours=%s min_samples=%s",
+        lookback_hours,
+        min_samples,
+    )
+
+    from sqlalchemy import text
+    from app.rate_limit import set_cached_hedge_p95_ms
+
+    async def _refresh(session):
+        rows = (
+            await session.execute(
+                text(
+                    """
+                    SELECT
+                        org_id,
+                        percentile_cont(0.95) WITHIN GROUP (ORDER BY cag_duration_ms) AS p95_ms,
+                        COUNT(*) AS sample_count
+                    FROM recall_timings
+                    WHERE cag_duration_ms IS NOT NULL
+                      AND created_at >= (NOW() - (:lookback_hours || ' hours')::interval)
+                    GROUP BY org_id
+                    """
+                ),
+                {"lookback_hours": int(lookback_hours)},
+            )
+        ).all()
+        return rows
+
+    try:
+        rows = asyncio.run(_run_in_db(_refresh))
+    except Exception as exc:
+        logger.warning("[worker] refresh_recall_hedge_p95_cache skipped: %s", exc)
+        return {"status": "skipped", "reason": str(exc)}
+    cached = 0
+    for org_id, p95_ms, sample_count in rows:
+        if p95_ms is None:
+            continue
+        try:
+            samples = int(sample_count or 0)
+        except (TypeError, ValueError):
+            samples = 0
+        if samples < int(min_samples):
+            continue
+        delay_ms = max(1, int(float(p95_ms)))
+        if set_cached_hedge_p95_ms(int(org_id), delay_ms):
+            cached += 1
+
+    logger.info("[worker] refresh_recall_hedge_p95_cache cached_orgs=%s", cached)
+    return {"status": "ok", "cached_orgs": cached}
+
+
+# ---------------------------------------------------------------------------
 # Task: contextualize_memory_with_ollama
 # ---------------------------------------------------------------------------
 

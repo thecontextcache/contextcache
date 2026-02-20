@@ -82,7 +82,8 @@ DAILY_MAX_PROJECTS=10
 # Recall hedging (latency optimization)
 HEDGE_DELAY_MS=120
 HEDGE_MIN_DELAY_MS=25
-HEDGE_USE_P95=true
+HEDGE_USE_P95_CACHE=true
+HEDGE_P95_CACHE_TTL_SECONDS=900
 ```
 
 ### 6. Start
@@ -119,11 +120,18 @@ Behavior:
 - CAG starts first.
 - If CAG is still running after hedge delay, RAG starts.
 - First completed result wins; the slower task is canceled.
+- In `CAG_MODE=local`, hedging is bypassed and CAG runs synchronously before RAG fallback.
 
 Config:
 - `HEDGE_DELAY_MS`: base hedge delay in milliseconds.
 - `HEDGE_MIN_DELAY_MS`: lower bound guardrail.
-- `HEDGE_USE_P95=true`: use org-local p95 of recent CAG durations from `recall_timings` instead of static delay.
+- `HEDGE_USE_P95_CACHE=true`: use cached org-local p95 from Redis instead of static delay.
+- `HEDGE_P95_CACHE_TTL_SECONDS`: Redis TTL for cached p95 values.
+
+Worker job:
+- Celery Beat refreshes p95 cache every 5 minutes via `contextcache.refresh_recall_hedge_p95_cache`.
+- It aggregates `recall_timings` per org and writes values to Redis keys `hedge:p95:org:<id>`.
+- If worker/beat is disabled, recall falls back to static `HEDGE_DELAY_MS`.
 
 Recommendation:
 - Start with `HEDGE_DELAY_MS=120`, then tune using observed `recall_timings` in production.

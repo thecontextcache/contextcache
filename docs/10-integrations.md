@@ -97,6 +97,8 @@ def handle_slack_message(text: str, project_id: int, api_key: str, org_id: int) 
 Recall uses a two-stage decision:
 
 1. **CAG pre-check**: query is matched against a static golden-knowledge cache (docs + built-ins) preloaded in memory.
+   - CAG scoring uses in-memory embedding similarity (`CAG_EMBEDDING_MODEL_NAME`).
+   - Default provider is deterministic hash embeddings for speed/stability; optional sentence-transformers can be enabled.
 2. **RAG fallback**: if CAG confidence is low, run hybrid retrieval over project memories:
    - PostgreSQL FTS (`websearch_to_tsquery`)
    - pgvector cosine similarity
@@ -108,8 +110,12 @@ This means global/product answers can return instantly, while project-specific q
 
 ```env
 CAG_ENABLED=true
+CAG_MODE=local
 CAG_MAX_TOKENS=180000
 CAG_MATCH_THRESHOLD=0.58
+CAG_EMBEDDING_MODEL_NAME=all-MiniLM-L6-v2
+CAG_EMBEDDING_PROVIDER=hash
+CAG_EMBEDDING_DIMS=384
 CAG_SOURCE_FILES=docs/00-overview.md,docs/01-mvp-scope.md,docs/04-api-contract.md,docs/legal.md
 ```
 
@@ -127,6 +133,11 @@ The backend now includes `api/app/ingestion/` with:
 - `ingestion_chunk_index`
 
 and writes embeddings to `memories.embedding_vector` / `memories.search_vector`.
+
+Hashing + reprocessing rules:
+- chunk hash is based on `project_id + chunk_content` (not file mtime)
+- file `mtime` is used only to decide whether the file needs re-checking
+- if content is unchanged but mtime changes, chunks are rechecked but not re-embedded
 
 ## Ollama integration env
 
@@ -158,8 +169,12 @@ python cli/cc.py integrations list --project 1 --limit 20 --offset 0
 python cli/cc.py integrations contextualize --memory-id 42
 
 # Seed demo projects/memories via HTTP integration API (uses SDK)
-python cli/cc.py seed-mock-data
+python cli/cc.py seed-mock-data --num-projects 5 --memories-per-project 8
 ```
+
+Seed flags:
+- `--num-projects` (default `3`)
+- `--memories-per-project` (default `2`)
 
 ## SQLAlchemy seed utility
 

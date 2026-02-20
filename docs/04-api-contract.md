@@ -209,14 +209,20 @@ Daily + weekly limits are configured via environment variables (`DAILY_MAX_*`, `
   - Postgres FTS with `websearch_to_tsquery('english', query)` + `ts_rank_cd`
   - pgvector cosine similarity from `memories.embedding_vector` (when vectors exist)
   - Recency boost
+- Vector candidate query is index-friendly (HNSW/IVFFlat) and orders by raw distance:
+  - `ORDER BY memories.embedding_vector <=> :query_vector ASC`
+  - `vector_score` is still returned/merged as `1 - distance`
 - Recall execution uses **request hedging**:
-  - CAG starts first.
-  - If CAG has not completed after `HEDGE_DELAY_MS` (or org-local CAG p95 when `HEDGE_USE_P95=true`), RAG starts speculatively.
-  - First completed backend response is returned; slower task is canceled.
+  - Local CAG mode (`CAG_MODE=local`): run CAG synchronously first, then immediate RAG fallback on miss.
+  - Remote CAG mode: CAG starts first, and RAG starts speculatively after hedge delay.
+  - Hedge delay uses cached org-local p95 (written by worker task) when `HEDGE_USE_P95_CACHE=true`.
+  - If no cached p95 is available, hedge delay falls back to static `HEDGE_DELAY_MS`.
+- First completed backend response is returned; slower task is canceled.
 - Strategy and score details are written to `recall_logs` and visible via admin endpoint.
 - Latency telemetry is written to `recall_timings` (`served_by`, `cag_duration_ms`, `rag_duration_ms`, `total_duration_ms`, `hedge_delay_ms`).
 - Weights are env-configurable (`FTS_WEIGHT`, `VECTOR_WEIGHT`, `RECENCY_WEIGHT`; legacy `RECALL_WEIGHT_*` aliases still supported).
-- Hedging envs: `HEDGE_DELAY_MS`, `HEDGE_MIN_DELAY_MS`, `HEDGE_USE_P95`.
+- Hedging envs: `HEDGE_DELAY_MS`, `HEDGE_MIN_DELAY_MS`, `HEDGE_USE_P95_CACHE`, `HEDGE_P95_CACHE_TTL_SECONDS`.
+- CAG embedding envs: `CAG_MODE`, `CAG_EMBEDDING_MODEL_NAME`, `CAG_EMBEDDING_PROVIDER`, `CAG_EMBEDDING_DIMS`, `CAG_MATCH_THRESHOLD`.
 - Rows returned from hybrid scoring include `rank_score` (float).
 - Recency fallback rows use `rank_score: null`.
 - CAG short-circuit responses return `items: []` and keep the same `memory_pack_text` format.

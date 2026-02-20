@@ -292,6 +292,20 @@ async def fetch_memories_by_ids(db: "AsyncSession", memory_ids: list[int]) -> li
     return [by_id[mid] for mid in memory_ids if mid in by_id]
 
 
+def build_vector_candidate_stmt(project_id: int, query_vector: list[float], vector_candidates: int):
+    """Build the vector candidate query with index-friendly ordering."""
+    from app.models import Memory
+
+    vector_distance_expr = Memory.embedding_vector.cosine_distance(query_vector)
+    vector_rank_expr = (1 - vector_distance_expr).label("vector_score")
+    return (
+        select(Memory, vector_rank_expr)
+        .where(Memory.project_id == project_id, Memory.embedding_vector.is_not(None))
+        .order_by(vector_distance_expr.asc())
+        .limit(vector_candidates)
+    )
+
+
 async def run_hybrid_rag_recall(
     db: "AsyncSession",
     *,
@@ -323,13 +337,13 @@ async def run_hybrid_rag_recall(
     vector_rows: list[tuple[Any, float | None]] = []
     try:
         query_vector = compute_embedding(query_text)
-        vector_rank_expr = (1 - Memory.embedding_vector.cosine_distance(query_vector)).label("vector_score")
         vector_rows = (
             await db.execute(
-                select(Memory, vector_rank_expr)
-                .where(Memory.project_id == project_id, Memory.embedding_vector.is_not(None))
-                .order_by(desc(vector_rank_expr), Memory.created_at.desc(), Memory.id.desc())
-                .limit(config.vector_candidates)
+                build_vector_candidate_stmt(
+                    project_id=project_id,
+                    query_vector=query_vector,
+                    vector_candidates=config.vector_candidates,
+                )
             )
         ).all()
     except Exception:

@@ -26,7 +26,7 @@ Usage:
     cc integrations upload --project 1 --type note --text "hello"
     cc integrations list --project 1 --limit 20 --offset 0
     cc integrations contextualize --memory-id 42
-    cc seed-mock-data
+    cc seed-mock-data [--num-projects 3] [--memories-per-project 2]
     cc admin users [--limit 20 --offset 0 --email-q foo --status active]
     cc admin set-unlimited USER_ID [--value true|false]
     cc admin login-events USER_ID
@@ -413,12 +413,20 @@ def cmd_integrations(args: list[str]) -> None:
         print("Usage: cc integrations [upload|list|contextualize] ...")
 
 
-def cmd_seed_mock_data(_args: list[str]) -> None:
-    """cc seed-mock-data
+def cmd_seed_mock_data(args: list[str]) -> None:
+    """cc seed-mock-data [--num-projects N] [--memories-per-project N]
 
     Seeds demo projects + memories through HTTP integration endpoints
     using the Python SDK, preserving API lineage/audit behavior.
     """
+    try:
+        num_projects = int(_flag(args, "--num-projects") or "3")
+        memories_per_project = int(_flag(args, "--memories-per-project") or "2")
+    except ValueError:
+        _err("--num-projects and --memories-per-project must be integers")
+    if num_projects < 1 or memories_per_project < 1:
+        _err("--num-projects and --memories-per-project must be >= 1")
+
     cfg = _load_config()
     base_url, api_key, org_id_raw = _resolved_runtime_auth(cfg)
     if not api_key:
@@ -440,56 +448,20 @@ def cmd_seed_mock_data(_args: list[str]) -> None:
 
     client = ContextCacheClient(api_key=api_key, base_url=base_url, org_id=org_id)
 
-    project_seed: dict[str, list[dict[str, Any]]] = {
-        "Alpha Launch": [
-            {
-                "type": "decision",
-                "title": "Beta rollout sequence",
-                "content": "Ship invite-only beta first, then expand to waitlist cohorts in weekly waves.",
-                "tags": ["launch", "beta", "ops"],
-                "metadata": {"seeded_by": "cc seed-mock-data", "labels": ["launch"]},
-            },
-            {
-                "type": "finding",
-                "title": "Support demand pattern",
-                "content": "Most onboarding questions were about org scoping and API key setup.",
-                "tags": ["support", "onboarding"],
-                "metadata": {"seeded_by": "cc seed-mock-data", "source": "support-review"},
-            },
-        ],
-        "Q2 Planning": [
-            {
-                "type": "definition",
-                "title": "Qualified memory",
-                "content": "A qualified memory is concise, actionable, and references a project decision.",
-                "tags": ["framework", "knowledge"],
-                "metadata": {"seeded_by": "cc seed-mock-data", "taxonomy": "memory-quality"},
-            },
-            {
-                "type": "todo",
-                "title": "Ops checklist",
-                "content": "Run migration and backup dry-run before increasing beta limits.",
-                "tags": ["todo", "infra"],
-                "metadata": {"seeded_by": "cc seed-mock-data", "priority": "high"},
-            },
-        ],
-        "Research Roadmap": [
-            {
-                "type": "note",
-                "title": "Hybrid ranking hypothesis",
-                "content": "Combine FTS + vectors + recency; keep weights configurable via env.",
-                "tags": ["recall", "ranking"],
-                "metadata": {"seeded_by": "cc seed-mock-data", "experiment": "hybrid-v1"},
-            },
-            {
-                "type": "link",
-                "title": "Deployment docs",
-                "content": "https://docs.thecontextcache.com/06-deployment/",
-                "tags": ["docs", "ops"],
-                "metadata": {"seeded_by": "cc seed-mock-data", "kind": "url"},
-            },
-        ],
-    }
+    project_names_seed = ["Alpha Launch", "Q2 Planning", "Research Roadmap"]
+    memory_types = ["decision", "finding", "definition", "note", "link", "todo"]
+    corpus = [
+        "Ship invite-only beta first, then expand to waitlist cohorts in weekly waves.",
+        "Most onboarding questions were about org scoping and API key setup.",
+        "A qualified memory is concise, actionable, and references a project decision.",
+        "Run migration and backup dry-run before increasing beta limits.",
+        "Combine FTS + vectors + recency; keep weights configurable via env.",
+        "https://docs.thecontextcache.com/06-deployment/",
+        "Cloudflare Tunnel routes root to web and api subdomain to FastAPI.",
+        "Use semantic recall for project memory and deterministic fallbacks for test stability.",
+        "Daily usage limits can be overridden by the admin is_unlimited flag.",
+        "Record audit logs for project creation, memory ingestion, and recall calls.",
+    ]
 
     try:
         existing = client.projects.list()
@@ -497,7 +469,11 @@ def cmd_seed_mock_data(_args: list[str]) -> None:
         created_projects = 0
         uploaded_memories = 0
 
-        for project_name, entries in project_seed.items():
+        for project_idx in range(num_projects):
+            if project_idx < len(project_names_seed):
+                project_name = project_names_seed[project_idx]
+            else:
+                project_name = f"Mock Project {project_idx + 1}"
             project = project_by_name.get(project_name)
             if project is None:
                 project = client.projects.create(project_name)
@@ -505,15 +481,23 @@ def cmd_seed_mock_data(_args: list[str]) -> None:
                 created_projects += 1
 
             project_id = int(project["id"])
-            for entry in entries:
+            for mem_idx in range(memories_per_project):
+                global_idx = (project_idx * memories_per_project) + mem_idx
+                mem_type = memory_types[global_idx % len(memory_types)]
+                content = corpus[global_idx % len(corpus)]
+                title = f"{project_name} memory {mem_idx + 1}"
                 client.integrations.upload_memory(
                     project_id=project_id,
-                    type=entry["type"],
-                    title=entry["title"],
-                    content=entry["content"],
+                    type=mem_type,
+                    title=title,
+                    content=content,
                     source="api",
-                    metadata=entry["metadata"],
-                    tags=entry["tags"],
+                    metadata={
+                        "seeded_by": "cc seed-mock-data",
+                        "ingestion_chunk_index": mem_idx,
+                        "pipeline": "cli-http-seed",
+                    },
+                    tags=["seed", mem_type, f"project-{project_idx + 1}"],
                 )
                 uploaded_memories += 1
 
@@ -525,6 +509,8 @@ def cmd_seed_mock_data(_args: list[str]) -> None:
     _ok("Mock data upload complete.")
     print(f"   base_url: {base_url}")
     print(f"   org_id:   {org_id}")
+    print(f"   requested projects: {num_projects}")
+    print(f"   memories per project: {memories_per_project}")
     print(f"   projects created: {created_projects}")
     print(f"   memories uploaded: {uploaded_memories}")
 

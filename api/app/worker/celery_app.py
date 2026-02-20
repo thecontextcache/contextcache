@@ -50,6 +50,12 @@ celery_app.conf.update(
             "task": "contextcache.cleanup_expired_magic_links",
             "schedule": 3600,  # seconds
         },
+        # Refresh org-local p95 CAG latency cache for recall hedging.
+        "refresh-recall-hedge-p95-cache": {
+            "task": "contextcache.refresh_recall_hedge_p95_cache",
+            "schedule": 300,  # every 5 minutes
+            "kwargs": {"lookback_hours": 24, "min_samples": 5},
+        },
         # Remove usage_counter rows older than 90 days — runs at 01:00 UTC daily
         "cleanup-old-usage-counters": {
             "task": "contextcache.cleanup_old_usage_counters",

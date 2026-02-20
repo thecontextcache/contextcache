@@ -107,7 +107,7 @@ cc integrations upload --project 1 --type note --text "Captured from CLI"
 cc integrations upload --project 1 --type doc --file ./notes.md
 cc integrations list --project 1 --limit 20 --offset 0
 cc integrations contextualize --memory-id 42
-cc seed-mock-data
+cc seed-mock-data --num-projects 5 --memories-per-project 8
 
 cc admin users --status active --limit 20 --offset 0
 cc admin set-unlimited 5 --value true
@@ -118,6 +118,9 @@ cc admin recall-logs --project 1 --limit 20 --offset 0
 
 `cc seed-mock-data` uses the SDK and uploads memories through
 `POST /integrations/memories` (HTTP), so audit/rate-limit/lineage paths stay identical to normal ingestion.
+It supports:
+- `--num-projects N` (default: `3`)
+- `--memories-per-project N` (default: `2`)
 
 ---
 

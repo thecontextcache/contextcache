@@ -3,10 +3,13 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from sqlalchemy.dialects import postgresql
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.analyzer.algorithm import build_vector_candidate_stmt
 from app.db import hash_api_key
+from app.ingestion.pipeline import IngestionConfig, ingest_path_incremental
 from app.models import ApiKey, Memory, Organization
 from app.seed import seed
 from .conftest import Ctx, auth_headers
@@ -232,3 +235,72 @@ async def test_admin_recall_logs_returns_recent_entries(client, app_ctx: Ctx) ->
     assert len(logs) >= 1
     assert logs[0]["project_id"] == app_ctx.project_id
     assert logs[0]["strategy"] in {"hybrid", "recency", "cag"}
+
+
+async def test_vector_query_orders_by_raw_distance_operator() -> None:
+    stmt = build_vector_candidate_stmt(
+        project_id=7,
+        query_vector=[0.0, 0.1, 0.2],
+        vector_candidates=25,
+    )
+    compiled = str(stmt.compile(dialect=postgresql.dialect()))
+    assert "ORDER BY memories.embedding_vector <=>" in compiled
+    assert "DESC" not in compiled
+
+
+async def test_ingestion_hash_ignores_mtime_for_embedding_reuse(
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    source_dir = tmp_path / "ingest"
+    source_dir.mkdir(parents=True, exist_ok=True)
+    source_file = source_dir / "notes.md"
+    source_file.write_text(
+        "ContextCache ingestion baseline.\n\nThis content should not be re-embedded on mtime-only changes.",
+        encoding="utf-8",
+    )
+
+    calls = {"count": 0}
+
+    def fake_embedding(_text: str, *args, **kwargs) -> list[float]:
+        calls["count"] += 1
+        return [0.0] * 1536
+
+    monkeypatch.setattr("app.ingestion.pipeline.compute_embedding", fake_embedding)
+
+    first = await ingest_path_incremental(
+        db_session,
+        project_id=app_ctx.project_id,
+        created_by_user_id=None,
+        config=IngestionConfig(source_root=str(source_dir)),
+    )
+    await db_session.commit()
+    assert first["inserted"] >= 1
+    first_calls = calls["count"]
+    assert first_calls >= 1
+
+    # mtime change only (content unchanged): should avoid new embedding calls.
+    source_file.touch()
+    second = await ingest_path_incremental(
+        db_session,
+        project_id=app_ctx.project_id,
+        created_by_user_id=None,
+        config=IngestionConfig(source_root=str(source_dir)),
+    )
+    await db_session.commit()
+    assert second["inserted"] == 0
+    assert calls["count"] == first_calls
+    assert second["updated"] >= 1
+
+    # No mtime change: whole file should be skipped.
+    third = await ingest_path_incremental(
+        db_session,
+        project_id=app_ctx.project_id,
+        created_by_user_id=None,
+        config=IngestionConfig(source_root=str(source_dir)),
+    )
+    assert third["inserted"] == 0
+    assert third["updated"] == 0
+    assert third["skipped"] >= 1

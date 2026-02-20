@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 
 const DEFAULT_THEME = "dark";
 const VALID_THEMES = new Set(["dark", "light", "system"]);
-const ASSET_REV = process.env.NEXT_PUBLIC_ASSET_VERSION || "20260220";
+const ASSET_REV = process.env.NEXT_PUBLIC_ASSET_VERSION || "20260221";
 const ThemeContext = createContext({
   theme: DEFAULT_THEME,
   resolvedTheme: DEFAULT_THEME,
@@ -30,14 +30,13 @@ function resolveTheme(theme) {
 
 function applyFavicon(resolvedTheme) {
   if (typeof document === "undefined") return;
+  const href = resolvedTheme === "dark"
+    ? `/favicon-dark.svg?v=${ASSET_REV}`
+    : `/favicon-light.svg?v=${ASSET_REV}`;
   const favicon = document.getElementById("dynamic-favicon");
-  if (!favicon) return;
-  favicon.setAttribute(
-    "href",
-    resolvedTheme === "dark"
-      ? `/favicon-dark.svg?v=${ASSET_REV}`
-      : `/favicon-light.svg?v=${ASSET_REV}`,
-  );
+  if (favicon) favicon.setAttribute("href", href);
+  const shortcut = document.getElementById("dynamic-shortcut-favicon");
+  if (shortcut) shortcut.setAttribute("href", href);
 }
 
 export function ThemeProvider({ children }) {

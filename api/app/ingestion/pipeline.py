@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analyzer.algorithm import compute_embedding
@@ -75,8 +75,28 @@ def _split_text(text: str, max_chunk_chars: int) -> list[str]:
     return chunks
 
 
-def _chunk_hash(file_path: str, mtime: str, idx: int, content: str) -> str:
-    return hashlib.sha256(f"{file_path}:{mtime}:{idx}:{content}".encode("utf-8")).hexdigest()
+def _chunk_hash(project_id: int, content: str) -> str:
+    # mtime is intentionally excluded so unchanged content keeps the same hash.
+    return hashlib.sha256(f"{project_id}:{content}".encode("utf-8")).hexdigest()
+
+
+async def _file_already_indexed_at_mtime(
+    db: AsyncSession,
+    *,
+    project_id: int,
+    rel_path: str,
+    mtime: str,
+) -> bool:
+    row = (
+        await db.execute(
+            select(Memory.id)
+            .where(Memory.project_id == project_id)
+            .where(Memory.metadata_json["source_filename"].astext == rel_path)
+            .where(Memory.metadata_json["source_last_modified"].astext == mtime)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return row is not None
 
 
 async def ingest_path_incremental(
@@ -97,18 +117,28 @@ async def ingest_path_incremental(
     skipped = 0
 
     for path in _iter_source_files(config):
+        stat = path.stat()
+        mtime = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
+        rel_path = os.path.relpath(path, config.source_root)
+        # mtime gate: skip full file processing when already indexed at same timestamp.
+        if await _file_already_indexed_at_mtime(
+            db,
+            project_id=project_id,
+            rel_path=rel_path,
+            mtime=mtime,
+        ):
+            skipped += 1
+            continue
+
         try:
             content = path.read_text(encoding="utf-8")
         except OSError:
             skipped += 1
             continue
-        stat = path.stat()
-        mtime = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
         chunks = _split_text(content, config.max_chunk_chars)
-        rel_path = os.path.relpath(path, config.source_root)
 
         for idx, chunk in enumerate(chunks):
-            c_hash = _chunk_hash(rel_path, mtime, idx, chunk)
+            c_hash = _chunk_hash(project_id, chunk)
             existing = (
                 await db.execute(
                     select(Memory).where(

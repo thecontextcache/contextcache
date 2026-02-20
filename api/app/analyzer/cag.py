@@ -12,15 +12,19 @@ from __future__ import annotations
 
 import os
 import re
+import hashlib
+import math
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-from .algorithm import token_overlap_score
-
 CAG_ENABLED = os.getenv("CAG_ENABLED", "true").strip().lower() == "true"
 CAG_MAX_TOKENS = int(os.getenv("CAG_MAX_TOKENS", "180000"))
 CAG_MATCH_THRESHOLD = float(os.getenv("CAG_MATCH_THRESHOLD", "0.58"))
+CAG_MODE = os.getenv("CAG_MODE", "local").strip().lower() or "local"
+CAG_EMBEDDING_MODEL_NAME = os.getenv("CAG_EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2").strip() or "all-MiniLM-L6-v2"
+CAG_EMBEDDING_DIMS = int(os.getenv("CAG_EMBEDDING_DIMS", "384"))
+CAG_EMBEDDING_PROVIDER = os.getenv("CAG_EMBEDDING_PROVIDER", "hash").strip().lower() or "hash"
 _DEFAULT_CAG_FILES = (
     "docs/00-overview.md",
     "docs/01-mvp-scope.md",
@@ -52,6 +56,7 @@ _BUILTIN_GOLDEN_KNOWLEDGE = [
 class CAGChunk:
     source: str
     content: str
+    embedding: tuple[float, ...]
 
 
 @dataclass(frozen=True)
@@ -107,6 +112,50 @@ def _approx_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
+def _normalize(vec: list[float]) -> tuple[float, ...]:
+    norm = math.sqrt(sum(v * v for v in vec)) or 1.0
+    return tuple(v / norm for v in vec)
+
+
+def _hash_embedding(text: str) -> tuple[float, ...]:
+    vec = [0.0] * CAG_EMBEDDING_DIMS
+    tokens = re.findall(r"\b[a-z0-9_]{2,}\b", (text or "").lower())
+    if not tokens:
+        return tuple(vec)
+    for token in tokens:
+        digest = hashlib.sha256(f"{CAG_EMBEDDING_MODEL_NAME}:{token}".encode("utf-8")).digest()
+        idx = int.from_bytes(digest[:4], "big") % CAG_EMBEDDING_DIMS
+        sign = 1.0 if digest[4] % 2 == 0 else -1.0
+        weight = 1.0 + (digest[5] / 255.0) * 0.25
+        vec[idx] += sign * weight
+    return _normalize(vec)
+
+
+@lru_cache(maxsize=1)
+def _load_sentence_transformer():  # pragma: no cover - optional dependency path
+    if CAG_EMBEDDING_PROVIDER not in {"sentence-transformers", "sentence_transformers", "minilm"}:
+        return None
+    try:
+        from sentence_transformers import SentenceTransformer  # type: ignore
+    except Exception:
+        return None
+    try:
+        return SentenceTransformer(CAG_EMBEDDING_MODEL_NAME)
+    except Exception:
+        return None
+
+
+def _embed_text(text: str) -> tuple[float, ...]:
+    model = _load_sentence_transformer()
+    if model is not None:  # pragma: no cover - optional dependency path
+        try:
+            embedding = model.encode(text, normalize_embeddings=True)
+            return tuple(float(v) for v in embedding)
+        except Exception:
+            pass
+    return _hash_embedding(text)
+
+
 def _build_chunks() -> list[CAGChunk]:
     chunks: list[CAGChunk] = []
     budget = CAG_MAX_TOKENS
@@ -119,14 +168,16 @@ def _build_chunks() -> list[CAGChunk]:
             cost = _approx_tokens(part)
             if cost > budget:
                 return chunks
-            chunks.append(CAGChunk(source=str(path), content=part))
+            emb = _embed_text(part)
+            chunks.append(CAGChunk(source=str(path), content=part, embedding=emb))
             budget -= cost
 
     for source, content in _BUILTIN_GOLDEN_KNOWLEDGE:
         cost = _approx_tokens(content)
         if cost > budget:
             break
-        chunks.append(CAGChunk(source=source, content=content))
+        emb = _embed_text(content)
+        chunks.append(CAGChunk(source=source, content=content, embedding=emb))
         budget -= cost
     return chunks
 
@@ -137,9 +188,18 @@ def warm_cag_cache() -> tuple[CAGChunk, ...]:
         return tuple()
     chunks = tuple(_build_chunks())
     print(
-        f"[cag] preload enabled={CAG_ENABLED} chunks={len(chunks)} max_tokens={CAG_MAX_TOKENS}"
+        f"[cag] preload enabled={CAG_ENABLED} mode={CAG_MODE} embed_model={CAG_EMBEDDING_MODEL_NAME} "
+        f"chunks={len(chunks)} max_tokens={CAG_MAX_TOKENS}"
     )
     return chunks
+
+
+def is_local_cag() -> bool:
+    return CAG_MODE in {"local", "inproc", "in-memory", "in_memory"}
+
+
+def _dot(vec_a: tuple[float, ...], vec_b: tuple[float, ...]) -> float:
+    return sum(a * b for a, b in zip(vec_a, vec_b))
 
 
 def maybe_answer_from_cache(query: str, *, max_snippets: int = 3) -> CAGAnswer | None:
@@ -152,11 +212,15 @@ def maybe_answer_from_cache(query: str, *, max_snippets: int = 3) -> CAGAnswer |
     if not chunks:
         return None
 
+    query_embedding = _embed_text(query_clean)
+    if not query_embedding:
+        return None
+
     best_source = ""
     best_score = 0.0
     ranked: list[tuple[float, CAGChunk]] = []
     for chunk in chunks:
-        score = token_overlap_score(query_clean, chunk.content)
+        score = float(_dot(query_embedding, chunk.embedding))
         if score <= 0:
             continue
         ranked.append((score, chunk))
