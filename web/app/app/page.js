@@ -53,6 +53,16 @@ function TypeBadge({ type, size = "sm" }) {
   );
 }
 
+const containerVariants = {
+  hidden: { opacity: 0 },
+  show: { opacity: 1, transition: { staggerChildren: 0.05 } }
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 15 },
+  show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 400, damping: 30 } }
+};
+
 // ── Usage meter ─────────────────────────────────────────────────────────────
 
 function UsageMeter({ usage, isUnlimited }) {
@@ -174,6 +184,13 @@ export default function AppPage() {
   const [memoryPack, setMemoryPack] = useState("");
   const [recalling, setRecalling] = useState(false);
 
+  // API Keys
+  const [apiKeys, setApiKeys] = useState([]);
+  const [loadingKeys, setLoadingKeys] = useState(false);
+  const [generatingKey, setGeneratingKey] = useState(false);
+  const [newKey, setNewKey] = useState("");
+  const [newKeyName, setNewKeyName] = useState("");
+
   function handleApiError(err) {
     if (err instanceof ApiError) {
       if (err.kind === "auth") { router.replace("/auth?reason=expired"); return; }
@@ -275,6 +292,55 @@ export default function AppPage() {
     if (!projectId || tab !== "memories") return;
     loadMemories();
   }, [tab]);
+
+  useEffect(() => {
+    if (!orgId || tab !== "api") return;
+    loadApiKeys();
+  }, [tab, orgId]);
+
+  async function loadApiKeys() {
+    setLoadingKeys(true);
+    try {
+      const keys = await apiFetch(`/orgs/${orgId}/api-keys`);
+      setApiKeys(keys);
+    } catch (err) {
+      handleApiError(err);
+    } finally {
+      setLoadingKeys(false);
+    }
+  }
+
+  async function generateApiKey(e) {
+    e.preventDefault();
+    if (!orgId || generatingKey || !newKeyName.trim()) return;
+    setGeneratingKey(true);
+    setNewKey("");
+    try {
+      const res = await apiFetch(`/orgs/${orgId}/api-keys`, {
+        method: "POST",
+        body: JSON.stringify({ name: newKeyName.trim(), expires_in_days: 90 })
+      });
+      setNewKey(res.api_key);
+      setNewKeyName("");
+      toast.success("API key generated successfully.");
+      await loadApiKeys();
+    } catch (err) {
+      handleApiError(err);
+    } finally {
+      setGeneratingKey(false);
+    }
+  }
+
+  async function revokeApiKey(keyId) {
+    if (!confirm("Are you sure you want to revoke this key? Any AI agents using it will be instantly disconnected.")) return;
+    try {
+      await apiFetch(`/orgs/${orgId}/api-keys/${keyId}/revoke`, { method: "POST" });
+      toast.success("API key revoked.");
+      await loadApiKeys();
+    } catch (err) {
+      handleApiError(err);
+    }
+  }
 
   async function loadMemories() {
     setLoadingMemories(true);
@@ -670,6 +736,7 @@ export default function AppPage() {
                 { id: "compose", label: "Compose" },
                 { id: "memories", label: `Memories${memories.length ? ` (${memories.length})` : ""}` },
                 { id: "recall", label: "Recall" },
+                { id: "api", label: "Integrations & API" },
               ].map(({ id, label }) => (
                 <button
                   key={id}
@@ -702,14 +769,16 @@ export default function AppPage() {
             <AnimatePresence mode="wait">
               {/* ── Compose ── */}
               {tab === "compose" && (
-                <motion.div key="compose" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} className="card">
-                  <h2 style={{ marginBottom: 14, fontSize: "1rem" }}>Add a memory</h2>
-                  <form onSubmit={saveMemory} className="stack">
+                <motion.div key="compose" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}>
+                  <form onSubmit={saveMemory} className="stack card" style={{ padding: 32, background: "rgba(14, 18, 30, 0.4)", backdropFilter: "blur(40px)", borderColor: "rgba(0,229,255,0.1)", boxShadow: "0 24px 64px rgba(0,0,0,0.6)" }}>
 
-                    {/* Type chips */}
-                    <div className="field">
-                      <label>Memory type</label>
-                      <div className="memory-type-grid" role="group" aria-label="Memory type">
+                    <div className="row spread" style={{ marginBottom: 16 }}>
+                      <h2 style={{ fontSize: "1.1rem", margin: 0, display: "flex", alignItems: "center", gap: 10 }}>
+                        <span className="brand-logo" style={{ width: 16, height: 16 }}>⌘</span>
+                        New Memory
+                      </h2>
+                      {/* Type chips merged into header row */}
+                      <div className="memory-type-grid" role="group" aria-label="Memory type" style={{ display: "flex", gap: 6 }}>
                         {MEMORY_TYPES.map((t) => (
                           <button
                             key={t}
@@ -721,7 +790,10 @@ export default function AppPage() {
                               background: TYPE_COLORS[t]?.bg,
                               borderColor: TYPE_COLORS[t]?.color,
                               color: TYPE_COLORS[t]?.color,
-                            } : {}}
+                              padding: "4px 10px",
+                              fontSize: "0.75rem",
+                              borderRadius: 999
+                            } : { padding: "4px 10px", fontSize: "0.75rem", borderRadius: 999 }}
                           >
                             {t}
                           </button>
@@ -729,38 +801,7 @@ export default function AppPage() {
                       </div>
                     </div>
 
-                    {/* Source + Title row */}
-                    <div className="grid-2" style={{ gap: 12 }}>
-                      <div className="field" style={{ marginBottom: 0 }}>
-                        <label htmlFor="memory-source">Source</label>
-                        <select
-                          id="memory-source"
-                          value={memorySource}
-                          onChange={(e) => setMemorySource(e.target.value)}
-                          disabled={savingMemory}
-                        >
-                          {MEMORY_SOURCES.map((s) => (
-                            <option key={s} value={s}>{s}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="field" style={{ marginBottom: 0 }}>
-                        <label htmlFor="memory-title">Title <span className="muted">(optional)</span></label>
-                        <input
-                          id="memory-title"
-                          type="text"
-                          value={memoryTitle}
-                          onChange={(e) => setMemoryTitle(e.target.value)}
-                          placeholder="Short descriptive title"
-                          disabled={savingMemory}
-                          maxLength={500}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Content */}
                     <div className="field">
-                      <label htmlFor="memory-content">Content</label>
                       <textarea
                         id="memory-content"
                         value={memoryContent}
@@ -769,30 +810,39 @@ export default function AppPage() {
                         required
                         disabled={savingMemory}
                         maxLength={10000}
-                        style={{ minHeight: 120 }}
+                        style={{ minHeight: 140, fontSize: "1.05rem", background: "rgba(5,7,12,0.6)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 12, padding: 20 }}
                       />
-                      <span className="field-hint">
-                        {memoryContent.length > 0 ? `${memoryContent.length.toLocaleString()} / 10,000` : "Up to 10,000 characters"}
-                      </span>
                     </div>
 
-                    {/* Tags */}
-                    <div className="field">
-                      <label htmlFor="memory-tags">Tags <span className="muted">(comma-separated)</span></label>
-                      <input
-                        id="memory-tags"
-                        type="text"
-                        value={memoryTags}
-                        onChange={(e) => setMemoryTags(e.target.value)}
-                        placeholder="e.g. auth, postgres, api-design"
-                        disabled={savingMemory}
-                      />
-                      <span className="field-hint">Tags are shared across the project and clickable in search.</span>
+                    <div className="grid-2" style={{ gap: 16, marginTop: 8 }}>
+                      <div className="field" style={{ marginBottom: 0 }}>
+                        <input
+                          id="memory-title"
+                          type="text"
+                          value={memoryTitle}
+                          onChange={(e) => setMemoryTitle(e.target.value)}
+                          placeholder="Short title (optional)"
+                          disabled={savingMemory}
+                          maxLength={500}
+                          style={{ background: "rgba(5,7,12,0.6)", border: "1px solid rgba(255,255,255,0.05)" }}
+                        />
+                      </div>
+                      <div className="field" style={{ marginBottom: 0 }}>
+                        <input
+                          id="memory-tags"
+                          type="text"
+                          value={memoryTags}
+                          onChange={(e) => setMemoryTags(e.target.value)}
+                          placeholder="Tags (comma-separated)"
+                          disabled={savingMemory}
+                          style={{ background: "rgba(5,7,12,0.6)", border: "1px solid rgba(255,255,255,0.05)" }}
+                        />
+                      </div>
                     </div>
 
                     {/* Advanced accordion */}
-                    <details className="advanced-accordion">
-                      <summary className="advanced-summary">Advanced metadata</summary>
+                    <details className="advanced-accordion" style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.05)", marginTop: 8 }}>
+                      <summary className="advanced-summary" style={{ padding: "12px 16px" }}>Advanced metadata (URLs, Files)</summary>
                       <div className="stack-sm" style={{ paddingTop: 10 }}>
                         <div className="grid-2" style={{ gap: 12 }}>
                           <div className="field" style={{ marginBottom: 0 }}>
@@ -903,31 +953,48 @@ export default function AppPage() {
                       </button>
                     </div>
                   ) : (
-                    <div className="memory-list" role="list">
+                    <motion.div
+                      className="memory-list stack-sm"
+                      role="list"
+                      variants={containerVariants}
+                      initial="hidden"
+                      animate="show"
+                    >
                       {memories.map((m) => (
-                        <div key={m.id} className="memory-row" role="listitem" style={{ flexWrap: "wrap", gap: 8 }}>
-                          <div className="row" style={{ gap: 6, flexShrink: 0, alignItems: "center" }}>
+                        <motion.div
+                          key={m.id}
+                          variants={itemVariants}
+                          className="memory-row card"
+                          role="listitem"
+                          style={{
+                            display: "flex", flexWrap: "wrap", gap: 12, padding: "16px 20px",
+                            background: "rgba(20, 26, 43, 0.4)", border: "1px solid rgba(0, 229, 255, 0.05)"
+                          }}
+                        >
+                          <div className="row" style={{ gap: 8, flexShrink: 0, alignItems: "flex-start", marginTop: 2 }}>
                             <TypeBadge type={m.type} />
                             {m.source && m.source !== "manual" && (
-                              <span style={{ fontSize: "0.68rem", color: "var(--muted)", fontFamily: "var(--mono)" }}>
+                              <span style={{ fontSize: "0.68rem", color: "var(--muted)", fontFamily: "var(--mono)", textTransform: "uppercase" }}>
                                 {m.source}
                               </span>
                             )}
                           </div>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             {m.title && (
-                              <p style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--ink)", margin: "0 0 2px" }}>
+                              <p style={{ fontSize: "0.9rem", fontWeight: 600, color: "var(--ink)", margin: "0 0 6px", letterSpacing: "0.01em" }}>
                                 {m.title}
                               </p>
                             )}
-                            <span className="memory-row-content">{m.content}</span>
+                            <span className="memory-row-content" style={{ color: "var(--ink-2)", fontSize: "0.88rem", lineHeight: 1.6 }}>
+                              {m.content}
+                            </span>
                             {m.tags?.length > 0 && (
-                              <div className="row" style={{ gap: 4, marginTop: 5, flexWrap: "wrap" }}>
+                              <div className="row" style={{ gap: 6, marginTop: 10, flexWrap: "wrap" }}>
                                 {m.tags.map((tag) => (
                                   <span key={tag} style={{
-                                    fontSize: "0.68rem", color: "var(--brand)",
-                                    background: "var(--brand-light)", border: "1px solid rgba(0,212,255,0.2)",
-                                    borderRadius: 999, padding: "1px 7px", fontFamily: "var(--mono)",
+                                    fontSize: "0.7rem", color: "var(--brand)",
+                                    background: "var(--brand-light)", border: "1px solid rgba(0,229,255,0.15)",
+                                    borderRadius: 999, padding: "2px 10px", fontFamily: "var(--mono)",
                                   }}>
                                     {tag}
                                   </span>
@@ -935,12 +1002,12 @@ export default function AppPage() {
                               </div>
                             )}
                           </div>
-                          <span className="memory-row-time" title={new Date(m.created_at).toLocaleString()}>
+                          <span className="memory-row-time" title={new Date(m.created_at).toLocaleString()} style={{ fontSize: "0.75rem", color: "var(--muted)", fontFamily: "var(--mono)" }}>
                             {fmtTime(m.created_at)}
                           </span>
-                        </div>
+                        </motion.div>
                       ))}
-                    </div>
+                    </motion.div>
                   )}
                 </motion.div>
               )}
@@ -1023,6 +1090,99 @@ export default function AppPage() {
                       <pre className="pre">{memoryPack}</pre>
                     </div>
                   )}
+                </motion.div>
+              )}
+
+              {/* ── Integrations & API Keys ── */}
+              {tab === "api" && (
+                <motion.div key="api" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} className="stack">
+                  <div className="card">
+                    <h2 style={{ marginBottom: 8, fontSize: "1.1rem", display: "flex", gap: 8, alignItems: "center" }}>
+                      <span className="badge badge-brand">New</span> AI Agent Integrations
+                    </h2>
+                    <p style={{ fontSize: "0.85rem", color: "var(--ink-2)", marginBottom: 16 }}>
+                      Connect thecontextcache™ directly to ChatGPT, Claude Desktop, and local IDEs like Cursor or VS Code.
+                    </p>
+
+                    <div className="grid-2" style={{ gap: 16, marginBottom: 24 }}>
+                      <div className="card-sm" style={{ background: "var(--panel-2)", border: "1px solid var(--line)", padding: 16 }}>
+                        <h3 style={{ color: "var(--brand)", marginBottom: 4 }}>🧠 ChatGPT Custom GPTs</h3>
+                        <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0 0 12px" }}>
+                          Add the OpenAPI schema as an Action so ChatGPT can Recall project context mid-conversation.
+                        </p>
+                        <a href={`${apiBase}/openapi.json`} target="_blank" className="btn secondary sm" style={{ width: "100%" }}>
+                          View OpenAPI Schema ↗
+                        </a>
+                      </div>
+                      <div className="card-sm" style={{ background: "var(--panel-2)", border: "1px solid var(--line)", padding: 16 }}>
+                        <h3 style={{ color: "var(--violet)", marginBottom: 4 }}>🤖 Claude MCP Server</h3>
+                        <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0 0 12px" }}>
+                          Connect Claude Desktop using the Model Context Protocol to dynamically pull architecture docs.
+                        </p>
+                        <button className="btn secondary sm" style={{ width: "100%" }} onClick={() => toast.info("MCP plugin coming soon.")}>
+                          View Setup Guide →
+                        </button>
+                      </div>
+                    </div>
+
+                    <hr className="divider" style={{ margin: "24px 0" }} />
+
+                    <h2 style={{ marginBottom: 12, fontSize: "1rem" }}>API Keys</h2>
+                    <p style={{ fontSize: "0.82rem", color: "var(--muted)", marginBottom: 16 }}>
+                      Generate a Personal Access Token to authenticate external agents as yourself. Keep these secret.
+                    </p>
+
+                    <form onSubmit={generateApiKey} className="row" style={{ gap: 8, marginBottom: 24 }}>
+                      <div className="field" style={{ flex: 1, marginBottom: 0 }}>
+                        <input
+                          type="text"
+                          value={newKeyName}
+                          onChange={(e) => setNewKeyName(e.target.value)}
+                          placeholder="e.g. ChatGPT Personal Key"
+                          disabled={generatingKey}
+                          maxLength={100}
+                        />
+                      </div>
+                      <button type="submit" className="btn primary" disabled={!newKeyName.trim() || generatingKey} aria-busy={generatingKey}>
+                        {generatingKey ? <span className="spinner" /> : "Generate Key"}
+                      </button>
+                    </form>
+
+                    {newKey && (
+                      <div className="alert ok" style={{ marginBottom: 24, padding: "16px 20px", display: "flex", flexDirection: "column", gap: 8 }}>
+                        <strong>Save this key now!</strong>
+                        <p style={{ fontSize: "0.82rem", color: "var(--ink)" }}>It will not be shown again. Use it as a Bearer token in the `X-Api-Key` or `Authorization` header.</p>
+                        <div className="row">
+                          <code style={{ flex: 1, padding: "8px 12px", background: "var(--bg)", border: "1px solid var(--ok-light)", userSelect: "all", wordBreak: "break-all" }}>
+                            {newKey}
+                          </code>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="stack-sm">
+                      <label className="label">Active Keys for {currentProject?.name || "this org"}</label>
+                      {loadingKeys ? (
+                        <Skeleton height={40} />
+                      ) : apiKeys.length === 0 ? (
+                        <p className="muted" style={{ fontSize: "0.85rem" }}>No active API keys found.</p>
+                      ) : (
+                        apiKeys.map((key) => (
+                          <div key={key.id} className="row spread card-sm" style={{ background: "var(--bg-2)", border: "1px solid var(--line-2)" }}>
+                            <div>
+                              <div style={{ fontSize: "0.88rem", fontWeight: 600, color: "var(--ink)" }}>{key.name || "Unnamed Key"}</div>
+                              <div style={{ fontSize: "0.75rem", color: "var(--muted)", fontFamily: "var(--mono)", marginTop: 2 }}>
+                                {key.prefix}... • Expires {new Date(key.expires_at).toLocaleDateString()}
+                              </div>
+                            </div>
+                            <button className="btn ghost sm" onClick={() => revokeApiKey(key.id)} style={{ color: "var(--danger)" }}>
+                              Revoke
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
                 </motion.div>
               )}
             </AnimatePresence>

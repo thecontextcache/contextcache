@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { buildApiBase } from "../lib/api";
 
@@ -13,6 +13,16 @@ export default function AuthPage() {
   const [error, setError] = useState("");
   const [errorKind, setErrorKind] = useState("");
   const [termsAccepted, setTermsAccepted] = useState(false);
+
+  // Ghost state cure: if we arrived via a forced middleware redirect due to an
+  // expired/invalid HttpOnly cookie, the only way to delete it is via a backend call.
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.location.search.includes("reason=expired")) {
+      fetch("/api/auth/clear", { method: "POST" }).catch(() => { });
+      // Optional: clean the URL visually
+      window.history.replaceState({}, document.title, "/auth");
+    }
+  }, []);
 
   async function submit(event) {
     event.preventDefault();

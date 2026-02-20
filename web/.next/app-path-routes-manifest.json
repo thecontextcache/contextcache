@@ -1,1 +1,1 @@
-{"/admin/page":"/admin","/app/page":"/app","/auth/page":"/auth","/brain/page":"/brain","/pricing/page":"/pricing","/waitlist/page":"/waitlist","/auth/verify/page":"/auth/verify","/page":"/","/_not-found/page":"/_not-found","/legal/page":"/legal"}
+{"/api/auth/clear/route":"/api/auth/clear","/admin/page":"/admin","/brain/page":"/brain","/app/page":"/app","/auth/page":"/auth","/pricing/page":"/pricing","/waitlist/page":"/waitlist","/page":"/","/legal/page":"/legal","/_not-found/page":"/_not-found","/auth/verify/page":"/auth/verify"}
