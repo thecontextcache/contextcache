@@ -10,6 +10,8 @@ import { motion, AnimatePresence } from "framer-motion";
 const MEMORY_TYPES = ["decision", "finding", "definition", "note", "link", "todo", "chat", "doc", "code"];
 const MEMORY_SOURCES = ["manual", "chatgpt", "claude", "cursor", "codex", "api"];
 
+export const dynamic = "force-dynamic";
+
 // Dark-mode-aware type colors using the design system palette
 const TYPE_COLORS = {
   decision: { color: "#00D4FF", bg: "rgba(0,212,255,0.12)" },

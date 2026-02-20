@@ -25,7 +25,11 @@ export function middleware(request) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth";
     url.search = "";
-    return NextResponse.redirect(url);
+    const response = NextResponse.redirect(url);
+    response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+    response.headers.set("Pragma", "no-cache");
+    response.headers.set("Expires", "0");
+    return response;
   }
 
   return NextResponse.next();

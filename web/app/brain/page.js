@@ -7,35 +7,37 @@ import { apiFetch, ApiError } from "../lib/api";
 import { useToast } from "../components/toast";
 import BrainGraph from "../components/BrainGraph";
 
+export const dynamic = "force-dynamic";
+
 const TYPE_COLORS = {
-  decision:   "#00D4FF",
-  finding:    "#A78BFA",
+  decision: "#00D4FF",
+  finding: "#A78BFA",
   definition: "#00E5A0",
-  note:       "#FFB800",
-  link:       "#FF6B6B",
-  todo:       "#F472B6",
-  chat:       "#38BDF8",
-  doc:        "#6EE7B7",
-  code:       "#FCD34D",
+  note: "#FFB800",
+  link: "#FF6B6B",
+  todo: "#F472B6",
+  chat: "#38BDF8",
+  doc: "#6EE7B7",
+  code: "#FCD34D",
 };
 
 export default function BrainPage() {
   const router = useRouter();
-  const toast  = useToast();
+  const toast = useToast();
 
   // Stable refs — used inside the one-shot useEffect so we never need to re-run it
   const routerRef = useRef(router);
-  const toastRef  = useRef(toast);
+  const toastRef = useRef(toast);
   useEffect(() => { routerRef.current = router; }, [router]);
-  useEffect(() => { toastRef.current  = toast;  }, [toast]);
+  useEffect(() => { toastRef.current = toast; }, [toast]);
 
-  const [loading,   setLoading]   = useState(true);
-  const [projects,  setProjects]  = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [projects, setProjects] = useState([]);
   const [memoriesByProject, setMemoriesByProject] = useState({});
-  const [selectedNode,  setSelectedNode]  = useState(null);
-  const [highlightIds,  setHighlightIds]  = useState([]);
-  const [recallQuery,   setRecallQuery]   = useState("");
-  const [recalling,     setRecalling]     = useState(false);
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [highlightIds, setHighlightIds] = useState([]);
+  const [recallQuery, setRecallQuery] = useState("");
+  const [recalling, setRecalling] = useState(false);
   const [stats, setStats] = useState({ projects: 0, memories: 0, edges: 0 });
 
   // Animation: default to paused when OS prefers reduced motion

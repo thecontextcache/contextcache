@@ -63,7 +63,7 @@ export default function Shell({ children }) {
     setIsLoggedIn(false);
     setIsAdmin(false);
     setSession(null);
-    router.push("/auth");
+    window.location.href = "/auth";
   }
 
   function nav(href) {

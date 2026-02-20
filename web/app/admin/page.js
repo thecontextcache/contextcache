@@ -7,6 +7,8 @@ import { useToast } from "../components/toast";
 import { SkeletonCard } from "../components/skeleton";
 import { motion, AnimatePresence } from "framer-motion";
 
+export const dynamic = "force-dynamic";
+
 const TABS = [
   { id: "waitlist", label: "Waitlist" },
   { id: "invites", label: "Invites" },

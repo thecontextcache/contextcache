@@ -27,7 +27,7 @@ export default function VerifyClient({ token }) {
           method: "GET",
         });
         setPhase("success");
-        setTimeout(() => router.replace("/app"), 1200);
+        setTimeout(() => window.location.href = "/app", 1200);
       } catch (err) {
         setPhase("error");
         setErrorMsg(
