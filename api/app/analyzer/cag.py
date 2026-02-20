@@ -72,7 +72,8 @@ class CAGChunk:
     source: str
     content: str
     embedding: tuple[float, ...]
-    kv_tensor_stub: dict[str, Any]
+    kv_cache_id: str | None
+    memory_matrix: list[list[float]] | None
     created_at: datetime
     last_accessed_at: datetime
     pheromone_level: float
@@ -84,6 +85,8 @@ class CAGAnswer:
     source: str
     score: float
     snippets: list[str]
+    kv_cache_id: str | None = None
+    memory_matrix: list[list[float]] | None = None
 
 
 @dataclass
@@ -109,7 +112,7 @@ _STATE = _CAGState(
 _LOCK = threading.Lock()
 
 
-def _chunk_text(text: str, *, max_chars: int = 1400) -> list[str]:
+def _chunk_text(text: str, *, max_chars: int = 8192) -> list[str]:
     clean = (text or "").strip()
     if not clean:
         return []
@@ -198,17 +201,30 @@ def _embed_text(text: str) -> tuple[float, ...]:
     return _hash_embedding(text)
 
 
-def _build_kv_tensor_stub(source: str, content: str) -> dict[str, Any]:
+def _build_kv_tensor_stub(
+    source: str, content: str, prev_matrix: list[list[float]] | None = None
+) -> tuple[str | None, list[list[float]] | None]:
     if not CAG_KV_STUB_ENABLED:
-        return {}
+        return None, None
     token_est = _approx_tokens(content)
     digest = hashlib.sha256(f"kv:{source}:{content}".encode("utf-8")).hexdigest()
-    return {
-        "kv_stub_id": digest[:24],
-        "token_estimate": token_est,
-        "compressed_bytes_estimate": int(token_est * 12),
-        "prepared_at": datetime.now(timezone.utc).isoformat(),
-    }
+    
+    # Simulate a compressive memory matrix (e.g. infini-attention)
+    # 4 heads x 32 dimensions = 128 elements per segment
+    # Apply a delta rule: M_new = M_old + (new_feature * learned_weight)
+    matrix = prev_matrix or [[0.0 for _ in range(32)] for _ in range(4)]
+    new_matrix = []
+    
+    chunk_hash = int(digest[:8], 16)
+    for head_idx in range(4):
+        head_row = []
+        for dim_idx in range(32):
+            feature_val = (((chunk_hash + head_idx * 32 + dim_idx) % 200) / 1000.0) - 0.1
+            updated_val = (matrix[head_idx][dim_idx] * 0.9) + feature_val
+            head_row.append(round(updated_val, 6))
+        new_matrix.append(head_row)
+    
+    return digest[:24], new_matrix
 
 
 def _build_chunks() -> list[CAGChunk]:
@@ -221,16 +237,20 @@ def _build_chunks() -> list[CAGChunk]:
             content = path.read_text(encoding="utf-8")
         except OSError:
             continue
+        current_matrix = None
         for part in _chunk_text(content):
             cost = _approx_tokens(part)
             if cost > budget:
                 return chunks
+                
+            kv_id, current_matrix = _build_kv_tensor_stub(str(path), part, current_matrix)
             chunks.append(
                 CAGChunk(
                     source=str(path),
                     content=part,
                     embedding=_embed_text(part),
-                    kv_tensor_stub=_build_kv_tensor_stub(str(path), part),
+                    kv_cache_id=kv_id,
+                    memory_matrix=current_matrix,
                     created_at=now,
                     last_accessed_at=now,
                     pheromone_level=CAG_PHEROMONE_BASE,
@@ -238,16 +258,20 @@ def _build_chunks() -> list[CAGChunk]:
             )
             budget -= cost
 
+    current_matrix = None
     for source, content in _BUILTIN_GOLDEN_KNOWLEDGE:
         cost = _approx_tokens(content)
         if cost > budget:
             break
+            
+        kv_id, current_matrix = _build_kv_tensor_stub(source, content, current_matrix)
         chunks.append(
             CAGChunk(
                 source=source,
                 content=content,
                 embedding=_embed_text(content),
-                kv_tensor_stub=_build_kv_tensor_stub(source, content),
+                kv_cache_id=kv_id,
+                memory_matrix=current_matrix,
                 created_at=now,
                 last_accessed_at=now,
                 pheromone_level=CAG_PHEROMONE_BASE,
@@ -322,11 +346,13 @@ def promote_cag_chunk(source: str, content: str, embedding: list[float] | tuple[
                 )
                 return True
 
+        kv_id, mem_mat = _build_kv_tensor_stub(source, clean_content)
         new_chunk = CAGChunk(
             source=source,
             content=clean_content,
             embedding=tuple(embedding),
-            kv_tensor_stub=_build_kv_tensor_stub(source, clean_content),
+            kv_cache_id=kv_id,
+            memory_matrix=mem_mat,
             created_at=now,
             last_accessed_at=now,
             pheromone_level=CAG_PHEROMONE_BASE,
@@ -415,7 +441,13 @@ def maybe_answer_from_cache(query: str, *, max_snippets: int = 3) -> CAGAnswer |
                 CAG_PHEROMONE_MIN,
                 min(CAG_PHEROMONE_MAX, chunk.pheromone_level + (CAG_PHEROMONE_HIT_BOOST * max(score, 0.05))),
             )
-    return CAGAnswer(source=best_source, score=round(best_score, 6), snippets=snippets)
+    return CAGAnswer(
+        source=best_source,
+        score=round(best_score, 6),
+        snippets=snippets,
+        kv_cache_id=ranked[0][2].kv_cache_id if ranked else None,
+        memory_matrix=ranked[0][2].memory_matrix if ranked else None,
+    )
 
 
 def evaporate_pheromones() -> dict[str, Any]:
@@ -457,7 +489,7 @@ def get_cag_cache_stats(*, sample_size: int = 10) -> dict[str, Any]:
         entries = list(_STATE.chunks)
         total = len(entries)
         avg_pheromone = round(sum(c.pheromone_level for c in entries) / total, 6) if total else 0.0
-        kv_tokens = sum(int(c.kv_tensor_stub.get("token_estimate", 0)) for c in entries if c.kv_tensor_stub)
+        kv_tokens = sum(_approx_tokens(c.content) for c in entries if c.kv_cache_id)
         top = sorted(entries, key=lambda c: (-c.pheromone_level, c.last_accessed_at))[: max(1, sample_size)]
         return {
             "enabled": CAG_ENABLED,

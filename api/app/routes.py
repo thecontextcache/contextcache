@@ -1331,6 +1331,9 @@ async def recall(
     rag_duration_ms: int | None = None
     cag_pack: str | None = None
 
+    cag_kv_cache_id: str | None = None
+    cag_memory_matrix: list[list[float]] | None = None
+
     if query_clean:
         if is_local_cag():
             cag_started = loop.time()
@@ -1339,6 +1342,8 @@ async def recall(
             if cag_answer is not None:
                 served_by = "cag"
                 strategy = "cag"
+                cag_kv_cache_id = cag_answer.kv_cache_id
+                cag_memory_matrix = cag_answer.memory_matrix
                 score_details = {
                     "source": cag_answer.source,
                     "score": cag_answer.score,
@@ -1372,6 +1377,8 @@ async def recall(
                     if cag_answer is not None:
                         served_by = "cag"
                         strategy = "cag"
+                        cag_kv_cache_id = cag_answer.kv_cache_id
+                        cag_memory_matrix = cag_answer.memory_matrix
                         score_details = {
                             "source": cag_answer.source,
                             "score": cag_answer.score,
@@ -1419,6 +1426,8 @@ async def recall(
                         if cag_answer is not None:
                             served_by = "cag"
                             strategy = "cag"
+                            cag_kv_cache_id = cag_answer.kv_cache_id
+                            cag_memory_matrix = cag_answer.memory_matrix
                             score_details = {
                                 "source": cag_answer.source,
                                 "score": cag_answer.score,
@@ -1519,4 +1528,6 @@ async def recall(
         query=query_clean,
         memory_pack_text=pack,
         items=out_items,
+        global_kv_cache_id=cag_kv_cache_id,
+        global_memory_matrix=cag_memory_matrix,
     )

@@ -71,13 +71,16 @@ class MemoryOut(BaseModel):
 
 class RecallItemOut(MemoryOut):
     rank_score: float | None = None
-
+    kv_cache_id: str | None = None
+    memory_matrix: list[list[float]] | None = None
 
 class RecallOut(BaseModel):
     project_id: int
     query: str
     memory_pack_text: str
     items: List[RecallItemOut]
+    global_kv_cache_id: str | None = None
+    global_memory_matrix: list[list[float]] | None = None
 
 
 class SearchOut(BaseModel):
