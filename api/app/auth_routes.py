@@ -6,6 +6,7 @@ import os
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from urllib.parse import urlparse
 
 from .auth_utils import (
     MAX_SESSIONS_PER_USER,
@@ -61,6 +62,15 @@ MAGIC_LINK_ALLOW_LOG_FALLBACK = (
     os.getenv("MAGIC_LINK_ALLOW_LOG_FALLBACK", "false").strip().lower() == "true"
 )
 INVITE_TTL_DAYS = int(os.getenv("INVITE_TTL_DAYS", "7"))
+
+# Extract the base domain for cross-subdomain cookie scoping
+SESSION_COOKIE_DOMAIN = None
+if IS_PROD:
+    _parsed_domain = urlparse(APP_PUBLIC_BASE_URL).hostname
+    # If it's a valid remote hostname (not localhost or IP), scope it to the root domain 
+    # so API and Web subdomains can share the Auth Session (e.g. '.thecontextcache.com')
+    if _parsed_domain and not _parsed_domain.startswith("localhost") and not _parsed_domain.startswith("127."):
+        SESSION_COOKIE_DOMAIN = f".{_parsed_domain}"
 
 
 _LOGIN_EVENT_RETENTION = 10  # keep only last N login events per user
@@ -362,6 +372,7 @@ async def verify_link(
         httponly=True,
         secure=IS_PROD,
         samesite="lax",
+        domain=SESSION_COOKIE_DOMAIN,
         max_age=int((new_session.expires_at - now).total_seconds()),
         expires=new_session.expires_at,
         path="/",
@@ -389,7 +400,7 @@ async def logout(request: Request, response: Response, db: AsyncSession = Depend
             session_row.revoked_at = now_utc()
             await db.commit()
 
-    response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+    response.delete_cookie(SESSION_COOKIE_NAME, path="/", domain=SESSION_COOKIE_DOMAIN)
     return {"status": "ok"}
 
 
