@@ -84,9 +84,14 @@ HEDGE_DELAY_MS=120
 HEDGE_MIN_DELAY_MS=25
 HEDGE_USE_P95_CACHE=true
 HEDGE_P95_CACHE_TTL_SECONDS=900
-HILBERT_BITS=16
-HILBERT_PREFILTER_WINDOW=5000000
-HILBERT_PREFILTER_MIN_CANDIDATES=12
+
+# Hilbert prefilter for vector candidate narrowing
+HILBERT_ENABLED=false
+HILBERT_BITS=12
+HILBERT_RADIUS=500000
+HILBERT_MIN_ROWS=500
+HILBERT_WIDEN_MULT=2.0
+HILBERT_PREFILTER_CANDIDATES=5000
 CAG_CACHE_MAX_ITEMS=512
 CAG_PHEROMONE_BASE=1.0
 CAG_PHEROMONE_HIT_BOOST=0.15
@@ -661,3 +666,22 @@ Scaling guidance (single-host beta):
 - 10-15 users: `worker --concurrency=2` is enough
 - 50+ active users: raise worker concurrency and `RECALL_VECTOR_CANDIDATES`
 - keep one `beat` instance only
+
+### Hilbert 1D Pre-Filtering (Phase 3.2 Optimization)
+
+When scaling past millions of rows, vector searches (`<=>` operator) become memory/CPU bottlenecked.
+Enable the **Hilbert Curve Pre-Filter** to prune the DB via a B-Tree lookup (O(1)) prior to vector evaluation.
+
+To enable:
+1. Ensure the `hilbertcurve` pip package is installed (`uv add hilbertcurve` inside `api/`).
+2. Set `HILBERT_ENABLED=true` in `.env`.
+3. Stop the API container during the backfill (if safe), or run concurrently.
+4. Execute the backfill script to generate indices for existing rows:
+   ```bash
+   docker compose exec api uv run python -m scripts.backfill_hilbert --batch-size 1000
+   ```
+5. Restart the containers to pick up the ENV change.
+
+Tuning constraints:
+- `HILBERT_RADIUS` defines the initial integer window bounding box.
+- `HILBERT_MIN_ROWS` defines the minimum number of target rows retrieved before we widen the radius using `HILBERT_WIDEN_MULT`.

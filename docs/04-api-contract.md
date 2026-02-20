@@ -228,7 +228,7 @@ Daily + weekly limits are configured via environment variables (`DAILY_MAX_*`, `
 - Latency telemetry is written to `recall_timings` (`served_by`, `cag_duration_ms`, `rag_duration_ms`, `total_duration_ms`, `hedge_delay_ms`).
 - Weights are env-configurable (`FTS_WEIGHT`, `VECTOR_WEIGHT`, `RECENCY_WEIGHT`).
 - Hedging envs: `HEDGE_DELAY_MS`, `HEDGE_MIN_DELAY_MS`, `HEDGE_USE_P95_CACHE`, `HEDGE_P95_CACHE_TTL_SECONDS`.
-- Vector prefilter envs: `HILBERT_BITS`, `HILBERT_PREFILTER_WINDOW`, `HILBERT_PREFILTER_MIN_CANDIDATES`.
+- Vector prefilter envs: `HILBERT_ENABLED`, `HILBERT_BITS`, `HILBERT_RADIUS`, `HILBERT_MIN_ROWS`, `HILBERT_WIDEN_MULT`.
 - CAG envs: `CAG_MODE`, `CAG_EMBEDDING_MODEL_NAME`, `CAG_EMBEDDING_PROVIDER`, `CAG_EMBEDDING_DIMS`, `CAG_MATCH_THRESHOLD`, `CAG_CACHE_MAX_ITEMS`, `CAG_PHEROMONE_HIT_BOOST`, `CAG_PHEROMONE_EVAPORATION`, `CAG_EVAPORATION_INTERVAL_SECONDS`.
 - Rows returned from hybrid scoring include `rank_score` (float).
 - Recency fallback rows use `rank_score: null`.

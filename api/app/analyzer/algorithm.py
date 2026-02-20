@@ -223,49 +223,9 @@ def _normalize_vec(vec: list[float]) -> list[float]:
     return [v / norm for v in vec]
 
 
-def _rot_2d(n: int, x: int, y: int, rx: int, ry: int) -> tuple[int, int]:
-    if ry == 0:
-        if rx == 1:
-            x = n - 1 - x
-            y = n - 1 - y
-        x, y = y, x
-    return x, y
-
-
-def _hilbert_xy_to_index(x: int, y: int, bits: int) -> int:
-    n = 1 << bits
-    d = 0
-    s = n // 2
-    while s > 0:
-        rx = 1 if (x & s) > 0 else 0
-        ry = 1 if (y & s) > 0 else 0
-        d += s * s * ((3 * rx) ^ ry)
-        x, y = _rot_2d(s, x, y, rx, ry)
-        s //= 2
-    return int(d)
-
-
-def _project_embedding_to_2d(vec: list[float]) -> tuple[float, float]:
-    if not vec:
-        return 0.0, 0.0
-    even = vec[0::2]
-    odd = vec[1::2]
-    x = sum(even) / max(1, len(even))
-    y = sum(odd) / max(1, len(odd))
-    x = max(-1.0, min(1.0, x))
-    y = max(-1.0, min(1.0, y))
-    return x, y
-
-
-def compute_hilbert_index(vec: list[float], *, bits: int | None = None) -> int:
-    bits = max(2, int(bits or _HILBERT_BITS))
-    x_norm, y_norm = _project_embedding_to_2d(vec)
-    scale = (1 << bits) - 1
-    x = int(round((x_norm + 1.0) * 0.5 * scale))
-    y = int(round((y_norm + 1.0) * 0.5 * scale))
-    x = max(0, min(scale, x))
-    y = max(0, min(scale, y))
-    return _hilbert_xy_to_index(x, y, bits)
+def compute_hilbert_index(vec: list[float]) -> int | None:
+    """Wrapper around the SFC module to compute hilbert index from an embedding."""
+    return hilbert_index_from_embedding(vec)
 
 
 def _openai_embedding(text: str, model: str) -> list[float] | None:
@@ -370,6 +330,7 @@ def build_vector_candidate_stmt(
     *,
     use_hilbert: bool = True,
     hilbert_window: int | None = None,
+    query_hilbert: int | None = None,
 ):
     """Build the vector candidate query with index-friendly ordering."""
     from app.models import Memory
@@ -382,12 +343,11 @@ def build_vector_candidate_stmt(
         .order_by(vector_distance_expr.asc())
         .limit(vector_candidates)
     )
-    if use_hilbert:
-        window = int(hilbert_window if hilbert_window is not None else _HILBERT_PREFILTER_WINDOW)
+    if use_hilbert and query_hilbert is not None:
+        window = int(hilbert_window if hilbert_window is not None else HILBERT_RADIUS)
         if window > 0:
-            center = compute_hilbert_index(query_vector)
-            lower = max(0, center - window)
-            upper = center + window
+            lower = max(0, query_hilbert - window)
+            upper = query_hilbert + window
             stmt = stmt.where(
                 Memory.hilbert_index.is_not(None),
                 Memory.hilbert_index >= lower,
@@ -429,20 +389,36 @@ async def run_hybrid_rag_recall(
     try:
         query_vector = compute_embedding(query_text)
         query_hilbert = compute_hilbert_index(query_vector)
-        filtered_rows = (
-            await db.execute(
-                build_vector_candidate_stmt(
-                    project_id=project_id,
-                    query_vector=query_vector,
-                    vector_candidates=config.vector_candidates,
-                    use_hilbert=True,
-                )
+        
+        radius = getattr(config, 'hilbert_radius', HILBERT_RADIUS)
+        max_radius = HILBERT_MAX_RADIUS
+        min_rows = HILBERT_MIN_ROWS
+        
+        use_hilbert = HILBERT_ENABLED and query_hilbert is not None
+        vector_rows = []
+        
+        while True:
+            stmt = build_vector_candidate_stmt(
+                project_id=project_id,
+                query_vector=query_vector,
+                vector_candidates=config.vector_candidates,
+                use_hilbert=use_hilbert,
+                hilbert_window=radius,
+                query_hilbert=query_hilbert,
             )
-        ).all()
-        vector_rows = list(filtered_rows)
-        # If Hilbert prefilter is too narrow (or rows are not backfilled yet),
-        # top up candidates using the full pgvector search path.
-        if len(vector_rows) < max(limit, _HILBERT_PREFILTER_MIN_CANDIDATES):
+            filtered_rows = (await db.execute(stmt)).all()
+            vector_rows = list(filtered_rows)
+            
+            if not use_hilbert:
+                break
+                
+            if len(vector_rows) >= min_rows or radius >= max_radius:
+                break
+                
+            radius = int(radius * HILBERT_WIDEN_MULT)
+        
+        # Fallback if widening still failed to find anything meaningful, do a pure pgvector scan
+        if use_hilbert and len(vector_rows) < max(limit, min_rows // 2):
             fallback_rows = (
                 await db.execute(
                     build_vector_candidate_stmt(
@@ -460,10 +436,11 @@ async def run_hybrid_rag_recall(
                     seen.add(mem.id)
                 if len(vector_rows) >= config.vector_candidates:
                     break
+                    
         vector_meta = {
             "query_hilbert_index": query_hilbert,
             "vector_candidates_examined": len(vector_rows),
-            "hilbert_prefilter_window": _HILBERT_PREFILTER_WINDOW,
+            "hilbert_prefilter_window": radius,
         }
     except Exception:
         vector_rows = []

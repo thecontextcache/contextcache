@@ -116,6 +116,7 @@ cc admin stats 5
 cc admin recall-logs --project 1 --limit 20 --offset 0
 cc admin cag-stats
 cc admin cag-evaporate
+cc admin backfill-hilbert --batch-size 1000 --max-rows 50000
 ```
 
 `cc seed-mock-data` uses the SDK and uploads memories through
@@ -224,6 +225,7 @@ stats = client.admin.users.stats(users[0]["id"])
 recall_logs = client.admin.recall_logs(limit=20, offset=0, project_id=1)
 cache_stats = client.admin.cag_cache_stats()
 client.admin.evaporate_cag_cache()
+client.admin.backfill_hilbert(batch_size=1000)
 
 # Public waitlist join (no auth required)
 public = ContextCacheClient(api_key="", base_url="https://api.thecontextcache.com")
