@@ -8,6 +8,24 @@ ContextCache supports a simple ingestion API for external tools:
 
 Both routes enforce the same auth, RBAC, and usage limits.
 
+## External LLM Capture Architecture
+
+Integrating with external LLM tools requires specific architectural patterns due to security and environment constraints. The core web application cannot "reach into" other websites (like ChatGPT) due to browser CORS policies.
+
+### 1. Web-based LLMs (ChatGPT, Claude, Gemini)
+To automatically capture chats from browser-based LLMs, you must build a **Browser Extension**.
+- **Mechanism:** The extension injects a content script into the LLM's page scope.
+- **Action:** It observes the DOM (e.g., using `MutationObserver` on chat message lists) or intercepts network requests.
+- **Ingestion:** When a significant answer is generated, the extension formats the payload and sends a `POST` request to `https://api.thecontextcache.com/integrations/memories`.
+- **Auth:** The extension should allow the user to input their `CONTEXTCACHE_API_KEY` and `CONTEXTCACHE_ORG_ID` in its options page.
+
+### 2. Programmatic LLMs (LangChain, Ollama, CLI tools)
+To capture programmatic LLM generations, you must build an **SDK Proxy Middleware** or use lifecycle hooks.
+- **Mechanism:** Create a wrapper around the LLM generation call.
+- **Action:** Instead of just calling `llm.generate(prompt)`, call a wrapped function that first hits the LLM, then asynchronously sends the prompt/response pair to ContextCache.
+- **Ingestion:** Emit a `POST` to `/integrations/memories` using the environment's stored API keys.
+- **Auth:** Read `CONTEXTCACHE_API_KEY` directly from the environment variables.
+
 ## Auth
 
 Use either:

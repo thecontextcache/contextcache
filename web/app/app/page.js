@@ -150,6 +150,11 @@ export default function AppPage() {
   const [creatingProject, setCreatingProject] = useState(false);
   const [showNewProject, setShowNewProject] = useState(false);
 
+  // Create Organization
+  const [newOrgName, setNewOrgName] = useState("");
+  const [creatingOrg, setCreatingOrg] = useState(false);
+  const [showNewOrg, setShowNewOrg] = useState(false);
+
   // Memory composer
   const [memoryType, setMemoryType] = useState("decision");
   const [memorySource, setMemorySource] = useState("manual");
@@ -318,6 +323,31 @@ export default function AppPage() {
     }
   }
 
+  async function createOrg(e) {
+    e.preventDefault();
+    if (!newOrgName.trim() || creatingOrg) return;
+    setCreatingOrg(true);
+    try {
+      const resp = await apiFetch("/orgs", {
+        method: "POST",
+        body: JSON.stringify({ name: newOrgName.trim() }),
+      });
+      toast.success(`Organization "${resp.name}" created.`);
+      setNewOrgName("");
+      setShowNewOrg(false);
+
+      const newOrgs = await apiFetch("/me/orgs");
+      setOrgs(newOrgs || []);
+
+      // Select the new org
+      switchOrg(String(resp.id));
+    } catch (err) {
+      handleApiError(err);
+    } finally {
+      setCreatingOrg(false);
+    }
+  }
+
   async function saveMemory(e) {
     e.preventDefault();
     if (!memoryContent.trim() || !projectId || savingMemory) return;
@@ -457,17 +487,51 @@ export default function AppPage() {
               ) : (
                 orgs.map((o) => (
                   <option key={o.id} value={String(o.id)}>
-                    {o.name} · id={o.id}{o.role ? ` · ${o.role}` : ""}
+                    {o.name}
                   </option>
                 ))
               )}
             </select>
-            <div className="muted" style={{ fontSize: "0.7rem", marginTop: 5 }}>
-              {orgs.length > 1
-                ? "Switch org to view its projects and memories."
-                : "Project list is scoped to this organization."}
+            <div className="muted row spread" style={{ fontSize: "0.7rem", marginTop: 5 }}>
+              <span>
+                {orgs.length > 1
+                  ? "Switch org to view its projects and memories."
+                  : "Project list is scoped to this organization."}
+              </span>
+              <button
+                className="btn text xs"
+                style={{ padding: 0 }}
+                onClick={() => setShowNewOrg((v) => !v)}
+              >
+                {showNewOrg ? "Cancel" : "+ New Org"}
+              </button>
             </div>
           </div>
+
+          {/* Create Org Form */}
+          {showNewOrg && (
+            <form onSubmit={createOrg} className="stack-sm" style={{ paddingBottom: 16 }}>
+              <input
+                autoFocus
+                value={newOrgName}
+                onChange={(e) => setNewOrgName(e.target.value)}
+                placeholder="Organization Name"
+                required
+                maxLength={200}
+                style={{ fontSize: "0.85rem", padding: "7px 10px" }}
+                disabled={creatingOrg}
+              />
+              <button
+                type="submit"
+                className="btn primary sm"
+                disabled={!newOrgName.trim() || creatingOrg}
+                aria-busy={creatingOrg}
+                style={{ width: "100%" }}
+              >
+                {creatingOrg ? <span className="spinner" /> : "Create Organization"}
+              </button>
+            </form>
+          )}
 
           <div className="row spread" style={{ paddingBottom: 6 }}>
             <span className="sidebar-section-label">

@@ -59,23 +59,24 @@ function buildGraph(projects, memoriesByProject, W, H) {
   const nodes = [], edges = [];
   const perProject = Math.max(2, Math.floor(MAX_NODES / Math.max(1, projects.length)));
 
-  // Spread project hubs in a circle
+  // Spread project hubs in a biological pattern
   const cx = W / 2, cy = H / 2;
-  const hubR = Math.min(W, H) * 0.28;
+  const hubR = Math.min(W, H) * 0.25;
 
   projects.forEach((p, pi) => {
+    // Distribute project nodes evenly
     const angle = (pi / projects.length) * Math.PI * 2 - Math.PI / 2;
-    const hx = cx + Math.cos(angle) * hubR + (Math.random() - 0.5) * 40;
-    const hy = cy + Math.sin(angle) * hubR + (Math.random() - 0.5) * 40;
+    const hx = cx + Math.cos(angle) * hubR;
+    const hy = cy + Math.sin(angle) * hubR;
 
     nodes.push({
       id: `proj-${p.id}`,
       kind: "project",
       label: p.name,
       rawId: p.id,
+      baseX: hx, baseY: hy,
       x: hx, y: hy,
-      vx: 0, vy: 0,
-      radius: 16,
+      radius: 18,
       color: PROJECT_COLOR,
       pulse: Math.random() * Math.PI * 2, // phase offset for breathing
       hitPulse: 0,
@@ -84,8 +85,13 @@ function buildGraph(projects, memoriesByProject, W, H) {
 
     const mems = (memoriesByProject[p.id] || []).slice(0, perProject);
     mems.forEach((m, mi) => {
-      const ma = angle + (mi - mems.length / 2) * 0.35 + (Math.random() - 0.5) * 0.2;
-      const md = SPRING_REST * 1.1 + Math.random() * 40;
+      // Golden ratio phyllotaxis pattern around each hub for memories
+      const phi = mi * 137.5 * (Math.PI / 180);
+      const rad = 35 + Math.sqrt(mi) * 12; // Outward spiral
+
+      const nx = hx + Math.cos(phi) * rad;
+      const ny = hy + Math.sin(phi) * rad;
+
       nodes.push({
         id: `mem-${m.id}`,
         kind: "memory",
@@ -93,20 +99,28 @@ function buildGraph(projects, memoriesByProject, W, H) {
         rawId: m.id,
         projId: `proj-${p.id}`,
         type: m.type,
-        x: hx + Math.cos(ma) * md,
-        y: hy + Math.sin(ma) * md,
-        vx: (Math.random() - 0.5) * 0.5,
-        vy: (Math.random() - 0.5) * 0.5,
-        radius: 7,
+        baseX: nx, baseY: ny,
+        x: nx, y: ny,
+        radius: 6,
         color: TYPE_COLORS[m.type] || "#4A6685",
         pulse: Math.random() * Math.PI * 2,
         hitPulse: 0,
         created: m.created_at,
       });
-      edges.push({ from: `proj-${p.id}`, to: `mem-${m.id}` });
+      edges.push({ from: `proj-${p.id}`, to: `mem-${m.id}`, length: rad });
     });
   });
-  return { nodes, edges };
+
+  // Create static synapse particles along edges
+  const synapses = edges.map(e => ({
+    from: e.from,
+    to: e.to,
+    progress: Math.random(),
+    speed: 0.002 + Math.random() * 0.005,
+    active: Math.random() > 0.5 // only some edges are firing at a given time
+  }));
+
+  return { nodes, edges, synapses };
 }
 
 function buildStars(count, W, H) {
@@ -132,7 +146,7 @@ export default function BrainGraph({
 }) {
   const canvasRef = useRef(null);
   const animRef = useRef(null);
-  const stateRef = useRef({ nodes: [], edges: [], stars: [], w: 800, h: 500 });
+  const stateRef = useRef({ nodes: [], edges: [], synapses: [], stars: [], w: 800, h: 500 });
   const hoverRef = useRef(null);
   const highlightRef = useRef(new Set(highlightIds));
   const reducedRef = useRef(false);
@@ -159,14 +173,17 @@ export default function BrainGraph({
     if (!projects.length) return;
     const { w, h } = stateRef.current;
     const W = w || 800, H = h || 500;
-    const { nodes, edges } = buildGraph(projects, memoriesByProject, W, H);
+    const { nodes, edges, synapses } = buildGraph(projects, memoriesByProject, W, H);
     // Clamp to canvas bounds
     nodes.forEach((n) => {
-      n.x = Math.max(n.radius + 5, Math.min(W - n.radius - 5, n.x));
-      n.y = Math.max(n.radius + 5, Math.min(H - n.radius - 5, n.y));
+      n.baseX = Math.max(n.radius + 5, Math.min(W - n.radius - 5, n.baseX));
+      n.baseY = Math.max(n.radius + 5, Math.min(H - n.radius - 5, n.baseY));
+      n.x = n.baseX;
+      n.y = n.baseY;
     });
     stateRef.current.nodes = nodes;
     stateRef.current.edges = edges;
+    stateRef.current.synapses = synapses;
     stateRef.current.stars = buildStars(50, W, H);
   }, [projects, memoriesByProject]);
 
@@ -201,52 +218,33 @@ export default function BrainGraph({
     function tick() {
       timeRef.current += 0.016;
       const t = timeRef.current;
-      const { nodes, edges, stars, w: W, h: H } = stateRef.current;
+      const { nodes, edges, synapses, stars, w: W, h: H } = stateRef.current;
       const paused = pauseRef.current || reducedRef.current;
       const ftypes = filterRef.current; // Set<string> | null
 
-      // ── Physics ─────────────────────────────────────────────────────────────
+      // ── Animate ─────────────────────────────────────────────────────────────
       if (!paused && nodes.length) {
-        const nm = {};
-        for (const n of nodes) nm[n.id] = n;
 
-        // Repulsion (all-pairs; capped at MAX_NODES)
-        for (let i = 0; i < nodes.length; i++) {
-          const a = nodes[i];
-          for (let j = i + 1; j < nodes.length; j++) {
-            const b = nodes[j];
-            const dx = b.x - a.x, dy = b.y - a.y;
-            const d2 = dx * dx + dy * dy + 0.01;
-            const d = Math.sqrt(d2);
-            const f = REPULSION / d2;
-            const fx = (dx / d) * f, fy = (dy / d) * f;
-            a.vx -= fx; a.vy -= fy;
-            b.vx += fx; b.vy += fy;
-          }
-        }
-
-        // Springs along edges
-        for (const e of edges) {
-          const a = nm[e.from], b = nm[e.to];
-          if (!a || !b) continue;
-          const dx = b.x - a.x, dy = b.y - a.y;
-          const d = Math.sqrt(dx * dx + dy * dy) || 1;
-          const stretch = (d - SPRING_REST) * SPRING_K;
-          const fx = (dx / d) * stretch, fy = (dy / d) * stretch;
-          a.vx += fx; a.vy += fy;
-          b.vx -= fx; b.vy -= fy;
-        }
-
-        // Center gravity
-        const cx = W / 2, cy = H / 2;
+        // Gentle breathing motion and hit pulse decay
         for (const n of nodes) {
-          n.vx += (cx - n.x) * GRAVITY;
-          n.vy += (cy - n.y) * GRAVITY;
-          n.vx *= DAMPING;
-          n.vy *= DAMPING;
-          n.x = Math.max(n.radius + 4, Math.min(W - n.radius - 4, n.x + n.vx));
-          n.y = Math.max(n.radius + 4, Math.min(H - n.radius - 4, n.y + n.vy));
+          // Slow organic hover
+          n.x = n.baseX + Math.sin(t * 0.5 + n.pulse) * 4;
+          n.y = n.baseY + Math.cos(t * 0.4 + n.pulse) * 4;
+
           if (n.hitPulse > 0) n.hitPulse = Math.max(0, n.hitPulse - 0.008);
+        }
+
+        // Animate synapses
+        for (const syn of synapses) {
+          if (syn.active) {
+            syn.progress += syn.speed;
+            if (syn.progress >= 1.0) {
+              syn.progress = 0;
+              syn.active = Math.random() > 0.4; // 60% chance to pause
+            }
+          } else {
+            if (Math.random() < 0.005) syn.active = true; // chance to activate
+          }
         }
 
         // Drift stars
@@ -322,6 +320,33 @@ export default function BrainGraph({
         ctx.moveTo(a.x, a.y);
         ctx.lineTo(b.x, b.y);
         ctx.stroke();
+      }
+
+      // ── Synapses ─────────────────────────────────────────────────────────────
+      for (const syn of synapses) {
+        if (!syn.active) continue;
+        const a = nm2[syn.from], b = nm2[syn.to];
+        if (!a || !b) continue;
+        const bMuted = ftypes !== null && b.kind === "memory" && !ftypes.has(b.type);
+        if (bMuted) continue;
+
+        // Draw particle traveling from a to b
+        const px = a.x + (b.x - a.x) * syn.progress;
+        const py = a.y + (b.y - a.y) * syn.progress;
+
+        ctx.beginPath();
+        ctx.arc(px, py, 2, 0, Math.PI * 2);
+        ctx.fillStyle = rgbaStr(b.color, 0.8 * (1 - Math.abs(syn.progress - 0.5) * 2)); // fade at edges
+        ctx.fill();
+
+        // Synapse glow
+        const g = ctx.createRadialGradient(px, py, 0, px, py, 6);
+        g.addColorStop(0, rgbaStr(b.color, 0.8));
+        g.addColorStop(1, rgbaStr(b.color, 0));
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(px, py, 6, 0, Math.PI * 2);
+        ctx.fill();
       }
 
       // ── Nodes ─────────────────────────────────────────────────────────────────
