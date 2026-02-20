@@ -169,6 +169,7 @@ Daily + weekly limits are configured via environment variables (`DAILY_MAX_*`, `
 ## Core org/project endpoints
 
 - `GET /me`
+- `GET /me/orgs`
 - `POST /orgs`
 - `GET /orgs`
 - `POST /orgs/{org_id}/projects`
@@ -254,6 +255,13 @@ Optional signing header for inbound integrations:
 `GET /integrations/memories` returns recent ingested memories:
 - with `project_id`: scoped to one project
 - without `project_id`: scoped to current org
+
+## Session org switching
+
+- `GET /me/orgs` returns organizations available to the current actor.
+  - session auth: all org memberships for the signed-in user
+  - API key auth: the key-scoped org only
+- The web app uses `X-Org-Id` on org-scoped requests so users can switch orgs without re-login.
 
 `POST /integrations/memories/{memory_id}/contextualize` queues an Ollama contextualization worker task.
 

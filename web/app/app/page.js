@@ -138,6 +138,8 @@ export default function AppPage() {
   const [auth, setAuth]               = useState(null);
   const [usage, setUsage]             = useState(null);
   const [projects, setProjects]       = useState([]);
+  const [orgs, setOrgs]               = useState([]);
+  const [orgId, setOrgId]             = useState("");
   const [projectId, setProjectId]     = useState("");
   const [tab, setTab]                 = useState("compose");
   const [projectSearch, setProjectSearch] = useState("");
@@ -179,8 +181,25 @@ export default function AppPage() {
   async function loadInitial() {
     setLoading(true);
     try {
-      const [me, list, usageRes] = await Promise.all([
-        apiFetch("/auth/me"),
+      const me = await apiFetch("/auth/me");
+      const orgRows = await apiFetch("/me/orgs");
+      setOrgs(orgRows || []);
+      const storedOrgId = typeof window !== "undefined"
+        ? (window.localStorage.getItem("CONTEXTCACHE_ORG_ID") || "").trim()
+        : "";
+      const hasStored = (orgRows || []).some((o) => String(o.id) === storedOrgId);
+      const nextOrgId = hasStored
+        ? storedOrgId
+        : (orgRows?.[0]?.id ? String(orgRows[0].id) : "");
+      if (typeof window !== "undefined") {
+        if (nextOrgId) {
+          window.localStorage.setItem("CONTEXTCACHE_ORG_ID", nextOrgId);
+        } else {
+          window.localStorage.removeItem("CONTEXTCACHE_ORG_ID");
+        }
+      }
+      setOrgId(nextOrgId);
+      const [list, usageRes] = await Promise.all([
         apiFetch("/projects"),
         apiFetch("/me/usage").catch(() => null), // non-fatal
       ]);
@@ -196,6 +215,33 @@ export default function AppPage() {
   }
 
   useEffect(() => { loadInitial(); }, []);
+
+  async function switchOrg(nextOrgId) {
+    if (!nextOrgId || nextOrgId === orgId) return;
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("CONTEXTCACHE_ORG_ID", nextOrgId);
+    }
+    setOrgId(nextOrgId);
+    setProjectId("");
+    setProjects([]);
+    setMemories([]);
+    setRecallItems([]);
+    setMemoryPack("");
+    setRecallQuery("");
+    setTab("compose");
+    try {
+      const [list, usageRes] = await Promise.all([
+        apiFetch("/projects"),
+        apiFetch("/me/usage").catch(() => null),
+      ]);
+      setProjects(list);
+      if (list.length) setProjectId(String(list[0].id));
+      if (usageRes) setUsage(usageRes);
+      toast.success("Switched organization.");
+    } catch (err) {
+      handleApiError(err);
+    }
+  }
 
   // Load memories whenever project or tab changes
   useEffect(() => {
@@ -378,6 +424,26 @@ export default function AppPage() {
 
         {/* Header row */}
         <div className="sidebar-header">
+          {orgs.length > 1 && (
+            <div style={{ paddingBottom: 8 }}>
+              <label htmlFor="org-switch" style={{ fontSize: "0.72rem", marginBottom: 4, color: "var(--muted)" }}>
+                Organization
+              </label>
+              <select
+                id="org-switch"
+                value={orgId}
+                onChange={(e) => switchOrg(e.target.value)}
+                style={{ fontSize: "0.82rem", padding: "6px 10px" }}
+              >
+                {orgs.map((o) => (
+                  <option key={o.id} value={String(o.id)}>
+                    {o.name}{o.role ? ` (${o.role})` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div className="row spread" style={{ paddingBottom: 6 }}>
             <span className="sidebar-section-label">
               Projects

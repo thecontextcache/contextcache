@@ -133,6 +133,12 @@ class MeOut(BaseModel):
     actor_user_id: int | None = None
 
 
+class MeOrgOut(BaseModel):
+    id: int
+    name: str
+    role: RoleType | None = None
+
+
 class MembershipCreate(BaseModel):
     email: str = Field(min_length=3, max_length=255)
     display_name: str | None = Field(default=None, max_length=255)

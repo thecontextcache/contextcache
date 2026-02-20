@@ -32,6 +32,11 @@ export function buildApiBase() {
   return configured.replace(/\/$/, "");
 }
 
+function getStoredOrgId() {
+  if (typeof window === "undefined") return "";
+  return (window.localStorage.getItem("CONTEXTCACHE_ORG_ID") || "").trim();
+}
+
 /**
  * Docs base URL.
  *
@@ -75,17 +80,26 @@ export class ApiError extends Error {
 export async function apiFetch(path, init = {}) {
   const primaryBase = buildApiBase();
   const bases = primaryBase === "/api" ? [primaryBase] : [primaryBase, "/api"];
+  const shouldAttachOrgHeader =
+    !path.startsWith("/auth/") &&
+    path !== "/health" &&
+    path !== "/me/orgs";
+  const storedOrgId = shouldAttachOrgHeader ? getStoredOrgId() : "";
   let response;
   let networkFailureCount = 0;
+  const requestInit = { ...init };
+  const customHeaders = requestInit.headers || {};
+  delete requestInit.headers;
 
   for (const base of bases) {
     try {
       response = await fetch(`${base}${path}`, {
-        ...init,
+        ...requestInit,
         credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          ...(init.headers || {}),
+          ...(storedOrgId ? { "X-Org-Id": storedOrgId } : {}),
+          ...customHeaders,
         },
       });
       break;

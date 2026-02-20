@@ -51,6 +51,7 @@ from .schemas import (
     MemoryCreate,
     MemoryOut,
     MeOut,
+    MeOrgOut,
     MembershipCreate,
     MembershipOut,
     OrgCreate,
@@ -373,6 +374,48 @@ async def get_me(ctx: RequestContext = Depends(get_actor_context)) -> MeOut:
         api_key_prefix=ctx.api_key_prefix,
         actor_user_id=ctx.actor_user_id,
     )
+
+
+@router.get("/me/orgs", response_model=List[MeOrgOut])
+async def get_my_orgs(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    ctx: RequestContext = Depends(get_actor_context),
+) -> List[MeOrgOut]:
+    # Session path: return all org memberships for this auth user.
+    auth_user_id: int | None = getattr(request.state, "auth_user_id", None)
+    if auth_user_id is not None:
+        auth_user = (
+            await db.execute(select(AuthUser).where(AuthUser.id == auth_user_id).limit(1))
+        ).scalar_one_or_none()
+        if auth_user is None:
+            return []
+        domain_user = (
+            await db.execute(
+                select(User).where(func.lower(User.email) == auth_user.email.lower()).limit(1)
+            )
+        ).scalar_one_or_none()
+        if domain_user is None:
+            return []
+        rows = (
+            await db.execute(
+                select(Organization.id, Organization.name, Membership.role)
+                .join(Membership, Membership.org_id == Organization.id)
+                .where(Membership.user_id == domain_user.id)
+                .order_by(Membership.id.asc())
+            )
+        ).all()
+        return [MeOrgOut(id=row[0], name=row[1], role=row[2]) for row in rows]
+
+    # API-key path: org is determined by key scope/current request context.
+    if ctx.org_id is None:
+        return []
+    org = (
+        await db.execute(select(Organization).where(Organization.id == ctx.org_id).limit(1))
+    ).scalar_one_or_none()
+    if org is None:
+        return []
+    return [MeOrgOut(id=org.id, name=org.name, role=ctx.role)]
 
 
 @router.get("/me/usage", response_model=UsageOut)
