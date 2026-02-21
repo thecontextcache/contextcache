@@ -50,6 +50,7 @@ services:
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
       - CORS_ORIGINS=${CORS_ORIGINS:-https://thecontextcache.com}
       - APP_PUBLIC_BASE_URL=${APP_PUBLIC_BASE_URL:-https://thecontextcache.com}
+      - MAGIC_LINK_ALLOW_LOG_FALLBACK=${MAGIC_LINK_ALLOW_LOG_FALLBACK:-true}
       - RUN_MIGRATIONS=1
     ports:
       - "8000:8000"
@@ -89,6 +90,7 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - WORKER_ENABLED=true
+      - MAGIC_LINK_ALLOW_LOG_FALLBACK=${MAGIC_LINK_ALLOW_LOG_FALLBACK:-true}
     depends_on:
       db:
         condition: service_healthy
