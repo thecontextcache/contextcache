@@ -22,6 +22,14 @@ const nextConfig = {
         source: "/api/:path*",
         destination: `${upstream}/:path*`,
       },
+      {
+        source: "/docs",
+        destination: "http://docs:8001/",
+      },
+      {
+        source: "/docs/:path*",
+        destination: "http://docs:8001/:path*",
+      },
     ];
   },
 };

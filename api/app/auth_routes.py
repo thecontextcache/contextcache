@@ -64,13 +64,11 @@ MAGIC_LINK_ALLOW_LOG_FALLBACK = (
 INVITE_TTL_DAYS = int(os.getenv("INVITE_TTL_DAYS", "7"))
 
 # Extract the base domain for cross-subdomain cookie scoping
+# Removed domain-scoping logic because it breaks heavily when hosted behind 
+# Cloudflare tunnels (which use public suffixes like .trycloudflare.com).
+# Browsers reject setting cookies on public suffixes, causing infinite auth loops. 
+# By keeping the domain None, the browser implicitly scopes it exactly to the host.
 SESSION_COOKIE_DOMAIN = None
-if IS_PROD:
-    _parsed_domain = urlparse(APP_PUBLIC_BASE_URL).hostname
-    # If it's a valid remote hostname (not localhost or IP), scope it to the root domain 
-    # so API and Web subdomains can share the Auth Session (e.g. '.thecontextcache.com')
-    if _parsed_domain and not _parsed_domain.startswith("localhost") and not _parsed_domain.startswith("127."):
-        SESSION_COOKIE_DOMAIN = f".{_parsed_domain}"
 
 
 _LOGIN_EVENT_RETENTION = 10  # keep only last N login events per user

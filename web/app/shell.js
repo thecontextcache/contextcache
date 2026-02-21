@@ -8,6 +8,8 @@ import { buildApiBase, buildDocsBase, checkHealth, apiFetch } from "./lib/api";
 import { ServiceUnavailable } from "./components/service-unavailable";
 import { DebugPanel } from "./components/debug-panel";
 
+import { AnimatePresence, motion } from "framer-motion";
+
 export default function Shell({ children }) {
   const { resolvedTheme, toggleTheme } = useTheme();
   const router = useRouter();
@@ -127,15 +129,19 @@ export default function Shell({ children }) {
         </nav>
       </header>
 
-      {isFullWidth ? (
-        <main id="main-content" className="page-transition-wrap">
+      <AnimatePresence mode="wait">
+        <motion.main
+          key={pathname}
+          id="main-content"
+          className={`page-transition-wrap ${isFullWidth ? "" : "page"}`}
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -15 }}
+          transition={{ duration: 0.3, ease: "easeOut" }}
+        >
           {children}
-        </main>
-      ) : (
-        <main id="main-content" className="page-transition-wrap page">
-          {children}
-        </main>
-      )}
+        </motion.main>
+      </AnimatePresence>
 
       <footer className="footer">
         <span className="muted">thecontextcache™ — invite-only alpha</span>

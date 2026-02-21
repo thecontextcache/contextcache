@@ -1,1 +1,1 @@
-{"version":1,"functions":{"/_not-found":{},"/auth/verify":{},"/clients":{},"/legal":{},"/":{},"/brain":{},"/admin":{},"/app":{}}}
+{"version":1,"functions":{"/auth/verify":{},"/_not-found":{},"/clients":{},"/":{},"/legal":{},"/admin":{},"/brain":{},"/app":{}}}

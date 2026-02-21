@@ -62,10 +62,9 @@ export function buildDocsBase() {
       // With subdomain deployment, docs live at docs.thecontextcache.com
       return `https://docs.${PRODUCTION_DOMAIN}`;
     }
-    // Tailscale / local: open docs on :8001 of the same host
-    return `${protocol}//${hostname}:8001`;
   }
-  return "http://localhost:8001";
+  // Fall back to same-origin proxy (Next.js config rewrites /docs to the mkdocs container)
+  return "/docs";
 }
 
 export class ApiError extends Error {

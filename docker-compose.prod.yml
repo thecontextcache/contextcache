@@ -10,8 +10,8 @@ services:
       - APP_ENV=prod
 
   # docs is dev-only — not needed in production
-  docs:
-    profiles: ["never"]
+  # docs:
+  #   profiles: ["never"]
 
   db:
     # Never expose Postgres publicly in production compose.

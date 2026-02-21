@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { motion } from "framer-motion";
 
 export default function PricingPage() {
   const TIERS = [
@@ -152,22 +153,37 @@ export default function PricingPage() {
           }}
         />
 
-        <div className="l-badge">
+        <motion.div
+          className="l-badge"
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.4 }}
+        >
           <span className="l-badge-dot" />
           Payment gateway — coming soon
-        </div>
+        </motion.div>
 
-        <h1 className="l-title" style={{ fontSize: "clamp(2rem, 5.5vw, 4rem)" }}>
+        <motion.h1
+          className="l-title" style={{ fontSize: "clamp(2rem, 5.5vw, 4rem)" }}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.1 }}
+        >
           <span className="l-title-grad">Simple pricing.</span>
           <br />
           <span className="l-title-white" style={{ fontSize: "0.6em" }}>
             No surprises, ever.
           </span>
-        </h1>
-        <p className="l-tagline" style={{ maxWidth: 480 }}>
+        </motion.h1>
+        <motion.p
+          className="l-tagline" style={{ maxWidth: 480 }}
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.2 }}
+        >
           Start free with an Alpha invite. Paid tiers are in the works — join the waitlist
           and lock in a founding-member rate.
-        </p>
+        </motion.p>
       </section>
 
       {/* ══ PRICING CARDS ═══════════════════════════════════════════════════ */}
@@ -177,7 +193,12 @@ export default function PricingPage() {
           padding: "0 20px 80px",
         }}
       >
-        <div style={{ marginBottom: 18 }}>
+        <motion.div
+          style={{ marginBottom: 18 }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.3 }}
+        >
           <div style={{ marginBottom: 8, fontSize: "0.72rem", color: "var(--muted)", letterSpacing: "0.09em", fontFamily: "var(--mono)" }}>
             TIER COMPARISON
           </div>
@@ -196,6 +217,7 @@ export default function PricingPage() {
                   fontSize: "0.74rem",
                   letterSpacing: "0.04em",
                   fontWeight: 700,
+                  transition: "all 0.2s"
                 }}
               >
                 {tier.name}
@@ -213,7 +235,7 @@ export default function PricingPage() {
           }}>
             <strong style={{ color: "var(--ink)" }}>{activeTier.name}</strong>: {activeTier.description}
           </div>
-        </div>
+        </motion.div>
 
         <div
           style={{
@@ -223,9 +245,13 @@ export default function PricingPage() {
             alignItems: "start",
           }}
         >
-          {TIERS.map((t) => (
-            <div
+          {TIERS.map((t, index) => (
+            <motion.div
               key={t.id}
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: t.comingSoon ? 0.82 : 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ delay: index * 0.1, duration: 0.5, ease: "easeOut" }}
               style={{
                 position: "relative",
                 border: t.highlight
@@ -240,7 +266,6 @@ export default function PricingPage() {
                 display: "flex",
                 flexDirection: "column",
                 gap: 20,
-                opacity: t.comingSoon ? 0.82 : 1,
               }}
             >
               {/* Popular badge */}
@@ -381,7 +406,7 @@ export default function PricingPage() {
                   Payment gateway coming soon
                 </div>
               )}
-            </div>
+            </motion.div>
           ))}
         </div>
 
