@@ -83,6 +83,7 @@ services:
       # API_UPSTREAM is server-side only (not exposed to browser).
       # next.config.js rewrites /api/* → API_UPSTREAM/* so the browser
       # never calls port 8000 directly — no CORS issues on any network.
+      - SESSION_COOKIE_NAME=${SESSION_COOKIE_NAME:-contextcache_session}
       - API_UPSTREAM=http://api:8000
       - NEXT_PUBLIC_DOCS_URL=${NEXT_PUBLIC_DOCS_URL:-}
       - APP_ENV=${APP_ENV:-dev}

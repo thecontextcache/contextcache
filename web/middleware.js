@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
-const SESSION_COOKIE = "contextcache_session";
+// We read from env, but if the .env wasn't fully piped to the Next.js container,
+// we dynamically scan the cookies for the 64-character hex session token.
+const SESSION_COOKIE = process.env.SESSION_COOKIE_NAME || "contextcache_session";
 
 // Routes that require an authenticated session
 const AUTH_REQUIRED = ["/app", "/admin", "/brain"];
@@ -10,7 +12,18 @@ const AUTHED_REDIRECT = [];
 
 export function middleware(request) {
   const { pathname } = request.nextUrl;
-  const hasSession = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
+
+  // Primary exact match (works natively if SESSION_COOKIE is kept at default)
+  let hasSession = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
+
+  // Fallback heuristic: If name overriding happened in the backend but the env var
+  // didn't arrive here, scan for ANY cookie containing a 64-character hex token 
+  // (the native format of our auth sessions: os.urandom(32).hex()).
+  if (!hasSession) {
+    const all = request.cookies.getAll();
+    const fallback = all.find(c => /^[0-9a-f]{64}$/i.test(c.value));
+    hasSession = Boolean(fallback);
+  }
 
   // Authenticated users on landing/auth pages → send to /app
   if (AUTHED_REDIRECT.includes(pathname) && hasSession) {
