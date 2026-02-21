@@ -11,25 +11,14 @@
  *   - NEXT_PUBLIC_API_BASE_URL can still override for edge deployments
  */
 export function buildApiBase() {
-  const configured = (process.env.NEXT_PUBLIC_API_BASE_URL || "").trim();
-  if (!configured) {
+  if (typeof window !== "undefined") {
+    // In the browser, ALWAYS use the Next.js proxy to guarantee same-origin cookies.
+    // Cross-domain API fetches break Next.js middleware because host-only cookies
+    // (set by the backend) won't be sent back to the Next.js frontend server.
     return "/api";
   }
-  if (typeof window !== "undefined") {
-    const host = window.location.hostname;
-    const prodDomain =
-      host === "thecontextcache.com" || host.endsWith(".thecontextcache.com");
-    const lowerConfigured = configured.toLowerCase();
-    // Guardrail: if production host is in use but API base points to localhost,
-    // force same-origin proxy path to avoid browser-side network/CORS failures.
-    if (
-      prodDomain &&
-      (lowerConfigured.includes("localhost") || lowerConfigured.includes("127.0.0.1"))
-    ) {
-      return "/api";
-    }
-  }
-  return configured.replace(/\/$/, "");
+  // On the server (Next.js SSR), we must use the upstream URL directly.
+  return process.env.API_UPSTREAM || "http://api:8000";
 }
 
 function getStoredOrgId() {
