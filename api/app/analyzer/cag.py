@@ -223,6 +223,25 @@ def _build_kv_tensor_stub(
             updated_val = (matrix[head_idx][dim_idx] * 0.9) + feature_val
             head_row.append(round(updated_val, 6))
         new_matrix.append(head_row)
+        
+    # Phase 4.1: Thermodynamics - Entropy-Guided KV-Cache Pruning
+    # Measure the dispersion/disorder of the simulated attention weights.
+    abs_vals = [abs(v) for head in new_matrix for v in head]
+    total_mag = sum(abs_vals)
+    
+    if total_mag > 0:
+        entropy = 0.0
+        for val in abs_vals:
+            if val > 0:
+                p = val / total_mag
+                entropy -= p * math.log2(p)
+                
+        # Maximum entropy for 128 elements is exactly log2(128) = 7.0.
+        # If the entropy is below our threshold, the chunk is highly predictable/redundant.
+        entropy_threshold = float(os.getenv("CAG_ENTROPY_THRESHOLD", "6.8"))
+        if entropy < entropy_threshold:
+            # Aggressively prune the unneeded matrix to compress KV-cache memory!
+            return digest[:24], None
     
     return digest[:24], new_matrix
 

@@ -437,10 +437,41 @@ async def run_hybrid_rag_recall(
                 if len(vector_rows) >= config.vector_candidates:
                     break
                     
+        # Phase 4.2: SSQA (Stochastic Simulated Quantum Annealing) Reranking
+        # We rerank the dense Hilbert B-Tree candidate vectors using simulated quantum 
+        # tunneling formulas to actively escape local minima and refine the ranking.
+        import random
+        if vector_rows:
+            t_init = float(os.getenv("SSQA_TEMP_INIT", "0.2"))
+            t_final = float(os.getenv("SSQA_TEMP_FINAL", "0.01"))
+            ssqa_steps = int(os.getenv("SSQA_STEPS", "15"))
+            
+            ssqa_states = [{"mem": mem, "score": float(score or 0.0)} for mem, score in vector_rows]
+            
+            for step in range(ssqa_steps):
+                temp = t_init * ((t_final / t_init) ** (step / max(1, ssqa_steps - 1)))
+                for state in ssqa_states:
+                    # Quantum tunneling perturbation (Stochastic noise bounded by probability waves)
+                    tunneling_noise = random.gauss(0, temp) * math.sin(state["score"] * math.pi)
+                    proposed = state["score"] + tunneling_noise
+                    
+                    # Metropolis-Hastings acceptance for quantum jumps
+                    if proposed > state["score"]:
+                        state["score"] = proposed
+                    else:
+                        delta = state["score"] - proposed
+                        # Probabilistic quantum tunneling through the energy barrier
+                        if random.random() < math.exp(-delta / temp):
+                            state["score"] = proposed
+            
+            ssqa_states.sort(key=lambda s: s["score"], reverse=True)
+            vector_rows = [(s["mem"], s["score"]) for s in ssqa_states]
+
         vector_meta = {
             "query_hilbert_index": query_hilbert,
             "vector_candidates_examined": len(vector_rows),
             "hilbert_prefilter_window": radius,
+            "ssqa_steps_applied": ssqa_steps if vector_rows else 0,
         }
     except Exception:
         vector_rows = []

@@ -992,22 +992,47 @@ async def _write_recall_timing(
     )
 
 
+# Phase 4.3: Chaos Theory - Lyapunov Load Balancing
+# Global state tracking for concurrent system load
+import math
+_ACTIVE_CAG_TASKS = 0
+_ACTIVE_RAG_TASKS = 0
+
 def _resolve_hedge_delay_ms(org_id: int) -> int:
     fallback = max(HEDGE_MIN_DELAY_MS, HEDGE_DELAY_MS)
-    if not HEDGE_USE_P95_CACHE:
-        return fallback
-    cached = get_cached_hedge_p95_ms(org_id)
-    if cached is None:
-        return fallback
-    return max(HEDGE_MIN_DELAY_MS, int(cached))
+    base_delay = fallback
+    if HEDGE_USE_P95_CACHE:
+        cached = get_cached_hedge_p95_ms(org_id)
+        if cached is not None:
+            base_delay = max(HEDGE_MIN_DELAY_MS, int(cached))
+            
+    # Calculate Lyapunov Potential representing chaotic instability (queue divergence).
+    # If the number of heavy RAG tasks significantly outweighs lightweight CAG tasks,
+    # the system is entering chaotic congestion.
+    potential = max(0, _ACTIVE_RAG_TASKS - (_ACTIVE_CAG_TASKS * 0.5))
+    
+    # Apply exponential Lyapunov scaling multiplier.
+    # As the potential (workload gap) increases, we exponentially increase HEDGE_DELAY_MS
+    # to force new requests to wait longer for cheap CAG results before spawning expensive RAG tasks.
+    lyapunov_multiplier = math.exp(potential * 0.1)
+    
+    dynamic_delay = int(base_delay * lyapunov_multiplier)
+    
+    # Cap delay at 2.5 seconds to prevent unbounded halts
+    return min(2500, dynamic_delay)
 
 
 async def _timed_cag_lookup(query_text: str) -> tuple[Any, int]:
-    loop = asyncio.get_running_loop()
-    started = loop.time()
-    answer = await asyncio.to_thread(maybe_answer_from_cache, query_text)
-    elapsed = int((loop.time() - started) * 1000)
-    return answer, elapsed
+    global _ACTIVE_CAG_TASKS
+    _ACTIVE_CAG_TASKS += 1
+    try:
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        answer = await asyncio.to_thread(maybe_answer_from_cache, query_text)
+        elapsed = int((loop.time() - started) * 1000)
+        return answer, elapsed
+    finally:
+        _ACTIVE_CAG_TASKS -= 1
 
 
 async def _run_rag_recall_with_timing(
@@ -1017,23 +1042,28 @@ async def _run_rag_recall_with_timing(
     query_text: str,
     limit: int,
 ) -> tuple[dict[str, Any], int]:
-    loop = asyncio.get_running_loop()
-    started = loop.time()
-    result = await run_hybrid_rag_recall(
-        db,
-        project_id=project_id,
-        query_text=query_text,
-        limit=limit,
-        config=HybridRecallConfig(
-            fts_weight=RECALL_WEIGHT_FTS,
-            vector_weight=RECALL_WEIGHT_VECTOR,
-            recency_weight=RECALL_WEIGHT_RECENCY,
-            vector_min_score=RECALL_VECTOR_MIN_SCORE,
-            vector_candidates=RECALL_VECTOR_CANDIDATES,
-        ),
-    )
-    elapsed = int((loop.time() - started) * 1000)
-    return result, elapsed
+    global _ACTIVE_RAG_TASKS
+    _ACTIVE_RAG_TASKS += 1
+    try:
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        result = await run_hybrid_rag_recall(
+            db,
+            project_id=project_id,
+            query_text=query_text,
+            limit=limit,
+            config=HybridRecallConfig(
+                fts_weight=RECALL_WEIGHT_FTS,
+                vector_weight=RECALL_WEIGHT_VECTOR,
+                recency_weight=RECALL_WEIGHT_RECENCY,
+                vector_min_score=RECALL_VECTOR_MIN_SCORE,
+                vector_candidates=RECALL_VECTOR_CANDIDATES,
+            ),
+        )
+        elapsed = int((loop.time() - started) * 1000)
+        return result, elapsed
+    finally:
+        _ACTIVE_RAG_TASKS -= 1
 
 
 async def _run_rag_recall(
