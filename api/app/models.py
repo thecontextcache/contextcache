@@ -103,7 +103,7 @@ class Memory(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     created_by_user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("auth_users.id", ondelete="SET NULL"), nullable=True, index=True
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     # What kind of memory: decision, finding, definition, note, link, todo, chat, doc, code, etc.
     type: Mapped[str] = mapped_column(String(50), nullable=False)
