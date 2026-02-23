@@ -101,13 +101,20 @@ def hilbert_index_from_embedding(vec: Sequence[float]) -> int | None:
     if not HILBERT_ENABLED:
         return None
         
-    hc = _get_hilbert_curve()
-    if hc is None:
-        return None
+    try:
+        hc = _get_hilbert_curve()
+        if hc is None:
+            return None
+            
+        projected = project_embedding(vec)
+        ints = quantize(projected, HILBERT_BITS)
         
-    projected = project_embedding(vec)
-    ints = quantize(projected, HILBERT_BITS)
-    
-    # Use distance_from_point() for hilbertcurve >= 2.0
-    index = hc.distance_from_point(ints)
-    return index
+        # distance_from_point (>= v2.0) or distance_from_coordinates (< v2.0)
+        if hasattr(hc, "distance_from_point"):
+            return hc.distance_from_point(ints)
+        else:
+            return hc.distance_from_coordinates(ints)
+            
+    except Exception as exc:
+        print(f"[sfc] Soft-failing Hilbert Curve index: {exc}")
+        return None
