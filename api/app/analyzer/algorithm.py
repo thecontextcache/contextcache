@@ -224,9 +224,22 @@ def _normalize_vec(vec: list[float]) -> list[float]:
     return [v / norm for v in vec]
 
 
+_BIGINT_MAX = (1 << 63) - 1  # PostgreSQL BIGINT upper bound
+
+
 def compute_hilbert_index(vec: list[float]) -> int | None:
-    """Wrapper around the SFC module to compute hilbert index from an embedding."""
-    return hilbert_index_from_embedding(vec)
+    """Wrapper around the SFC module to compute hilbert index from an embedding.
+
+    Clamps the raw Hilbert distance to PostgreSQL BIGINT range (signed 64-bit).
+    With HILBERT_BITS=12 and HILBERT_DIMS=8 the raw index is 2^96, which
+    overflows BIGINT.  We take (raw & BIGINT_MAX) — keeping the 63 least-
+    significant bits — which preserves fine-grained locality (nearby vectors
+    still map to nearby index values) while dropping only large-scale structure.
+    """
+    raw = hilbert_index_from_embedding(vec)
+    if raw is None:
+        return None
+    return int(raw) & _BIGINT_MAX
 
 
 def _openai_embedding(text: str, model: str) -> list[float] | None:
