@@ -10,7 +10,12 @@ from __future__ import annotations
 
 import os
 
-from celery import Celery
+try:
+    from celery import Celery
+except ImportError as _celery_missing:
+    raise ImportError(
+        "celery is not installed. Add it to api/pyproject.toml: uv add celery"
+    ) from _celery_missing
 
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://redis:6379/0")
