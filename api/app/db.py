@@ -21,15 +21,7 @@ engine: AsyncEngine = create_async_engine(DATABASE_URL, echo=False, future=True)
 def _pgvector_connect(dbapi_connection, _connection_record) -> None:
     """Register pgvector codecs for asyncpg connections."""
     async def _safe_register(conn) -> None:
-        try:
-            await register_vector(conn)
-        except Exception as exc:
-            # During first boot/migration, `vector` may not exist yet.
-            # Also tolerate codec registration failures so API/migrations don't crash-loop.
-            if "unknown type: public.vector" in str(exc):
-                return
-            print(f"[db] pgvector codec registration skipped: {exc}")
-            return
+        pass # Disabled to correctly parse stringified vectors in pgvector 0.3.x
 
     dbapi_connection.run_async(_safe_register)
 
