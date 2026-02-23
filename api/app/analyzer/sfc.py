@@ -108,5 +108,6 @@ def hilbert_index_from_embedding(vec: Sequence[float]) -> int | None:
     projected = project_embedding(vec)
     ints = quantize(projected, HILBERT_BITS)
     
-    index = hc.distance_from_coordinates(ints)
+    # Use distance_from_point() for hilbertcurve >= 2.0
+    index = hc.distance_from_point(ints)
     return index
