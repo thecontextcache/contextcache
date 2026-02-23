@@ -59,6 +59,7 @@ from .schemas import (
     OrgOut,
     ProjectCreate,
     ProjectOut,
+    RawCaptureIn,
     RecallItemOut,
     RecallOut,
     RoleType,
@@ -1175,6 +1176,41 @@ async def capture_memory(
     return await create_memory(
         project_id=payload.project_id,
         payload=memory_payload,
+        request=request,
+        db=db,
+        ctx=ctx,
+    )
+
+
+@router.post("/ingest/raw", response_model=MemoryOut, status_code=201)
+async def ingest_raw_capture(
+    payload: RawCaptureIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    ctx: RequestContext = Depends(get_actor_context),
+) -> MemoryOut:
+    """Ingest a raw payload from an external tool (cli, chrome_ext, etc) and convert to a memory."""
+    require_role(ctx, "member")
+    
+    # Needs a valid project ID
+    if not payload.project_id:
+        raise HTTPException(status_code=400, detail="project_id is required for direct memory ingestion")
+    
+    # Fallback parsing of the text payload
+    content = payload.payload.get("text", "")
+    if not content:
+        raise HTTPException(status_code=400, detail="Payload must contain 'text'")
+
+    memory_create = MemoryCreate(
+        type="note",       # default, could be overridden by payload sniffing later
+        source="api",      # or payload.source if mapped
+        content=content,
+        metadata={"raw_source": payload.source, **payload.payload},
+    )
+
+    return await create_memory(
+        project_id=payload.project_id,
+        payload=memory_create,
         request=request,
         db=db,
         ctx=ctx,
