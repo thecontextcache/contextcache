@@ -418,6 +418,167 @@ def contextualize_memory_with_ollama(self, memory_id: int) -> dict:
 # Task: compute_memory_embedding  (placeholder — activates when pgvector ready)
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# LLM Refinery — stub extraction function
+# ---------------------------------------------------------------------------
+
+def refine_content_with_llm(payload: dict) -> list[dict]:
+    """Extract structured memory drafts from a raw capture payload.
+
+    STUB — returns deterministic mock data so the pipeline can be tested
+    end-to-end without burning LLM API credits.
+
+    TODO: Replace this body with a real LLM call, e.g.:
+      - Gemini 1.5 Flash via ``google-generativeai``
+      - GPT-4o-mini via ``openai``
+    The system prompt should instruct the model to:
+      1. Identify key decisions, findings, definitions, todos, and code snippets.
+      2. Return a JSON array of objects with keys:
+         { type, title, content, confidence_score }
+      3. Keep each item focused — one insight per card.
+
+    Example prompt template (to be expanded):
+      SYSTEM: You are a knowledge extraction assistant. Given a raw payload
+              (chat log, terminal history, email, or DOM dump), extract the
+              most important pieces of project knowledge as structured memory
+              cards. Return ONLY valid JSON.
+      USER:   <payload text>
+    """
+    text = ""
+    if isinstance(payload, dict):
+        text = payload.get("text") or payload.get("content") or payload.get("body") or str(payload)
+
+    # Build mock drafts based on whatever text was provided.
+    mock_title_prefix = (text[:40].strip().replace("\n", " ") + "…") if len(text) > 40 else (text.strip() or "Captured content")
+
+    return [
+        {
+            "type": "decision",
+            "title": f"Decision extracted from: {mock_title_prefix}",
+            "content": (
+                f"[MOCK] A key decision was identified in the raw capture. "
+                f"Original text excerpt: {text[:200]!r}"
+            ),
+            "confidence_score": 0.85,
+        },
+        {
+            "type": "todo",
+            "title": "Follow-up action item",
+            "content": (
+                "[MOCK] An action item was detected. "
+                "Replace this stub with a real LLM call to extract actual todos."
+            ),
+            "confidence_score": 0.70,
+        },
+        {
+            "type": "finding",
+            "title": "Key finding",
+            "content": (
+                "[MOCK] A notable finding was detected in the capture. "
+                "When real LLM extraction is enabled, this will contain the actual insight."
+            ),
+            "confidence_score": 0.60,
+        },
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Task: process_raw_capture_task
+# ---------------------------------------------------------------------------
+
+@celery_app.task(
+    name="contextcache.process_raw_capture_task",
+    bind=True,
+    max_retries=3,
+    default_retry_delay=30,
+)
+def process_raw_capture_task(self, capture_id: int) -> dict:
+    """Refinery worker: extract InboxItems from a RawCapture via LLM.
+
+    Steps:
+      1. Fetch the raw_captures row.
+      2. Call refine_content_with_llm(payload) — currently a stub that returns
+         mock drafts; swap in a real LLM call when ready.
+      3. Insert InboxItem rows for each extracted draft (status='pending').
+      4. Set raw_captures.processed_at = now().
+
+    Safe: only the integer capture_id is passed through Celery; the
+    actual payload is loaded fresh from the DB inside the task.
+    """
+    skipped = _skip_if_disabled("process_raw_capture_task")
+    if skipped is not None:
+        return skipped
+
+    logger.info("[worker] process_raw_capture_task started capture_id=%s", capture_id)
+
+    from datetime import datetime, timezone
+    from sqlalchemy import select
+    from app.models import InboxItem, RawCapture
+
+    async def _process(session):
+        capture = await session.get(RawCapture, capture_id)
+        if capture is None:
+            logger.warning("[worker] process_raw_capture_task capture not found id=%s", capture_id)
+            return {"status": "not_found", "capture_id": capture_id}
+
+        if capture.processed_at is not None:
+            logger.info("[worker] process_raw_capture_task already processed id=%s", capture_id)
+            return {"status": "already_processed", "capture_id": capture_id}
+
+        # Determine target project (required to create inbox items).
+        project_id = capture.project_id
+        if project_id is None:
+            logger.warning(
+                "[worker] process_raw_capture_task no project_id on capture id=%s — skipping",
+                capture_id,
+            )
+            capture.processed_at = datetime.now(timezone.utc)
+            return {"status": "skipped_no_project", "capture_id": capture_id}
+
+        # LLM extraction (stub by default; real call goes here).
+        try:
+            drafts = refine_content_with_llm(capture.payload)
+        except Exception as exc:
+            logger.error(
+                "[worker] process_raw_capture_task LLM extraction failed capture_id=%s: %s",
+                capture_id,
+                exc,
+            )
+            raise self.retry(exc=exc)
+
+        inserted = 0
+        for draft in drafts:
+            suggested_type = str(draft.get("type", "note"))[:50]
+            suggested_title = str(draft.get("title", ""))[:500] or None
+            suggested_content = str(draft.get("content", "")).strip()
+            confidence = float(draft.get("confidence_score", 0.8))
+
+            if not suggested_content:
+                continue
+
+            item = InboxItem(
+                project_id=project_id,
+                raw_capture_id=capture_id,
+                suggested_type=suggested_type,
+                suggested_title=suggested_title,
+                suggested_content=suggested_content,
+                confidence_score=max(0.0, min(1.0, confidence)),
+                status="pending",
+            )
+            session.add(item)
+            inserted += 1
+
+        capture.processed_at = datetime.now(timezone.utc)
+        logger.info(
+            "[worker] process_raw_capture_task complete capture_id=%s inserted=%s",
+            capture_id,
+            inserted,
+        )
+        return {"status": "ok", "capture_id": capture_id, "items_created": inserted}
+
+    return asyncio.run(_run_in_db(_process))
+
+
 @celery_app.task(
     name="contextcache.compute_memory_embedding",
     bind=True,
@@ -488,3 +649,54 @@ def compute_memory_embedding(self, memory_id: int, model: str = "text-embedding-
     result = asyncio.run(_run_in_db(_upsert))
     logger.info("[worker] compute_memory_embedding complete memory_id=%s result=%s", memory_id, result)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Task: retry_stale_raw_captures
+# ---------------------------------------------------------------------------
+
+@celery_app.task(name="contextcache.retry_stale_raw_captures", bind=True, max_retries=2)
+def retry_stale_raw_captures(self, stale_minutes: int = 60) -> dict:
+    """Re-enqueue raw_captures that were never processed (worker crash, no-op mode, etc.).
+
+    Finds captures with processed_at IS NULL and captured_at older than
+    stale_minutes, then re-submits process_raw_capture_task for each.
+    Safe to run hourly via Celery Beat.
+    """
+    skipped = _skip_if_disabled("retry_stale_raw_captures")
+    if skipped is not None:
+        return skipped
+
+    logger.info("[worker] retry_stale_raw_captures started stale_minutes=%s", stale_minutes)
+
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import select
+    from app.models import RawCapture
+
+    async def _find_stale(session):
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=int(stale_minutes))
+        rows = (
+            await session.execute(
+                select(RawCapture.id)
+                .where(
+                    RawCapture.processed_at.is_(None),
+                    RawCapture.captured_at < cutoff,
+                )
+                .limit(100)
+            )
+        ).scalars().all()
+        return list(rows)
+
+    try:
+        stale_ids = asyncio.run(_run_in_db(_find_stale))
+    except Exception as exc:
+        logger.warning("[worker] retry_stale_raw_captures query failed: %s", exc)
+        return {"status": "error", "detail": str(exc)}
+
+    requeued = 0
+    for capture_id in stale_ids:
+        process_raw_capture_task.delay(capture_id)
+        requeued += 1
+
+    logger.info("[worker] retry_stale_raw_captures requeued=%s", requeued)
+    return {"status": "ok", "requeued": requeued}

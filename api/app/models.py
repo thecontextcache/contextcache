@@ -437,6 +437,81 @@ class UsageCounter(Base):
     projects_created: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
 
 
+# ---------------------------------------------------------------------------
+# Refinery pipeline — raw captures & inbox drafts
+# ---------------------------------------------------------------------------
+
+class RawCapture(Base):
+    """Raw data submitted by a client (CLI, Chrome extension, MCP, email).
+
+    The worker reads this row, runs LLM extraction, and writes InboxItem
+    drafts.  Once processing is complete, processed_at is set.
+    """
+    __tablename__ = "raw_captures"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    # Optional project hint supplied by the caller.
+    project_id: Mapped[int | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # Where this payload came from.
+    # Allowed values: chrome_ext | cli | mcp | email
+    source: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    # Raw payload — chat log, DOM dump, terminal history, email body, etc.
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    captured_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    # Set by the worker once LLM extraction is complete.
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+
+    inbox_items: Mapped[list["InboxItem"]] = relationship(
+        back_populates="raw_capture", cascade="all, delete-orphan"
+    )
+
+
+class InboxItem(Base):
+    """LLM-suggested memory draft awaiting human triage.
+
+    Created by the Refinery worker from a RawCapture.
+    On approval, the item is promoted to a real Memory via the standard
+    creation flow (embedding, FTS, Hilbert index all computed).
+    """
+    __tablename__ = "inbox_items"
+    __table_args__ = (
+        Index("ix_inbox_items_project_status", "project_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    raw_capture_id: Mapped[int | None] = mapped_column(
+        ForeignKey("raw_captures.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # Promoted memory FK — set on approval.
+    promoted_memory_id: Mapped[int | None] = mapped_column(
+        ForeignKey("memories.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # LLM-suggested fields — editable before approval.
+    suggested_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    suggested_title: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    suggested_content: Mapped[str] = mapped_column(Text, nullable=False)
+    # How confident the LLM was (0.0–1.0).
+    confidence_score: Mapped[float] = mapped_column(nullable=False, server_default=text("0.8"))
+    # Lifecycle: pending | approved | rejected | merged
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=text("'pending'"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    raw_capture: Mapped["RawCapture | None"] = relationship(back_populates="inbox_items")
+
+
 class UsagePeriod(Base):
     """Aggregated per-user monthly usage counters for limit enforcement."""
     __tablename__ = "usage_periods"

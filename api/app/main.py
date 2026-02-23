@@ -19,6 +19,8 @@ from .db import AsyncSessionLocal, hash_api_key, get_db
 from .models import ApiKey, AuthSession, AuthUser, Membership, Organization, User
 from .auth_routes import router as auth_router
 from .routes import router
+from .ingest_routes import ingest_router
+from .inbox_routes import inbox_router
 
 app = FastAPI(title="ContextCache API", version="0.1.0")
 PUBLIC_PATH_PREFIXES = ("/health", "/docs", "/openapi.json", "/waitlist")
@@ -369,6 +371,8 @@ async def shutdown() -> None:
 
 app.include_router(router)
 app.include_router(auth_router)
+app.include_router(ingest_router)
+app.include_router(inbox_router)
 
 
 @app.exception_handler(StarletteHTTPException)

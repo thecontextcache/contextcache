@@ -8,6 +8,8 @@ MemoryType = Literal["decision", "finding", "definition", "note", "link", "todo"
 MemorySource = Literal["manual", "chatgpt", "claude", "cursor", "codex", "api", "extension"]
 RoleType = Literal["owner", "admin", "member", "viewer"]
 WaitlistStatus = Literal["pending", "approved", "rejected"]
+RawCaptureSource = Literal["chrome_ext", "cli", "mcp", "email"]
+InboxItemStatus = Literal["pending", "approved", "rejected", "merged"]
 
 
 # ---------------------------------------------------------------------------
@@ -347,3 +349,59 @@ class UsageOut(BaseModel):
     weekly_recall_queries: int
     weekly_projects_created: int
     limits: UsageLimitsOut
+
+
+# ---------------------------------------------------------------------------
+# Refinery pipeline — raw captures
+# ---------------------------------------------------------------------------
+
+class RawCaptureIn(BaseModel):
+    """Payload for POST /ingest/raw."""
+    source: RawCaptureSource
+    payload: Dict[str, Any] = Field(default_factory=dict)
+    project_id: Optional[int] = Field(default=None, ge=1)
+
+
+class RawCaptureOut(BaseModel):
+    id: int
+    org_id: int
+    project_id: Optional[int] = None
+    source: str
+    captured_at: datetime
+    processed_at: Optional[datetime] = None
+
+
+class RawCaptureQueuedOut(BaseModel):
+    status: str
+    capture_id: int
+
+
+# ---------------------------------------------------------------------------
+# Refinery pipeline — inbox items
+# ---------------------------------------------------------------------------
+
+class InboxItemOut(BaseModel):
+    id: int
+    project_id: int
+    raw_capture_id: Optional[int] = None
+    promoted_memory_id: Optional[int] = None
+    suggested_type: str
+    suggested_title: Optional[str] = None
+    suggested_content: str
+    confidence_score: float
+    status: str
+    created_at: datetime
+    reviewed_at: Optional[datetime] = None
+
+
+class InboxItemEditIn(BaseModel):
+    """Optional edits applied before approving an inbox item."""
+    suggested_type: Optional[MemoryType] = None
+    suggested_title: Optional[str] = Field(default=None, max_length=500)
+    suggested_content: Optional[str] = Field(default=None, min_length=1)
+
+
+class InboxListOut(BaseModel):
+    project_id: int
+    total: int
+    items: List[InboxItemOut]

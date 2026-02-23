@@ -1327,6 +1327,7 @@ async def recall(
     request: Request,
     query: str = "",
     limit: int = Query(default=10, ge=1, le=50),
+    format: str = Query(default="text", description="Output format: 'text' (default) or 'toon' (compact, token-optimised for agents)"),
     db: AsyncSession = Depends(get_db),
     ctx: RequestContext = Depends(get_actor_context),
 ) -> RecallOut:
@@ -1510,10 +1511,26 @@ async def recall(
         score_details = {"reason": "empty_query"}
         rag_duration_ms = int((loop.time() - rag_started) * 1000)
 
+    output_format = format.strip().lower() if format else "text"
+    if output_format not in {"text", "toon"}:
+        output_format = "text"
+
     if cag_pack is None:
-        pack = build_memory_pack(query_clean, [(m.type, m.content) for m, _ in top_with_rank])
+        pack = build_memory_pack(
+            query_clean,
+            [(m.type, m.content) for m, _ in top_with_rank],
+            output_format=output_format,
+        )
     else:
-        pack = cag_pack
+        # Re-format the CAG pack in TOON if requested (cag_pack is always text).
+        if output_format == "toon":
+            pack = build_memory_pack(
+                query_clean,
+                [("doc", snippet) for snippet in (score_details.get("snippets") or []) or []],
+                output_format="toon",
+            ) or cag_pack
+        else:
+            pack = cag_pack
 
     total_duration_ms = int((loop.time() - request_started) * 1000)
     await write_usage(

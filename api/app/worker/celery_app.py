@@ -82,5 +82,11 @@ celery_app.conf.update(
             "task": "contextcache.cleanup_expired_invites",
             "schedule": 86400,
         },
+        # Retry any raw_captures stuck in unprocessed state for > 1 hour.
+        "retry-stale-raw-captures": {
+            "task": "contextcache.retry_stale_raw_captures",
+            "schedule": 3600,  # every hour
+            "kwargs": {"stale_minutes": 60},
+        },
     },
 )

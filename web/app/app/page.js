@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { apiFetch, ApiError } from "../lib/api";
 import { useToast } from "../components/toast";
 import { SkeletonCard, Skeleton } from "../components/skeleton";
@@ -185,6 +186,7 @@ export default function AppPage() {
   const [recallItems, setRecallItems] = useState([]);
   const [memoryPack, setMemoryPack] = useState("");
   const [recalling, setRecalling] = useState(false);
+  const [recallFormat, setRecallFormat] = useState("text"); // "text" | "toon"
 
   // API Keys
   const [apiKeys, setApiKeys] = useState([]);
@@ -456,15 +458,16 @@ export default function AppPage() {
     }
   }
 
-  async function runRecall(e) {
+  async function runRecall(e, fmt) {
     e?.preventDefault();
     if (!projectId || recalling) return;
+    const activeFormat = fmt || recallFormat || "text";
     setRecalling(true);
     setRecallItems([]);
     setMemoryPack("");
     try {
       const data = await apiFetch(
-        `/projects/${projectId}/recall?query=${encodeURIComponent(recallQuery)}&limit=10`
+        `/projects/${projectId}/recall?query=${encodeURIComponent(recallQuery)}&limit=10&format=${activeFormat}`
       );
       setRecallItems(data.items || []);
       setMemoryPack(data.memory_pack_text || "");
@@ -726,9 +729,25 @@ export default function AppPage() {
                       : "No memories yet"}
                   </p>
                 </div>
-                <span className="badge badge-brand" style={{ fontFamily: "var(--display)", letterSpacing: "0.06em" }}>
-                  Brain
-                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <Link
+                    href={`/app/projects/${projectId}/inbox`}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 5,
+                      padding: "4px 12px", borderRadius: 8,
+                      border: "1px solid var(--border)",
+                      background: "var(--surface-1)", color: "var(--text)",
+                      fontSize: 12, fontWeight: 600, textDecoration: "none",
+                      whiteSpace: "nowrap",
+                    }}
+                    title="Review AI-suggested memory drafts"
+                  >
+                    📥 Inbox
+                  </Link>
+                  <span className="badge badge-brand" style={{ fontFamily: "var(--display)", letterSpacing: "0.06em" }}>
+                    Brain
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -1032,6 +1051,38 @@ export default function AppPage() {
                         />
                         <span className="field-hint">Leave blank to get the most recent memories.</span>
                       </div>
+                      {/* Format toggle */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                          Output format
+                        </span>
+                        {[
+                          { id: "text", label: "Text", title: "Human-readable grouped format" },
+                          { id: "toon", label: "TOON", title: "Token-Oriented Object Notation — compact format for AI agents" },
+                        ].map((fmt) => (
+                          <button
+                            key={fmt.id}
+                            type="button"
+                            title={fmt.title}
+                            onClick={() => setRecallFormat(fmt.id)}
+                            style={{
+                              padding: "4px 12px", borderRadius: 7, border: "none",
+                              background: recallFormat === fmt.id ? "var(--violet)" : "var(--surface-1)",
+                              color: recallFormat === fmt.id ? "#fff" : "var(--muted)",
+                              border: recallFormat === fmt.id ? "none" : "1px solid var(--border)",
+                              cursor: "pointer", fontSize: 12, fontWeight: 600,
+                            }}
+                          >
+                            {fmt.label}
+                          </button>
+                        ))}
+                        {recallFormat === "toon" && (
+                          <span style={{ fontSize: 11, color: "var(--muted-2)" }}>
+                            ~40% fewer tokens — ideal for agents
+                          </span>
+                        )}
+                      </div>
+
                       <div className="row">
                         <button type="submit" className="btn primary" disabled={recalling} aria-busy={recalling}>
                           {recalling && <span className="spinner" />}
