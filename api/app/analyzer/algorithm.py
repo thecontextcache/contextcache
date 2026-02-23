@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 from .cag import promote_cag_chunk
+from .sfc import hilbert_index_from_embedding
 
 
 _TYPE_PRIORITY: dict[str, int] = {
