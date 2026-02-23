@@ -28,7 +28,7 @@ HILBERT_WIDEN_MULT = float(os.getenv("HILBERT_WIDEN_MULT", "2.0"))
 def _get_hilbert_curve() -> "HilbertCurve" | None:
     if not HILBERT_ENABLED or HilbertCurve is None:
         return None
-    return HilbertCurve(HILBERT_DIMS, HILBERT_BITS)
+    return HilbertCurve(p=HILBERT_BITS, n=HILBERT_DIMS)
 
 
 @lru_cache(maxsize=1)
