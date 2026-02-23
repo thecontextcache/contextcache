@@ -59,7 +59,6 @@ from .schemas import (
     OrgOut,
     ProjectCreate,
     ProjectOut,
-    ProjectUpdate,
     RecallItemOut,
     RecallOut,
     RoleType,
