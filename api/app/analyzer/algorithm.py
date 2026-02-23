@@ -65,7 +65,7 @@ _TYPE_PRIORITY: dict[str, int] = {
 }
 
 _PACK_ORDER = ["decision", "definition", "finding", "todo", "code", "doc", "link", "note"]
-_HILBERT_BITS = int(os.getenv("HILBERT_BITS", "16"))
+_HILBERT_BITS = int(os.getenv("HILBERT_BITS", "10"))
 _HILBERT_PREFILTER_WINDOW = int(os.getenv("HILBERT_PREFILTER_WINDOW", "5000000"))
 _HILBERT_PREFILTER_MIN_CANDIDATES = int(os.getenv("HILBERT_PREFILTER_MIN_CANDIDATES", "12"))
 

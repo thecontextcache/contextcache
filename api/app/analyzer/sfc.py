@@ -13,8 +13,8 @@ except ImportError:
 
 # Config
 HILBERT_ENABLED = os.getenv("HILBERT_ENABLED", "false").strip().lower() == "true"
-HILBERT_DIMS = int(os.getenv("HILBERT_DIMS", "8"))
-HILBERT_BITS = int(os.getenv("HILBERT_BITS", "12"))
+HILBERT_DIMS = int(os.getenv("HILBERT_DIMS", "6"))
+HILBERT_BITS = int(os.getenv("HILBERT_BITS", "10"))
 HILBERT_SEED = int(os.getenv("HILBERT_SEED", "1337"))
 
 HILBERT_RADIUS = int(os.getenv("HILBERT_RADIUS", "500000"))
