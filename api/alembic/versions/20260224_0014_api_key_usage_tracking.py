@@ -14,14 +14,15 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "api_keys",
-        sa.Column("last_used_at", sa.DateTime(timezone=True), nullable=True),
-    )
-    op.add_column(
-        "api_keys",
-        sa.Column("use_count", sa.Integer(), nullable=False, server_default="0"),
-    )
+    # Use raw SQL with IF NOT EXISTS so re-running after a partial failure is safe.
+    op.execute("""
+        ALTER TABLE api_keys
+        ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ DEFAULT NULL
+    """)
+    op.execute("""
+        ALTER TABLE api_keys
+        ADD COLUMN IF NOT EXISTS use_count INTEGER NOT NULL DEFAULT 0
+    """)
 
 
 def downgrade() -> None:
