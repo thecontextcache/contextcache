@@ -10,10 +10,12 @@ ENV NEXT_PUBLIC_DOCS_URL=${NEXT_PUBLIC_DOCS_URL}
 ENV NEXT_PUBLIC_ASSET_VERSION=${NEXT_PUBLIC_ASSET_VERSION}
 
 COPY package.json /app/package.json
+COPY package-lock.json /app/package-lock.json
 RUN npm install
 
 COPY app /app/app
 COPY public /app/public
+COPY scripts /app/scripts
 COPY next.config.js /app/next.config.js
 COPY middleware.js /app/middleware.js
 
