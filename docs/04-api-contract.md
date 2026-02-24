@@ -172,8 +172,10 @@ Daily + weekly limits are configured via environment variables (`DAILY_MAX_*`, `
 
 - `GET /me`
 - `GET /me/orgs`
-- `POST /orgs`
-- `GET /orgs`
+- `POST /orgs` — create organisation
+- `GET /orgs` — list organisations visible to caller
+- `PATCH /orgs/{org_id}` — rename organisation (requires `admin`)
+- `DELETE /orgs/{org_id}` — delete organisation, blocked if projects exist (requires `owner`; returns 409 if projects remain)
 - `POST /orgs/{org_id}/projects`
 - `GET /orgs/{org_id}/projects`
 - `POST /projects`

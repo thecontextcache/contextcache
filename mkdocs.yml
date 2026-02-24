@@ -61,6 +61,7 @@ nav:
     - Deployment: 06-deployment.md
     - Security Model: 07-security.md
     - Production Hardening: 13-production-hardening.md
+    - Admin UX Guide: 14-admin-ux.md
   - Integrations: 10-integrations.md
   - Refinery & TOON: 12-refinery-and-toon.md
   - Branding: 11-branding.md

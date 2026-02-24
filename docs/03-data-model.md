@@ -52,6 +52,10 @@ Prefilter index: `BTREE(project_id, hilbert_index)`.
 - `prefix`
 - `created_at`
 - `revoked_at` (nullable)
+- `last_used_at` (nullable) — updated on every successful API key authentication
+- `use_count` (integer, default 0) — incremented atomically on every successful authentication
+
+> `last_used_at` and `use_count` were added in migration `20260224_0014`. They are updated in the FastAPI auth middleware, never by application-layer code, so they always reflect actual usage regardless of which endpoint was called.
 
 ### `audit_logs`
 - `id` (PK)
