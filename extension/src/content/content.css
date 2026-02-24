@@ -1,0 +1,11 @@
+/* Tailwind base layers compiled into a string and injected into the Shadow DOM.
+   Import this file with ?inline in index.tsx — do NOT import it globally. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Scoped resets so host page styles don't bleed through the shadow boundary */
+:host {
+  all: initial;
+  display: block;
+}
