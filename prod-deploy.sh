@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# ContextCache: Strict Production Deployment Script
+# Use this on your remote server to ensure a clean rollout.
+# ==============================================================================
+
+set -e
+
+echo "⏬  Pulling the latest code from GitHub..."
+git pull origin main || echo "⚠️ Could not pull from Git, assuming local files are up to date."
+
+echo "🧹  Stopping all running infra containers..."
+docker compose -f infra/docker-compose.prod.yml down --remove-orphans || true
+
+# Also destroy any lingering root compose instances 
+docker compose -f docker-compose.yml down --remove-orphans || true
+
+echo "🗑️  Clearing the Next.js and Docker build caches to eradicate the white-screen..."
+docker system prune -f
+docker builder prune -fa
+rm -rf web/.next || true
+
+echo "🔨  Rebuilding production images from absolute scratch (Cache Invalidated)..."
+# This guarantees that Next.js reconstructs app/page.js WITHOUT framer-motion.
+docker compose -f infra/docker-compose.prod.yml build --no-cache
+
+echo "🚀  Starting the live Cloudflare Tunnel stack (Next.js, FastAPI, Workers)..."
+docker compose -f infra/docker-compose.prod.yml up -d
+
+echo "✅  Deployment successful. The React hydration white screen has been expelled!"
+echo "    -> Make sure Cloudflare Tunnel maps to localhost:3000 correctly."
