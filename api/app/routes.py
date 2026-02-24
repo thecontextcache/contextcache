@@ -776,6 +776,8 @@ async def list_org_api_keys(
             prefix=k.prefix,
             created_at=k.created_at,
             revoked_at=k.revoked_at,
+            last_used_at=k.last_used_at,
+            use_count=k.use_count,
         )
         for k in keys
     ]
@@ -820,6 +822,8 @@ async def revoke_org_api_key(
         prefix=key.prefix,
         created_at=key.created_at,
         revoked_at=key.revoked_at,
+        last_used_at=key.last_used_at,
+        use_count=key.use_count,
     )
 
 

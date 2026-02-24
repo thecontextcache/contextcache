@@ -744,6 +744,20 @@ export default function AppPage() {
                   >
                     📥 Inbox
                   </Link>
+                  <Link
+                    href="/app/api-keys"
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 5,
+                      padding: "4px 12px", borderRadius: 8,
+                      border: "1px solid var(--border)",
+                      background: "var(--surface-1)", color: "var(--text)",
+                      fontSize: 12, fontWeight: 600, textDecoration: "none",
+                      whiteSpace: "nowrap",
+                    }}
+                    title="Manage API Keys"
+                  >
+                    🔑 API Keys
+                  </Link>
                   <span className="badge badge-brand" style={{ fontFamily: "var(--display)", letterSpacing: "0.06em" }}>
                     Brain
                   </span>

@@ -121,6 +121,8 @@ class ApiKeyOut(BaseModel):
     prefix: str
     created_at: datetime
     revoked_at: datetime | None = None
+    last_used_at: datetime | None = None
+    use_count: int = 0
 
 
 class ApiKeyCreatedOut(ApiKeyOut):

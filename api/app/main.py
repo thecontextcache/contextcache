@@ -254,6 +254,22 @@ async def api_key_middleware(request: Request, call_next):
             resolved_api_key_id = api_key_row.id
             resolved_org_id = api_key_row.org_id
             resolved_key_prefix = api_key_row.prefix
+            # Track usage — fire-and-forget; never block the request
+            try:
+                from sqlalchemy import update as sa_update
+                from datetime import timezone as _tz
+                from datetime import datetime as _dt
+                await session.execute(
+                    sa_update(ApiKey)
+                    .where(ApiKey.id == api_key_row.id)
+                    .values(
+                        last_used_at=_dt.now(_tz.utc),
+                        use_count=ApiKey.use_count + 1,
+                    )
+                )
+                await session.commit()
+            except Exception:
+                pass  # never break auth over a stats write
             if header_org_id is not None and header_org_id != resolved_org_id:
                 return JSONResponse(status_code=403, content={"detail": "Forbidden"})
 
