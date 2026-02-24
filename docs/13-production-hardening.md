@@ -490,9 +490,27 @@ GET /api/auth/me 503 (Service Unavailable)
 
 ### Root Cause
 
-Two issues combined to create the white screen:
+Three issues combined to create the white screen:
 
-**Problem 1 — Shell swapped its entire render tree based on client-only state:**
+**Problem 1 — `<head>` manual elements caused hydration mismatch:**
+
+The root layout placed a raw `<script>` and a dynamic `<link id="dynamic-favicon">`
+inside `<head>`. These are part of React's hydration tree. The inline script
+modified the favicon's `href` attribute based on `localStorage` BEFORE React
+hydrated, creating an attribute mismatch. Additionally, Next.js injects its own
+`<link>` and `<meta>` elements into `<head>`, and their position relative to the
+manual elements can differ between SSR and CSR. Any Cloudflare HTML minification
+or browser element reordering in `<head>` also triggers mismatches.
+
+**Problem 2 — No Suspense boundary meant catastrophic recovery:**
+
+When React detects a hydration mismatch (#418), it tries to recover (#423) by
+client-rendering the entire root. Without a `<Suspense>` boundary, this means
+calling `createRoot(document)` and rendering the root layout which includes
+`<html>`. The `appendChild(<html>)` on `document` throws HierarchyRequestError
+because `<html>` already exists → permanent white screen.
+
+**Problem 3 — Shell swapped its entire render tree based on client-only state:**
 
 1. `web/app/shell.js` is a `"use client"` component wrapping all page content
 2. On mount, it runs `checkHealth()` which calls `/api/health`
@@ -513,7 +531,30 @@ endpoint — including `/auth/me`. This turned a normal "not logged in" state
 into a "system unavailable" signal, triggering the Shell's health-check failure
 path.
 
-### Fix (5 files changed)
+### Fix (6 files changed)
+
+#### `web/app/layout.js` — Clean `<head>` + Suspense boundary
+
+Three changes:
+
+1. **Removed the raw `<script>` from `<head>`** — moved to `<body>` using
+   `next/script` with `strategy="beforeInteractive"`. The `next/script`
+   component is managed by Next.js, not React's hydration tree, so it cannot
+   cause hydration mismatches.
+
+2. **Removed the dynamic `<link id="dynamic-favicon">`** — moved to the
+   `metadata.icons` export, which Next.js manages internally.
+
+3. **Wrapped body content in `<Suspense>`** — if a hydration mismatch occurs
+   anywhere in the client component tree, React recovers by client-rendering
+   only the subtree inside the Suspense boundary instead of the entire document.
+   This prevents the catastrophic `createRoot(document)` → `appendChild(<html>)`
+   → HierarchyRequestError cascade.
+
+#### `web/app/theme-provider.js` — Simplified
+
+Removed unused favicon manipulation logic (`applyFavicon`, `ASSET_REV`,
+`VALID_THEMES`, `getInitialTheme`, `resolveTheme`). Theme is hardcoded to dark.
 
 #### `web/app/shell.js` — Mount guard + overlay pattern
 
@@ -572,6 +613,8 @@ Added `exclude_matches` to prevent the content script from injecting on
 ### Affected Files
 
 ```
+web/app/layout.js                         Clean <head> + Suspense boundary
+web/app/theme-provider.js                 Simplified (no favicon logic)
 web/app/shell.js                          Mount guard + overlay rendering
 web/app/components/service-unavailable.js Fixed overlay positioning
 api/app/main.py                           503 → 401 when users exist
@@ -603,7 +646,7 @@ ensure the first client render matches the server output.
 | 4 | Duplicate `/ingest/raw` | Refinery bypassed | `routes.py` | Remove shortcut handler |
 | 5 | Inbox always empty | Refinery nonfunctional in default config | `ingest_routes.py` | Add inline fallback |
 | 6 | Stale `ProjectUpdate` import | API fails to start | `routes.py` | Remove orphaned import |
-| 7 | White blank page (hydration crash) | Entire site unreachable | `shell.js` + `main.py` + 3 others | Mount guard + overlay + 503→401 |
+| 7 | White blank page (hydration crash) | Entire site unreachable | `layout.js` + `shell.js` + `main.py` + 4 others | Clean `<head>` + Suspense + mount guard + overlay + 503→401 |
 
 ---
 
