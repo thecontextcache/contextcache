@@ -454,21 +454,26 @@ def _gemini_fallback(text: str, reason: str) -> list[dict]:
     ]
 
 
+_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+
+
 def refine_content_with_llm(payload: dict) -> list[dict]:
-    """Extract structured memory drafts from a raw capture payload via Gemini 1.5 Flash.
+    """Extract structured memory drafts from a raw capture payload via Gemini.
+
+    Uses the ``google-genai`` SDK (google-genai>=1.0).  Model is configurable
+    via the GEMINI_MODEL env var (default: gemini-2.0-flash).
 
     Reads GOOGLE_API_KEY from the environment.  Falls back to a raw Note card
     if the API call fails or returns unparseable JSON — captured data is never
     silently discarded.
 
     Return schema (list of dicts):
-        type            str   decision | finding | todo | code | note
-        title           str   short headline
-        content         str   full extracted insight
+        type             str   decision | finding | todo | code | note
+        title            str   short headline
+        content          str   full extracted insight
         confidence_score float 0.0–1.0
     """
     import json
-    import os
 
     text: str = ""
     source: str = "unknown"
@@ -488,44 +493,35 @@ def refine_content_with_llm(payload: dict) -> list[dict]:
 
     api_key = os.environ.get("GOOGLE_API_KEY", "").strip()
     if not api_key:
-        logger.error(
-            "[refinery] GOOGLE_API_KEY not set — falling back to raw note"
-        )
+        logger.error("[refinery] GOOGLE_API_KEY not set — falling back to raw note")
         return _gemini_fallback(text, "GOOGLE_API_KEY not configured")
 
     try:
-        import google.generativeai as genai  # noqa: PLC0415
+        from google import genai  # noqa: PLC0415
+        from google.genai import types  # noqa: PLC0415
     except ImportError:
-        logger.error(
-            "[refinery] google-generativeai not installed — "
-            "run: uv add google-generativeai"
-        )
-        return _gemini_fallback(text, "google-generativeai package not installed")
+        logger.error("[refinery] google-genai not installed — run: uv add google-genai")
+        return _gemini_fallback(text, "google-genai package not installed")
 
+    raw_json = ""
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
-            system_instruction=_GEMINI_SYSTEM_PROMPT,
-        )
+        client = genai.Client(api_key=api_key)
 
-        user_prompt = (
-            f"Source: {source}\n\n"
-            f"---\n\n"
-            f"{text}"
-        )
+        user_prompt = f"Source: {source}\n\n---\n\n{text}"
 
-        response = model.generate_content(
-            user_prompt,
-            generation_config=genai.GenerationConfig(
-                temperature=0.2,        # low temperature = more deterministic extraction
+        response = client.models.generate_content(
+            model=_GEMINI_MODEL,
+            contents=user_prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=_GEMINI_SYSTEM_PROMPT,
+                temperature=0.2,
                 max_output_tokens=2048,
             ),
         )
 
-        raw_json = response.text.strip()
+        raw_json = (response.text or "").strip()
 
-        # Strip optional markdown fences the model sometimes adds despite instructions
+        # Strip optional markdown fences the model sometimes adds
         if raw_json.startswith("```"):
             raw_json = raw_json.split("\n", 1)[-1]
             raw_json = raw_json.rsplit("```", 1)[0].strip()
@@ -535,7 +531,6 @@ def refine_content_with_llm(payload: dict) -> list[dict]:
         if not isinstance(drafts, list):
             raise ValueError(f"Expected a JSON array, got {type(drafts).__name__}")
 
-        # Validate and normalise each item
         valid_types = {"decision", "finding", "todo", "code", "note"}
         cleaned: list[dict] = []
         for item in drafts:
@@ -559,14 +554,17 @@ def refine_content_with_llm(payload: dict) -> list[dict]:
             )
 
         logger.info(
-            "[refinery] Gemini extracted %d item(s) from %d chars of text",
+            "[refinery] Gemini extracted %d item(s) from %d chars via model=%s",
             len(cleaned),
             len(text),
+            _GEMINI_MODEL,
         )
         return cleaned
 
     except json.JSONDecodeError as exc:
-        logger.error("[refinery] JSON parse failed: %s — raw response: %.300s", exc, raw_json)
+        logger.error(
+            "[refinery] JSON parse failed: %s — raw response: %.300s", exc, raw_json
+        )
         return _gemini_fallback(text, f"JSON parse error: {exc}")
 
     except Exception as exc:  # noqa: BLE001
