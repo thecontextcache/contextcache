@@ -24,6 +24,7 @@ const TYPE_COLORS = {
 };
 
 function fmtTime(iso) {
+  if (typeof window === "undefined") return "";
   try {
     const d = new Date(iso);
     const diff = Date.now() - d.getTime();
@@ -31,7 +32,7 @@ function fmtTime(iso) {
     if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
     if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
     if (diff < 604_800_000) return `${Math.floor(diff / 86_400_000)}d ago`;
-    return d.toLocaleDateString();
+    return d.toLocaleDateString("en-GB");
   } catch { return ""; }
 }
 
@@ -1231,7 +1232,7 @@ export default function AppPage() {
                             <div>
                               <div style={{ fontSize: "0.88rem", fontWeight: 600, color: "var(--ink)" }}>{key.name || "Unnamed Key"}</div>
                               <div style={{ fontSize: "0.75rem", color: "var(--muted)", fontFamily: "var(--mono)", marginTop: 2 }}>
-                                {key.prefix}... • Expires {new Date(key.expires_at).toLocaleDateString()}
+                                {key.prefix}... • Expires {key.expires_at ? new Date(key.expires_at).toLocaleDateString("en-GB") : "—"}
                               </div>
                             </div>
                             <button className="btn ghost sm" onClick={() => revokeApiKey(key.id)} style={{ color: "var(--danger)" }}>

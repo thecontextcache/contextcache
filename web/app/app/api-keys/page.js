@@ -13,8 +13,12 @@ export const dynamic = "force-dynamic";
 
 function fmtDate(iso) {
   if (!iso) return "—";
+  // Use a fixed locale ("en-GB") so server (Docker/Node) and browser produce
+  // identical output. Using undefined locale is hydration-unsafe because Docker
+  // defaults to the C locale while browsers use the user's system locale.
+  if (typeof window === "undefined") return "—";
   try {
-    return new Date(iso).toLocaleDateString(undefined, {
+    return new Date(iso).toLocaleDateString("en-GB", {
       year: "numeric", month: "short", day: "numeric",
     });
   } catch { return iso; }
@@ -22,6 +26,9 @@ function fmtDate(iso) {
 
 function fmtDateTime(iso) {
   if (!iso) return "—";
+  // Guard: Date.now() differs between server and client, causing React #425
+  // (text content mismatch). Only compute relative time in the browser.
+  if (typeof window === "undefined") return "—";
   try {
     const d = new Date(iso);
     const diff = Date.now() - d.getTime();
