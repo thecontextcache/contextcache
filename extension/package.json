@@ -2,6 +2,7 @@
   "name": "contextcache-extension",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "ContextCache — save knowledge from any webpage to your project memory.",
   "scripts": {
     "dev": "vite build --watch",
@@ -15,7 +16,7 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@crxjs/vite-plugin": "2.0.0-beta.26",
+    "@crxjs/vite-plugin": "2.0.0-beta.23",
     "@types/chrome": "^0.0.268",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
