@@ -165,6 +165,16 @@ If logs mention pgvector/`vector` extension failures, use the pgvector DB image
 docker compose up -d --build db api web
 ```
 
+If the site renders a blank white screen with React hydration errors in console:
+
+- ensure `/Users/nd/Documents/contextcache/web/app/global-error.js` does **not** render `<html>` / `<body>`
+- run:
+
+```bash
+npm --prefix web run check:global-error
+docker compose up -d --build web
+```
+
 If CAG cache diagnostics are needed (admin key/session required):
 
 ```bash
