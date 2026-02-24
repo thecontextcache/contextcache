@@ -37,7 +37,7 @@ export default function RootLayout({ children }) {
           href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap"
         />
       </head>
-      <body>
+      <body suppressHydrationWarning>
         <ThemeProvider>
           <ToastProvider>
             <Shell>{children}</Shell>
