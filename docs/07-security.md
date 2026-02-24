@@ -11,7 +11,7 @@ ContextCache supports two auth modes:
 
 Cookie settings:
 - `HttpOnly=true`
-- `Secure=true` only in `APP_ENV=prod`
+- `Secure=true` when `APP_ENV=prod` **or** when `X-Forwarded-Proto: https` is present (Cloudflare tunnel)
 - `SameSite=lax`
 - explicit `Max-Age`, `Expires`, `Path=/`
 
@@ -60,10 +60,20 @@ Session controls:
 
 ## Rate limiting
 
-Current limiter is Redis-backed:
-- `/auth/request-link`: per-IP + per-email
-- `/auth/verify`: per-IP
-- `/projects/{id}/recall`: per-IP + per-account
+Redis-backed with in-memory fallback for dev:
+
+| Endpoint | Limit |
+|---|---|
+| `POST /auth/request-link` | 5/hr per-IP, 3/hr per-email |
+| `GET /auth/verify` | 20/hr per-IP |
+| `GET /projects/{id}/recall` | 240/hr per-IP, 240/hr per-account |
+| `POST /orgs` | 60/min per-IP, 60/min per-account |
+| `POST /projects` | 60/min per-IP, 60/min per-account |
+| `POST /projects/{id}/memories` | 60/min per-IP, 60/min per-account |
+| `POST /ingest/raw` | 30/min per-IP, 30/min per-account |
+
+All write-endpoint limits are tunable via `WRITE_RATE_LIMIT_PER_*_PER_MINUTE`
+and `INGEST_RATE_LIMIT_PER_*_PER_MINUTE` env vars. Set to `0` to disable.
 
 Behavior:
 - `APP_ENV=prod`: Redis is required; if Redis is unavailable, protected rate-limited routes return `503`.
@@ -75,14 +85,39 @@ Behavior:
 - `usage_events` tracks coarse telemetry with `ip_prefix` (not raw long-term IP)
 - No third-party analytics beacons or advertising trackers are embedded in the web UI.
 
+## Bootstrap mode
+
+Bootstrap mode allows the first API key to be created without existing credentials.
+It requires **two** explicit flags — `APP_ENV=dev` alone is not sufficient:
+
+```env
+APP_ENV=dev
+BOOTSTRAP_MODE=true          # explicit opt-in required
+BOOTSTRAP_API_KEY=cck_...    # key to auto-create
+```
+
+If `BOOTSTRAP_MODE=true` is detected on a non-dev environment, the API logs a
+startup warning. Bootstrap mode is disabled automatically once any active API
+key exists.
+
+## Email impersonation (dev only)
+
+`X-User-Email` header impersonation requires **both**:
+
+```env
+APP_ENV=dev
+ALLOW_EMAIL_IMPERSONATION=true
+```
+
 ## Operational hardening notes
 
-- Keep `.env` out of git
+- Keep `.env` out of git — `web/.next/` is also excluded (build artifacts)
 - Rotate leaked API keys immediately
 - Use TLS in production
 - Restrict CORS origins to trusted web hosts
 - Keep `X-User-Email` disabled outside dev (enforced in middleware)
-- Ignore untrusted forwarding headers; trust `CF-Connecting-IP` (or socket peer fallback).
+- Ignore untrusted forwarding headers; trust `CF-Connecting-IP` (or socket peer fallback)
+- Never commit database credentials as fallback defaults in scripts
 
 ## Security best practices checklist
 
