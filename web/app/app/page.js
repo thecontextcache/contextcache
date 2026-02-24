@@ -10,7 +10,6 @@ import { SkeletonCard, Skeleton } from "../components/skeleton";
 const MEMORY_TYPES = ["decision", "finding", "definition", "note", "link", "todo", "chat", "doc", "code"];
 const MEMORY_SOURCES = ["manual", "chatgpt", "claude", "cursor", "codex", "api"];
 
-export const dynamic = "force-dynamic";
 
 // Dark-mode-aware type colors using the design system palette
 const TYPE_COLORS = {

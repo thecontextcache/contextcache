@@ -7,7 +7,6 @@ import { apiFetch, ApiError } from "../lib/api";
 import { useToast } from "../components/toast";
 import BrainGraph from "../components/BrainGraph";
 
-export const dynamic = "force-dynamic";
 
 const TYPE_COLORS = {
   decision: "#00D4FF",

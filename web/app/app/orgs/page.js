@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "../../lib/api";
 import { useToast } from "../../components/toast";
 
-export const dynamic = "force-dynamic";
 
 function fmtDate(iso) {
   if (!iso) return "—";

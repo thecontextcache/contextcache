@@ -10,15 +10,34 @@
       "page": "/",
       "matchers": [
         {
-          "regexp": "^/.*$",
-          "originalSource": "/:path*"
+          "regexp": "^(?:\\/(_next\\/data\\/[^/]{1,}))?(?:\\/(\\/?index|\\/?index\\.json))?[\\/#\\?]?$",
+          "originalSource": "/"
+        },
+        {
+          "regexp": "^(?:\\/(_next\\/data\\/[^/]{1,}))?\\/auth(.json)?[\\/#\\?]?$",
+          "originalSource": "/auth"
+        },
+        {
+          "regexp": "^(?:\\/(_next\\/data\\/[^/]{1,}))?\\/app(?:\\/((?:[^\\/#\\?]+?)(?:\\/(?:[^\\/#\\?]+?))*))?(.json)?[\\/#\\?]?$",
+          "originalSource": "/app/:path*"
+        },
+        {
+          "regexp": "^(?:\\/(_next\\/data\\/[^/]{1,}))?\\/admin(?:\\/((?:[^\\/#\\?]+?)(?:\\/(?:[^\\/#\\?]+?))*))?(.json)?[\\/#\\?]?$",
+          "originalSource": "/admin/:path*"
+        },
+        {
+          "regexp": "^(?:\\/(_next\\/data\\/[^/]{1,}))?\\/brain(?:\\/((?:[^\\/#\\?]+?)(?:\\/(?:[^\\/#\\?]+?))*))?(.json)?[\\/#\\?]?$",
+          "originalSource": "/brain/:path*"
         }
       ],
       "wasm": [],
       "assets": [],
       "env": {
-        "__NEXT_BUILD_ID": "development",
-        "NEXT_SERVER_ACTIONS_ENCRYPTION_KEY": "kuAJahwCfL2Bx2QrAvN9wKZOVC/V7E3mZKeFVJi2Dy8="
+        "__NEXT_BUILD_ID": "RFtR9YL7YCpaSv7SdORoX",
+        "NEXT_SERVER_ACTIONS_ENCRYPTION_KEY": "rSlGJ84cG6cc7SzU9zI3yXcBXlYEtpHPHmZPpYlYmVM=",
+        "__NEXT_PREVIEW_MODE_ID": "379649aab43996e16ca9709c720c2044",
+        "__NEXT_PREVIEW_MODE_ENCRYPTION_KEY": "2029deea7f6412916d9c9f1b24b72b4e4f892b5b846e2b1c1822a146a28d32e6",
+        "__NEXT_PREVIEW_MODE_SIGNING_KEY": "e96d4540cccb903ff2df07a61821da1e98f6123af59934d4b26cf4abd0af1a09"
       }
     }
   },

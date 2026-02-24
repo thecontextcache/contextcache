@@ -7,7 +7,6 @@ import { apiFetch, ApiError } from "../../lib/api";
 import { useToast } from "../../components/toast";
 import { Skeleton } from "../../components/skeleton";
 
-export const dynamic = "force-dynamic";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
