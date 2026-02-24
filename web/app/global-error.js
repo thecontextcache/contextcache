@@ -11,6 +11,19 @@ import { useEffect } from "react";
 export default function GlobalError({ error, reset }) {
   useEffect(() => {
     console.error("[GlobalError]", error);
+    // Clean up any stale React roots that may have been created during
+    // a failed hydration recovery (React #423). If React called
+    // createRoot(document) and rendered an <html> element, it may leave
+    // a duplicate root behind that blocks all future rendering.
+    try {
+      document.querySelectorAll("[data-reactroot]").forEach((el) => {
+        if (el !== document.getElementById("__next")) {
+          el.remove();
+        }
+      });
+    } catch {
+      // DOM cleanup is best-effort
+    }
   }, [error]);
 
   return (

@@ -1,17 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "./theme-provider";
 import { buildApiBase, buildDocsBase, checkHealth, apiFetch } from "./lib/api";
 import { ServiceUnavailable } from "./components/service-unavailable";
 import { DebugPanel } from "./components/debug-panel";
-
-// framer-motion removed from shell: v12 no longer writes `initial` props
-// as inline styles during SSR, so server HTML has no style="opacity:0"
-// but the client sets it, producing React #418 → recovery → HierarchyRequestError
-// → blank page. Page-enter animation is handled by CSS instead (globals.css).
 
 export default function Shell({ children }) {
   const { resolvedTheme, toggleTheme } = useTheme();
@@ -23,9 +18,18 @@ export default function Shell({ children }) {
   const [lastError, setLastError] = useState("");
   const [session, setSession] = useState(null);
 
+  // Mount guard: never swap the render tree until after React has hydrated.
+  // Without this, healthOk can flip to false before hydration finishes,
+  // causing SSR (renders children) vs CSR (renders ServiceUnavailable)
+  // mismatch → React #418 → #423 → HierarchyRequestError → white screen.
+  const hasMounted = useRef(false);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    hasMounted.current = true;
+    setMounted(true);
+  }, []);
+
   const apiBase = useMemo(() => buildApiBase(), []);
-  // Docs URL is client-only — buildDocsBase() needs window.location.hostname.
-  // useEffect ensures it never runs on the server (avoids SSR → localhost:8001).
   const [docsBase, setDocsBase] = useState("");
 
   useEffect(() => {
@@ -34,13 +38,13 @@ export default function Shell({ children }) {
 
   // Health check on mount, retry when recovered
   useEffect(() => {
-    let mounted = true;
+    let cancelled = false;
     async function probe() {
       const ok = await checkHealth();
-      if (mounted) setHealthOk(ok);
+      if (!cancelled) setHealthOk(ok);
     }
     probe();
-    return () => { mounted = false; };
+    return () => { cancelled = true; };
   }, []);
 
   // Auth probe — run globally to keep the topbar perfectly in sync
@@ -76,26 +80,24 @@ export default function Shell({ children }) {
     return `nav-link${active ? " active" : ""}`;
   }
 
-  // Don't show login-state nav items on the auth page itself —
-  // the user is mid-signin and "Sign out" / "Admin" make no sense there.
   const onAuthPage = pathname.startsWith("/auth");
 
-  if (healthOk === false) {
-    return (
-      <ServiceUnavailable
-        onRecover={() => {
-          setHealthOk(true);
-          router.refresh();
-        }}
-      />
-    );
-  }
-
-  // Landing page and pricing are full-width — they handle their own layout.
   const isFullWidth = pathname === "/" || pathname === "/pricing";
+
+  // ServiceUnavailable renders as a fixed overlay on TOP of children so the
+  // React tree structure is identical on server and client during hydration.
+  const showUnavailable = mounted && healthOk === false;
 
   return (
     <div className="shell">
+      {showUnavailable && (
+        <ServiceUnavailable
+          onRecover={() => {
+            setHealthOk(true);
+            router.refresh();
+          }}
+        />
+      )}
       <header className="topbar">
         {/* Hard navigate: bypasses Next.js client router cache so middleware
             always runs and redirects auth users correctly to /app */}

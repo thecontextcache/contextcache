@@ -35,7 +35,17 @@ export function ServiceUnavailable({ onRecover }) {
   const apiBase = buildApiBase();
 
   return (
-    <div className="svc-unavail" role="alert" aria-live="assertive">
+    <div
+      className="svc-unavail"
+      role="alert"
+      aria-live="assertive"
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 99999,
+        background: "var(--bg, #060C18)",
+      }}
+    >
       <div className="svc-orbs" aria-hidden="true">
         <span className="orb orb1" />
         <span className="orb orb2" />

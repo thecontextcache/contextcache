@@ -473,6 +473,140 @@ before they reach production.
 
 ---
 
+## Bug 7 — White Blank Page: React Hydration Crash Caused by API 503
+
+### Symptom
+
+Visiting `thecontextcache.com` in any browser showed a permanent white blank
+page. The browser console showed:
+
+```
+React error #418 (hydration mismatch)
+React error #423 (hydration recovery failed)
+HierarchyRequestError: Failed to execute 'appendChild' on 'Node':
+  Only one element on document allowed
+GET /api/auth/me 503 (Service Unavailable)
+```
+
+### Root Cause
+
+Two issues combined to create the white screen:
+
+**Problem 1 — Shell swapped its entire render tree based on client-only state:**
+
+1. `web/app/shell.js` is a `"use client"` component wrapping all page content
+2. On mount, it runs `checkHealth()` which calls `/api/health`
+3. If the health check fails, `healthOk` flips from `null` to `false`
+4. When `healthOk === false`, the Shell returned `<ServiceUnavailable />`
+   instead of `{children}`
+5. During SSR, `healthOk` is `null`, so the server rendered `{children}`
+   (the landing page)
+6. **Mismatch**: Server HTML = landing page, Client HTML = ServiceUnavailable
+   → React #418 → #423 → tries `createRoot(document)` → `appendChild` of a
+   second `<html>` → HierarchyRequestError → permanent white screen
+
+**Problem 2 — API returned 503 for ALL requests when no API keys existed:**
+
+The FastAPI middleware in `main.py` checked for active API keys. If zero existed
+and `BOOTSTRAP_MODE` was not `true`, it returned 503 for every protected
+endpoint — including `/auth/me`. This turned a normal "not logged in" state
+into a "system unavailable" signal, triggering the Shell's health-check failure
+path.
+
+### Fix (5 files changed)
+
+#### `web/app/shell.js` — Mount guard + overlay pattern
+
+- Added a `hasMounted` ref and `mounted` state that becomes `true` only after
+  `useEffect(() => setMounted(true), [])` runs (i.e., after hydration)
+- `ServiceUnavailable` only renders when `mounted && healthOk === false`
+- `ServiceUnavailable` is rendered as a sibling overlay (`position: fixed`)
+  inside the same `<div className="shell">` tree, **not** as a complete tree
+  replacement. The React tree structure is now identical on server and client
+  during hydration.
+
+```javascript
+const showUnavailable = mounted && healthOk === false;
+return (
+  <div className="shell">
+    {showUnavailable && <ServiceUnavailable onRecover={...} />}
+    <header>{/* ... */}</header>
+    <main>{children}</main>
+    <footer>{/* ... */}</footer>
+  </div>
+);
+```
+
+#### `web/app/components/service-unavailable.js` — Fixed overlay
+
+Added `style={{ position: "fixed", inset: 0, zIndex: 99999 }}` so it covers
+the page without replacing the component tree.
+
+#### `api/app/main.py` — Smarter 503 gate
+
+The 503 gate now queries `AuthUser` count. If users exist but all API keys were
+revoked, it returns `401 Unauthorized` (normal auth flow) instead of `503`.
+The `503` only fires when the system has never been set up (`user_count == 0`).
+
+```python
+if active_key_count == 0 and not BOOTSTRAP_MODE_ENABLED:
+    user_count = (await session.execute(
+        select(func.count(AuthUser.id))
+    )).scalar_one()
+    if user_count == 0:
+        return JSONResponse(status_code=503, ...)
+    return JSONResponse(status_code=401, ...)
+```
+
+#### `web/app/global-error.js` — Stale root cleanup
+
+Added `document.querySelectorAll("[data-reactroot]")` cleanup in the
+`useEffect` to remove any stale React roots left behind by failed hydration
+recovery attempts.
+
+#### `contextcache-extension/manifest.config.ts` — exclude_matches
+
+Added `exclude_matches` to prevent the content script from injecting on
+`localhost:3000`, `thecontextcache.com`, and `*.thecontextcache.com`.
+
+### Affected Files
+
+```
+web/app/shell.js                          Mount guard + overlay rendering
+web/app/components/service-unavailable.js Fixed overlay positioning
+api/app/main.py                           503 → 401 when users exist
+web/app/global-error.js                   Stale root cleanup
+contextcache-extension/manifest.config.ts exclude_matches for app domain
+```
+
+### Lesson Learned
+
+A `"use client"` wrapper component must never swap its entire render tree based
+on state that only exists after mount (`useEffect`). The server always renders
+`initialState`, and if the first client-side render produces different JSX, React
+hydration fails catastrophically in production (minified errors, no recovery).
+
+**The pattern:** show conditional UI as **overlays** (same tree structure, extra
+sibling) rather than **tree swaps** (`if (condition) return <Different />` before
+the main JSX). Guard client-only state transitions with a `hasMounted` flag to
+ensure the first client render matches the server output.
+
+---
+
+## Summary Table
+
+| # | Bug | Impact | File Fixed | Fix |
+|---|-----|--------|-----------|-----|
+| 1 | Hilbert index overflow | All memory writes fail | `algorithm.py` | Clamp with `& BIGINT_MAX` |
+| 2 | Wrong FK `memories → auth_users` | API-key users can't create memories | `models.py` + migration | Drop+recreate FK to `users.id` |
+| 3 | `celery` not installed | Any request hitting task import crashes | `pyproject.toml` | `uv add celery` |
+| 4 | Duplicate `/ingest/raw` | Refinery bypassed | `routes.py` | Remove shortcut handler |
+| 5 | Inbox always empty | Refinery nonfunctional in default config | `ingest_routes.py` | Add inline fallback |
+| 6 | Stale `ProjectUpdate` import | API fails to start | `routes.py` | Remove orphaned import |
+| 7 | White blank page (hydration crash) | Entire site unreachable | `shell.js` + `main.py` + 3 others | Mount guard + overlay + 503→401 |
+
+---
+
 ## Recommended Pre-Deploy Checklist
 
 Based on the bugs above, the following checks should be run before every

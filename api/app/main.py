@@ -489,9 +489,23 @@ async def api_key_middleware(request: Request, call_next):
             ).scalar_one_or_none()
 
         if active_key_count == 0 and not BOOTSTRAP_MODE_ENABLED:
+            # Only return 503 if the system has never been set up (no users exist).
+            # If users exist but all keys were revoked, return 401 — the system IS
+            # configured, the caller just isn't authenticated.  Returning 503 here
+            # when the frontend calls /auth/me causes a hydration crash: the server
+            # renders the landing page but the client renders ServiceUnavailable.
+            user_count = (
+                await session.execute(select(func.count(AuthUser.id)))
+            ).scalar_one()
+            if user_count == 0:
+                return JSONResponse(
+                    status_code=503,
+                    content={"detail": "Service unavailable: system not configured"},
+                )
+            # System has users → normal 401 for unauthenticated requests
             return JSONResponse(
-                status_code=503,
-                content={"detail": "Service unavailable: no active API keys configured"},
+                status_code=401,
+                content={"detail": "Unauthorized"},
             )
 
         # ── 3. Bootstrap mode (BOOTSTRAP_MODE=true + no keys) ───────────────
