@@ -8,7 +8,10 @@ import { buildApiBase, buildDocsBase, checkHealth, apiFetch } from "./lib/api";
 import { ServiceUnavailable } from "./components/service-unavailable";
 import { DebugPanel } from "./components/debug-panel";
 
-import { motion } from "framer-motion";
+// framer-motion removed from shell: v12 no longer writes `initial` props
+// as inline styles during SSR, so server HTML has no style="opacity:0"
+// but the client sets it, producing React #418 → recovery → HierarchyRequestError
+// → blank page. Page-enter animation is handled by CSS instead (globals.css).
 
 export default function Shell({ children }) {
   const { resolvedTheme, toggleTheme } = useTheme();
@@ -129,16 +132,12 @@ export default function Shell({ children }) {
         </nav>
       </header>
 
-      <motion.main
-        key={pathname}
+      <main
         id="main-content"
         className={`page-transition-wrap ${isFullWidth ? "" : "page"}`}
-        initial={{ opacity: 0, y: 15 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3, ease: "easeOut" }}
       >
         {children}
-      </motion.main>
+      </main>
 
       <footer className="footer">
         <span className="muted">thecontextcache™ — invite-only alpha</span>

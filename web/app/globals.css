@@ -260,12 +260,20 @@ html[data-theme="light"] .brand-logo {
   flex-direction: column;
 }
 
-/* Page transition is handled exclusively by framer-motion in shell.js
-   (initial opacity:0 → animate opacity:1). The CSS animation was removed
-   to prevent a conflict where framer-motion's inline opacity:0 stays
-   frozen when hydration is delayed, making the whole page appear blank. */
 .page-transition-wrap {
-  /* intentionally empty — framer-motion owns the transition */
+  animation: page-enter 0.25s ease-out;
+}
+
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .footer {
