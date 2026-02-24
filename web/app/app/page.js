@@ -6,7 +6,6 @@ import Link from "next/link";
 import { apiFetch, ApiError } from "../lib/api";
 import { useToast } from "../components/toast";
 import { SkeletonCard, Skeleton } from "../components/skeleton";
-import { motion, AnimatePresence } from "framer-motion";
 
 const MEMORY_TYPES = ["decision", "finding", "definition", "note", "link", "todo", "chat", "doc", "code"];
 const MEMORY_SOURCES = ["manual", "chatgpt", "claude", "cursor", "codex", "api"];
@@ -57,15 +56,7 @@ function TypeBadge({ type, size = "sm" }) {
   );
 }
 
-const containerVariants = {
-  hidden: { opacity: 0 },
-  show: { opacity: 1, transition: { staggerChildren: 0.05 } }
-};
 
-const itemVariants = {
-  hidden: { opacity: 0, y: 15 },
-  show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 400, damping: 30 } }
-};
 
 // ── Usage meter ─────────────────────────────────────────────────────────────
 
@@ -776,8 +767,7 @@ export default function AppPage() {
                 >
                   {label}
                   {tab === id && (
-                    <motion.div
-                      layoutId="activeAppTabIndicator"
+                    <div
                       style={{
                         position: 'absolute',
                         bottom: -2,
@@ -787,17 +777,16 @@ export default function AppPage() {
                         backgroundColor: 'var(--brand)',
                         borderRadius: '2px 2px 0 0'
                       }}
-                      transition={{ type: "spring", stiffness: 300, damping: 30 }}
                     />
                   )}
                 </button>
               ))}
             </div>
 
-            <AnimatePresence mode="wait">
+            <div className="tab-content" style={{ position: "relative" }}>
               {/* ── Compose ── */}
               {tab === "compose" && (
-                <motion.div key="compose" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}>
+                <div key="compose" className="animate-fade-in">
                   <form onSubmit={saveMemory} className="stack card" style={{ padding: 32, background: "rgba(14, 18, 30, 0.4)", backdropFilter: "blur(40px)", borderColor: "rgba(0,229,255,0.1)", boxShadow: "0 24px 64px rgba(0,0,0,0.6)" }}>
 
                     <div className="row spread" style={{ marginBottom: 16 }}>
@@ -948,12 +937,12 @@ export default function AppPage() {
                       )}
                     </div>
                   </form>
-                </motion.div>
+                </div>
               )}
 
               {/* ── Memories ── */}
               {tab === "memories" && (
-                <motion.div key="memories" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} className="card">
+                <div key="memories" className="card animate-fade-in">
                   <div className="row spread" style={{ marginBottom: 14 }}>
                     <h2 style={{ margin: 0, fontSize: "1rem" }}>
                       All memories
@@ -981,22 +970,19 @@ export default function AppPage() {
                       </button>
                     </div>
                   ) : (
-                    <motion.div
-                      className="memory-list stack-sm"
+                    <div
+                      className="memory-list stack-sm animate-fade-in"
                       role="list"
-                      variants={containerVariants}
-                      initial="hidden"
-                      animate="show"
                     >
-                      {memories.map((m) => (
-                        <motion.div
+                      {memories.map((m, index) => (
+                        <div
                           key={m.id}
-                          variants={itemVariants}
-                          className="memory-row card"
+                          className="memory-row card animate-fade-in"
                           role="listitem"
                           style={{
                             display: "flex", flexWrap: "wrap", gap: 12, padding: "16px 20px",
-                            background: "rgba(20, 26, 43, 0.4)", border: "1px solid rgba(0, 229, 255, 0.05)"
+                            background: "rgba(20, 26, 43, 0.4)", border: "1px solid rgba(0, 229, 255, 0.05)",
+                            animationDelay: `${index * 0.05}s`, animationFillMode: 'both'
                           }}
                         >
                           <div className="row" style={{ gap: 8, flexShrink: 0, alignItems: "flex-start", marginTop: 2 }}>
@@ -1033,16 +1019,16 @@ export default function AppPage() {
                           <span className="memory-row-time" title={new Date(m.created_at).toLocaleString()} style={{ fontSize: "0.75rem", color: "var(--muted)", fontFamily: "var(--mono)" }}>
                             {fmtTime(m.created_at)}
                           </span>
-                        </motion.div>
+                        </div>
                       ))}
-                    </motion.div>
+                    </div>
                   )}
-                </motion.div>
+                </div>
               )}
 
               {/* ── Recall ── */}
               {tab === "recall" && (
-                <motion.div key="recall" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} className="stack">
+                <div key="recall" className="stack animate-fade-in">
                   <div className="card">
                     <h2 style={{ marginBottom: 12, fontSize: "1rem" }}>Recall context</h2>
                     <form onSubmit={runRecall} className="stack">
@@ -1150,12 +1136,12 @@ export default function AppPage() {
                       <pre className="pre">{memoryPack}</pre>
                     </div>
                   )}
-                </motion.div>
+                </div>
               )}
 
               {/* ── Integrations & API Keys ── */}
               {tab === "api" && (
-                <motion.div key="api" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} className="stack">
+                <div key="api" className="stack animate-fade-in">
                   <div className="card">
                     <h2 style={{ marginBottom: 8, fontSize: "1.1rem", display: "flex", gap: 8, alignItems: "center" }}>
                       <span className="badge badge-brand">New</span> AI Agent Integrations
@@ -1243,9 +1229,9 @@ export default function AppPage() {
                       )}
                     </div>
                   </div>
-                </motion.div>
+                </div>
               )}
-            </AnimatePresence>
+            </div>
           </>
         )}
       </main>

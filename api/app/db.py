@@ -12,7 +12,7 @@ from pgvector.asyncpg import register_vector
 import time
 import logging
 
-DATABASE_URL: str = os.environ["DATABASE_URL"]
+DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./contextcache.db")
 
 engine: AsyncEngine = create_async_engine(DATABASE_URL, echo=False, future=True)
 
