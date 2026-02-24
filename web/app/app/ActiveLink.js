@@ -1,15 +1,18 @@
 "use client";
 
+// usePathname() is synchronous in Next.js 14 — it does NOT need a Suspense
+// boundary. Adding Suspense creates a server/client mismatch: the server
+// renders ActiveLinkInner (with active-state inline styles) but during
+// hydration React may render the LinkFallback (different styles) → React
+// #418 → recovery → HierarchyRequestError → blank page.
 import Link from "next/link";
-import { Suspense } from "react";
 import { usePathname } from "next/navigation";
 
-// Isolated client component for a single nav link with active state.
-// Wrapped in Suspense at the call site in layout.js so that if
-// usePathname() suspends (e.g. during streaming), a fallback renders.
-function ActiveLinkInner({ href, exact, icon, label }) {
+export function ActiveLink({ href, exact, icon, label }) {
   const pathname = usePathname();
-  const active = exact ? pathname === href : pathname.startsWith(href);
+  const active = pathname
+    ? (exact ? pathname === href : pathname.startsWith(href))
+    : false;
 
   return (
     <Link
@@ -32,34 +35,5 @@ function ActiveLinkInner({ href, exact, icon, label }) {
       </span>
       {label}
     </Link>
-  );
-}
-
-// Static fallback rendered before usePathname() resolves (no active state).
-function LinkFallback({ href, icon, label }) {
-  return (
-    <Link
-      href={href}
-      style={{
-        display: "flex", alignItems: "center", gap: 10,
-        padding: "8px 12px", borderRadius: 8,
-        textDecoration: "none",
-        fontSize: "0.88rem", fontWeight: 400,
-        color: "var(--muted, #94adc8)",
-      }}
-    >
-      <span style={{ width: 20, textAlign: "center", flexShrink: 0, fontSize: "1rem" }}>
-        {icon}
-      </span>
-      {label}
-    </Link>
-  );
-}
-
-export function ActiveLink({ href, exact, icon, label }) {
-  return (
-    <Suspense fallback={<LinkFallback href={href} icon={icon} label={label} />}>
-      <ActiveLinkInner href={href} exact={exact} icon={icon} label={label} />
-    </Suspense>
   );
 }
