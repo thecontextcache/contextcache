@@ -221,8 +221,14 @@ export default function AppPage() {
       if (typeof window !== "undefined") {
         if (nextOrgId) {
           window.localStorage.setItem("CONTEXTCACHE_ORG_ID", nextOrgId);
+          const orgRow = (orgRows || []).find((o) => String(o.id) === nextOrgId);
+          if (orgRow) {
+            window.localStorage.setItem("CONTEXTCACHE_ORG_NAME", orgRow.name);
+            window.dispatchEvent(new Event("cc:org-changed"));
+          }
         } else {
           window.localStorage.removeItem("CONTEXTCACHE_ORG_ID");
+          window.localStorage.removeItem("CONTEXTCACHE_ORG_NAME");
         }
       }
       setOrgId(nextOrgId);
@@ -743,20 +749,6 @@ export default function AppPage() {
                     title="Review AI-suggested memory drafts"
                   >
                     📥 Inbox
-                  </Link>
-                  <Link
-                    href="/app/api-keys"
-                    style={{
-                      display: "inline-flex", alignItems: "center", gap: 5,
-                      padding: "4px 12px", borderRadius: 8,
-                      border: "1px solid var(--border)",
-                      background: "var(--surface-1)", color: "var(--text)",
-                      fontSize: 12, fontWeight: 600, textDecoration: "none",
-                      whiteSpace: "nowrap",
-                    }}
-                    title="Manage API Keys"
-                  >
-                    🔑 API Keys
                   </Link>
                   <span className="badge badge-brand" style={{ fontFamily: "var(--display)", letterSpacing: "0.06em" }}>
                     Brain

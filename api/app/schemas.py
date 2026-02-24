@@ -100,6 +100,10 @@ class OrgCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
 
 
+class OrgUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
 class OrgOut(BaseModel):
     id: int
     name: str

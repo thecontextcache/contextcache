@@ -57,6 +57,7 @@ from .schemas import (
     MembershipOut,
     OrgCreate,
     OrgOut,
+    OrgUpdate,
     ProjectCreate,
     ProjectOut,
     RecallItemOut,
@@ -519,6 +520,54 @@ async def list_orgs(
     else:
         rows = []
     return [OrgOut(id=o.id, name=o.name, created_at=o.created_at) for o in rows]
+
+
+@router.patch("/orgs/{org_id}", response_model=OrgOut)
+async def rename_org(
+    org_id: int,
+    payload: OrgUpdate,
+    db: AsyncSession = Depends(get_db),
+    ctx: RequestContext = Depends(get_actor_context),
+) -> OrgOut:
+    ensure_org_access(ctx, org_id)
+    require_role(ctx, "admin")
+    org = await get_org_or_404(db, org_id)
+    org.name = payload.name
+    await write_audit(
+        db, ctx=ctx, org_id=org_id, action="org.rename",
+        entity_type="org", entity_id=org_id, metadata={"name": payload.name},
+    )
+    await db.commit()
+    await db.refresh(org)
+    return OrgOut(id=org.id, name=org.name, created_at=org.created_at)
+
+
+@router.delete("/orgs/{org_id}", status_code=204)
+async def delete_org(
+    org_id: int,
+    db: AsyncSession = Depends(get_db),
+    ctx: RequestContext = Depends(get_actor_context),
+) -> None:
+    ensure_org_access(ctx, org_id)
+    require_role(ctx, "owner")
+    org = await get_org_or_404(db, org_id)
+
+    # Safety: refuse if org still has projects or members other than the caller
+    project_count = (
+        await db.execute(select(func.count(Project.id)).where(Project.org_id == org_id))
+    ).scalar_one()
+    if project_count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete organisation: {project_count} project(s) still exist. Delete all projects first.",
+        )
+
+    await write_audit(
+        db, ctx=ctx, org_id=org_id, action="org.delete",
+        entity_type="org", entity_id=org_id, metadata={"name": org.name},
+    )
+    await db.delete(org)
+    await db.commit()
 
 
 @router.post("/orgs/{org_id}/memberships", response_model=MembershipOut, status_code=201)

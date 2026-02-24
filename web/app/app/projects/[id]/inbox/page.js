@@ -1,66 +1,64 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiFetch } from "../../../../lib/api";
 
-// ─── Type badge colours (mirrors the main app) ───────────────────────────────
-const TYPE_COLORS = {
-  decision:   { bg: "var(--violet-soft)",  text: "var(--violet)",  label: "Decision"   },
-  finding:    { bg: "var(--blue-soft)",    text: "var(--blue)",    label: "Finding"    },
-  definition: { bg: "var(--green-soft)",   text: "var(--green)",   label: "Definition" },
-  todo:       { bg: "var(--orange-soft)",  text: "var(--orange)",  label: "Todo"       },
-  code:       { bg: "var(--cyan-soft)",    text: "var(--cyan)",    label: "Code"       },
-  doc:        { bg: "var(--teal-soft)",    text: "var(--teal)",    label: "Doc"        },
-  note:       { bg: "var(--muted-bg)",     text: "var(--muted)",   label: "Note"       },
-  link:       { bg: "var(--muted-bg)",     text: "var(--muted)",   label: "Link"       },
-  chat:       { bg: "var(--muted-bg)",     text: "var(--muted)",   label: "Chat"       },
-  event:      { bg: "var(--muted-bg)",     text: "var(--muted)",   label: "Event"      },
-  file:       { bg: "var(--muted-bg)",     text: "var(--muted)",   label: "File"       },
-  web:        { bg: "var(--muted-bg)",     text: "var(--muted)",   label: "Web"        },
+// ── Type config ───────────────────────────────────────────────────────────────
+
+const TYPES = {
+  decision:   { label: "Decision",   color: "#A78BFA", bg: "rgba(167,139,250,0.12)" },
+  finding:    { label: "Finding",    color: "#00D4FF", bg: "rgba(0,212,255,0.12)"   },
+  definition: { label: "Definition", color: "#00E5A0", bg: "rgba(0,229,160,0.12)"   },
+  todo:       { label: "Todo",       color: "#FB923C", bg: "rgba(251,146,60,0.12)"  },
+  code:       { label: "Code",       color: "#38BDF8", bg: "rgba(56,189,248,0.12)"  },
+  doc:        { label: "Doc",        color: "#34D399", bg: "rgba(52,211,153,0.12)"  },
+  note:       { label: "Note",       color: "#94A3B8", bg: "rgba(148,163,184,0.1)"  },
+  link:       { label: "Link",       color: "#F472B6", bg: "rgba(244,114,182,0.1)"  },
+  chat:       { label: "Chat",       color: "#94A3B8", bg: "rgba(148,163,184,0.1)"  },
 };
-const MEMORY_TYPES = Object.keys(TYPE_COLORS);
+
+const ALL_TYPES = Object.keys(TYPES);
+
+function typeMeta(t) {
+  return TYPES[t] || TYPES.note;
+}
+
+// ── Confidence bar ─────────────────────────────────────────────────────────────
+
+function ConfidenceBar({ score }) {
+  const pct = Math.round((score || 0) * 100);
+  const color = pct >= 80 ? "#00E5A0" : pct >= 50 ? "#FFB800" : "#FB7185";
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ width: 64, height: 4, borderRadius: 99, background: "var(--line)" }}>
+        <div style={{ width: `${pct}%`, height: "100%", borderRadius: 99, background: color, transition: "width 0.4s" }} />
+      </div>
+      <span style={{ fontSize: "0.7rem", fontWeight: 700, color, minWidth: 28 }}>{pct}%</span>
+    </div>
+  );
+}
+
+// ── Type badge ─────────────────────────────────────────────────────────────────
 
 function TypeBadge({ type }) {
-  const color = TYPE_COLORS[type] || TYPE_COLORS.note;
+  const m = typeMeta(type);
   return (
-    <span
-      style={{
-        display: "inline-block",
-        padding: "2px 9px",
-        borderRadius: 99,
-        fontSize: 11,
-        fontWeight: 600,
-        letterSpacing: 0.3,
-        background: color.bg,
-        color: color.text,
-        border: `1px solid ${color.text}22`,
-        textTransform: "uppercase",
-      }}
-    >
-      {color.label}
+    <span style={{
+      display: "inline-flex", alignItems: "center",
+      padding: "2px 10px", borderRadius: 999,
+      fontSize: "0.7rem", fontWeight: 700, letterSpacing: "0.05em",
+      background: m.bg, color: m.color,
+      border: `1px solid ${m.color}30`,
+      textTransform: "uppercase",
+    }}>
+      {m.label}
     </span>
   );
 }
 
-function ConfidencePip({ score }) {
-  const pct = Math.round((score || 0) * 100);
-  const hue = Math.round(pct * 1.2); // 0→red, 100→green
-  return (
-    <span
-      style={{
-        fontSize: 11,
-        fontWeight: 600,
-        color: `hsl(${hue},65%,45%)`,
-      }}
-    >
-      {pct}% confidence
-    </span>
-  );
-}
-
-// ─── Edit Modal ───────────────────────────────────────────────────────────────
+// ── Edit modal ─────────────────────────────────────────────────────────────────
 
 function EditModal({ item, onSave, onClose }) {
   const [type, setType] = useState(item.suggested_type || "note");
@@ -70,16 +68,12 @@ function EditModal({ item, onSave, onClose }) {
   const [error, setError] = useState("");
 
   async function handleSave() {
-    if (!content.trim()) {
-      setError("Content cannot be empty.");
-      return;
-    }
-    setSaving(true);
-    setError("");
+    if (!content.trim()) { setError("Content cannot be empty."); return; }
+    setSaving(true); setError("");
     try {
       await onSave({ suggested_type: type, suggested_title: title.trim() || null, suggested_content: content.trim() });
     } catch (e) {
-      setError(e.message || "Failed to approve item.");
+      setError(e.message || "Failed to save.");
     } finally {
       setSaving(false);
     }
@@ -89,121 +83,88 @@ function EditModal({ item, onSave, onClose }) {
     <div
       style={{
         position: "fixed", inset: 0, zIndex: 1000,
-        background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)",
-        display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+        background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)",
+        display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
       }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div
-        style={{
-          background: "var(--surface-2)",
-          border: "1px solid var(--border)",
-          borderRadius: 14,
-          padding: 28,
-          width: "100%",
-          maxWidth: 560,
-          display: "flex",
-          flexDirection: "column",
-          gap: 16,
-          boxShadow: "0 24px 64px rgba(0,0,0,0.4)",
-        }}
-      >
+      <div style={{
+        background: "var(--bg-2)", border: "1px solid var(--line)",
+        borderRadius: 16, padding: 28, width: "100%", maxWidth: 600,
+        display: "flex", flexDirection: "column", gap: 18,
+        boxShadow: "0 24px 64px rgba(0,0,0,0.5)", maxHeight: "90vh", overflowY: "auto",
+      }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Edit before approving</h3>
-          <button
-            onClick={onClose}
-            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--muted)", fontSize: 20, lineHeight: 1 }}
-            aria-label="Close"
-          >×</button>
+          <h3 style={{ margin: 0, fontSize: "1.05rem", fontWeight: 700 }}>Edit before approving</h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--muted)", fontSize: 22, lineHeight: 1, padding: 4 }}>×</button>
         </div>
 
-        {/* Type selector */}
-        <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>Type</span>
-          <select
-            value={type}
-            onChange={(e) => setType(e.target.value)}
-            style={{
-              padding: "8px 12px",
-              borderRadius: 8,
-              border: "1px solid var(--border)",
-              background: "var(--surface-1)",
-              color: "var(--text)",
-              fontSize: 14,
-            }}
-          >
-            {MEMORY_TYPES.map((t) => (
-              <option key={t} value={t}>{TYPE_COLORS[t]?.label || t}</option>
-            ))}
-          </select>
-        </label>
+        {/* Type picker — visual pills */}
+        <div>
+          <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Type</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {ALL_TYPES.map((t) => {
+              const m = typeMeta(t);
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setType(t)}
+                  style={{
+                    padding: "4px 12px", borderRadius: 999, fontSize: "0.75rem", fontWeight: 600,
+                    border: type === t ? `1.5px solid ${m.color}` : "1px solid var(--line)",
+                    background: type === t ? m.bg : "transparent",
+                    color: type === t ? m.color : "var(--muted)",
+                    cursor: "pointer", transition: "all 0.15s",
+                  }}
+                >
+                  {m.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
-        {/* Title */}
         <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>Title (optional)</span>
+          <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Title (optional)</span>
           <input
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Short title…"
             maxLength={500}
-            style={{
-              padding: "8px 12px",
-              borderRadius: 8,
-              border: "1px solid var(--border)",
-              background: "var(--surface-1)",
-              color: "var(--text)",
-              fontSize: 14,
-            }}
+            style={{ padding: "9px 12px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--ink)", fontSize: "0.9rem" }}
           />
         </label>
 
-        {/* Content */}
         <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>Content</span>
+          <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Content</span>
           <textarea
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            rows={6}
+            rows={8}
             style={{
-              padding: "10px 12px",
-              borderRadius: 8,
-              border: "1px solid var(--border)",
-              background: "var(--surface-1)",
-              color: "var(--text)",
-              fontSize: 14,
-              resize: "vertical",
-              fontFamily: "inherit",
+              padding: "10px 12px", borderRadius: 8, border: "1px solid var(--line)",
+              background: "var(--bg)", color: "var(--ink)", fontSize: "0.88rem",
+              resize: "vertical", fontFamily: "inherit", lineHeight: 1.65,
             }}
           />
         </label>
 
         {error && (
-          <div style={{ color: "var(--red)", fontSize: 13, background: "var(--red-soft)", padding: "8px 12px", borderRadius: 8 }}>
+          <div style={{ color: "#ef4444", fontSize: "0.82rem", background: "rgba(239,68,68,0.08)", padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.2)" }}>
             {error}
           </div>
         )}
 
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <button
-            onClick={onClose}
-            disabled={saving}
-            style={{
-              padding: "8px 20px", borderRadius: 8, border: "1px solid var(--border)",
-              background: "var(--surface-1)", color: "var(--text)", cursor: "pointer", fontSize: 14,
-            }}
-          >
-            Cancel
-          </button>
+          <button onClick={onClose} disabled={saving} className="btn ghost">Cancel</button>
           <button
             onClick={handleSave}
-            disabled={saving}
-            style={{
-              padding: "8px 20px", borderRadius: 8, border: "none",
-              background: "var(--green)", color: "#fff", cursor: "pointer", fontSize: 14, fontWeight: 600,
-            }}
+            disabled={saving || !content.trim()}
+            className="btn primary"
           >
-            {saving ? "Saving…" : "✅ Approve"}
+            {saving ? "Saving…" : "Approve with edits"}
           </button>
         </div>
       </div>
@@ -211,152 +172,187 @@ function EditModal({ item, onSave, onClose }) {
   );
 }
 
-// ─── Draft Card ───────────────────────────────────────────────────────────────
+// ── Draft card ─────────────────────────────────────────────────────────────────
 
-function DraftCard({ item, onApprove, onReject, onEdit }) {
-  const [actionPending, setActionPending] = useState(null); // "approve" | "reject"
+function DraftCard({ item, onApprove, onReject, onEdit, selected, onSelect }) {
+  const [expanded, setExpanded] = useState(false);
+  const [pending, setPending] = useState(null);
+  const isLong = (item.suggested_content || "").length > 300;
+  const preview = isLong && !expanded
+    ? item.suggested_content.slice(0, 300) + "…"
+    : item.suggested_content;
 
-  async function handleApprove() {
-    setActionPending("approve");
-    try { await onApprove(item); } finally { setActionPending(null); }
-  }
-
-  async function handleReject() {
-    setActionPending("reject");
-    try { await onReject(item); } finally { setActionPending(null); }
+  async function act(action, fn) {
+    setPending(action);
+    try { await fn(item); } finally { setPending(null); }
   }
 
   return (
-    <div
-      style={{
-        background: "var(--surface-2)",
-        border: "1px solid var(--border)",
-        borderRadius: 12,
-        padding: "18px 20px",
-        display: "flex",
-        flexDirection: "column",
-        gap: 12,
-        transition: "box-shadow 0.15s ease",
-      }}
-    >
-      {/* Header row */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <TypeBadge type={item.suggested_type} />
-        <ConfidencePip score={item.confidence_score} />
-        <span style={{ flex: 1 }} />
-        <span style={{ fontSize: 11, color: "var(--muted-2)" }}>
-          #{item.id}
-        </span>
-      </div>
+    <div style={{
+      background: "var(--bg-2)", border: `1px solid ${selected ? "rgba(0,212,255,0.4)" : "var(--line-2)"}`,
+      borderRadius: 14, overflow: "hidden",
+      boxShadow: selected ? "0 0 0 1px rgba(0,212,255,0.15)" : "none",
+      transition: "border-color 0.15s, box-shadow 0.15s",
+    }}>
+      {/* Colour accent strip */}
+      <div style={{ height: 3, background: typeMeta(item.suggested_type).color, opacity: 0.7 }} />
 
-      {/* Title */}
-      {item.suggested_title && (
-        <div style={{ fontWeight: 600, fontSize: 14, color: "var(--text)" }}>
-          {item.suggested_title}
+      <div style={{ padding: "16px 20px" }}>
+        {/* Top row */}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 12 }}>
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => onSelect(item.id)}
+            style={{ marginTop: 3, cursor: "pointer", accentColor: "#00D4FF", width: 15, height: 15, flexShrink: 0 }}
+          />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+              <TypeBadge type={item.suggested_type} />
+              <ConfidenceBar score={item.confidence_score} />
+              <span style={{ marginLeft: "auto", fontSize: "0.72rem", color: "var(--muted)", fontFamily: "var(--mono)", flexShrink: 0 }}>#{item.id}</span>
+            </div>
+
+            {/* Title */}
+            {item.suggested_title && (
+              <div style={{ fontWeight: 700, fontSize: "0.95rem", color: "var(--ink)", marginBottom: 8, lineHeight: 1.4 }}>
+                {item.suggested_title}
+              </div>
+            )}
+
+            {/* Content */}
+            <div style={{ fontSize: "0.875rem", color: "var(--ink-2)", lineHeight: 1.7, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+              {preview}
+            </div>
+            {isLong && (
+              <button
+                onClick={() => setExpanded((v) => !v)}
+                style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: "0.78rem", marginTop: 4, padding: 0 }}
+              >
+                {expanded ? "▲ Show less" : "▼ Show more"}
+              </button>
+            )}
+          </div>
         </div>
-      )}
 
-      {/* Content */}
-      <div
-        style={{
-          fontSize: 13,
-          color: "var(--text-2)",
-          lineHeight: 1.6,
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-word",
-          maxHeight: 180,
-          overflow: "hidden",
-          maskImage: "linear-gradient(to bottom, black 75%, transparent 100%)",
-          WebkitMaskImage: "linear-gradient(to bottom, black 75%, transparent 100%)",
-        }}
-      >
-        {item.suggested_content}
-      </div>
+        {/* Action bar */}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", paddingTop: 12, borderTop: "1px solid var(--line-2)" }}>
+          <button
+            onClick={() => act("approve", onApprove)}
+            disabled={!!pending}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "6px 16px", borderRadius: 8, border: "none",
+              background: pending === "approve" ? "rgba(0,229,160,0.2)" : "#00E5A0",
+              color: pending === "approve" ? "#00E5A0" : "#000",
+              cursor: "pointer", fontSize: "0.82rem", fontWeight: 700,
+              opacity: pending && pending !== "approve" ? 0.5 : 1,
+            }}
+          >
+            {pending === "approve" ? "Saving…" : "✓ Approve"}
+          </button>
 
-      {/* Action row */}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <button
-          onClick={handleApprove}
-          disabled={!!actionPending}
-          title="Approve and promote to memory"
-          style={{
-            display: "flex", alignItems: "center", gap: 6,
-            padding: "7px 16px", borderRadius: 8, border: "none",
-            background: actionPending === "approve" ? "var(--green-soft)" : "var(--green)",
-            color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600,
-            opacity: actionPending ? 0.7 : 1,
-          }}
-        >
-          {actionPending === "approve" ? "Saving…" : "✅ Approve"}
-        </button>
+          <button
+            onClick={() => onEdit(item)}
+            disabled={!!pending}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "6px 14px", borderRadius: 8,
+              border: "1px solid var(--line)", background: "transparent",
+              color: "var(--ink)", cursor: "pointer", fontSize: "0.82rem",
+              opacity: pending ? 0.5 : 1,
+            }}
+          >
+            ✎ Edit
+          </button>
 
-        <button
-          onClick={() => onEdit(item)}
-          disabled={!!actionPending}
-          title="Edit before approving"
-          style={{
-            display: "flex", alignItems: "center", gap: 6,
-            padding: "7px 16px", borderRadius: 8,
-            border: "1px solid var(--border)",
-            background: "var(--surface-1)", color: "var(--text)",
-            cursor: "pointer", fontSize: 13,
-            opacity: actionPending ? 0.7 : 1,
-          }}
-        >
-          ✏️ Edit
-        </button>
-
-        <button
-          onClick={handleReject}
-          disabled={!!actionPending}
-          title="Reject this draft"
-          style={{
-            display: "flex", alignItems: "center", gap: 6,
-            padding: "7px 16px", borderRadius: 8,
-            border: "1px solid var(--red-border, var(--border))",
-            background: "var(--surface-1)", color: "var(--red, #e53)",
-            cursor: "pointer", fontSize: 13,
-            opacity: actionPending ? 0.7 : 1,
-          }}
-        >
-          {actionPending === "reject" ? "Rejecting…" : "❌ Reject"}
-        </button>
+          <button
+            onClick={() => act("reject", onReject)}
+            disabled={!!pending}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "6px 14px", borderRadius: 8,
+              border: "1px solid rgba(239,68,68,0.3)", background: "transparent",
+              color: "#ef4444", cursor: "pointer", fontSize: "0.82rem",
+              opacity: pending && pending !== "reject" ? 0.5 : 1,
+            }}
+          >
+            {pending === "reject" ? "Rejecting…" : "✕ Reject"}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-// ─── Toast (simple inline) ────────────────────────────────────────────────────
+// ── Bulk bar ───────────────────────────────────────────────────────────────────
 
-function Toast({ message, kind = "success", onDismiss }) {
+function BulkBar({ count, onApproveAll, onRejectAll, onClear, busy }) {
+  return (
+    <div style={{
+      position: "sticky", top: 0, zIndex: 100,
+      background: "rgba(0,212,255,0.06)", backdropFilter: "blur(8px)",
+      border: "1px solid rgba(0,212,255,0.2)", borderRadius: 12,
+      padding: "10px 16px", display: "flex", alignItems: "center", gap: 12,
+      flexWrap: "wrap", marginBottom: 16,
+    }}>
+      <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "#00D4FF", flex: 1 }}>
+        {count} selected
+      </span>
+      <button
+        onClick={onApproveAll}
+        disabled={busy}
+        style={{
+          padding: "6px 16px", borderRadius: 8, border: "none",
+          background: "#00E5A0", color: "#000", fontWeight: 700, fontSize: "0.82rem", cursor: "pointer",
+        }}
+      >
+        {busy === "approve" ? "Approving…" : `✓ Approve all (${count})`}
+      </button>
+      <button
+        onClick={onRejectAll}
+        disabled={busy}
+        style={{
+          padding: "6px 14px", borderRadius: 8,
+          border: "1px solid rgba(239,68,68,0.3)", background: "transparent",
+          color: "#ef4444", fontSize: "0.82rem", cursor: "pointer",
+        }}
+      >
+        {busy === "reject" ? "Rejecting…" : `✕ Reject all (${count})`}
+      </button>
+      <button onClick={onClear} style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: "0.8rem" }}>
+        Clear
+      </button>
+    </div>
+  );
+}
+
+// ── Toast ──────────────────────────────────────────────────────────────────────
+
+function Toast({ message, kind, onDismiss }) {
   useEffect(() => {
-    const t = setTimeout(onDismiss, 3500);
+    const t = setTimeout(onDismiss, 3000);
     return () => clearTimeout(t);
   }, [onDismiss]);
-
   return (
-    <div
-      style={{
-        position: "fixed", bottom: 28, right: 28, zIndex: 2000,
-        background: kind === "error" ? "var(--red)" : "var(--green)",
-        color: "#fff", padding: "12px 20px", borderRadius: 10,
-        fontSize: 13, fontWeight: 600,
-        boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
-        maxWidth: 360,
-        animation: "fadeInUp 0.2s ease",
-      }}
-    >
+    <div style={{
+      position: "fixed", bottom: 28, right: 28, zIndex: 2000,
+      background: kind === "error" ? "#ef4444" : "#00E5A0",
+      color: kind === "error" ? "#fff" : "#000",
+      padding: "12px 20px", borderRadius: 10,
+      fontSize: "0.85rem", fontWeight: 600,
+      boxShadow: "0 8px 24px rgba(0,0,0,0.3)", maxWidth: 360,
+      animation: "fadeUp 0.2s ease",
+    }}>
       {message}
     </div>
   );
 }
 
-// ─── Main Page Component ──────────────────────────────────────────────────────
+// ── Main page ──────────────────────────────────────────────────────────────────
 
 export default function InboxPage() {
-  const params = useParams();
-  const router = useRouter();
-  const projectId = params?.id;
+  const { id: projectId } = useParams();
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -364,19 +360,18 @@ export default function InboxPage() {
   const [statusFilter, setStatusFilter] = useState("pending");
   const [editingItem, setEditingItem] = useState(null);
   const [toast, setToast] = useState(null);
+  const [selected, setSelected] = useState(new Set());
+  const [bulkBusy, setBulkBusy] = useState(null);
 
-  function showToast(message, kind = "success") {
-    setToast({ message, kind });
-  }
+  function showToast(msg, kind = "success") { setToast({ msg, kind }); }
+
+  // ── Load ────────────────────────────────────────────────────────────────────
 
   const load = useCallback(async () => {
     if (!projectId) return;
-    setLoading(true);
-    setError("");
+    setLoading(true); setError(""); setSelected(new Set());
     try {
-      const data = await apiFetch(
-        `/projects/${projectId}/inbox?status=${statusFilter}&limit=100`
-      );
+      const data = await apiFetch(`/projects/${projectId}/inbox?status=${statusFilter}&limit=100`);
       setItems(data.items || []);
     } catch (e) {
       setError(e.message || "Failed to load inbox.");
@@ -387,154 +382,193 @@ export default function InboxPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // ── Approve (direct, no edit) ────────────────────────────────────────────
+  // ── Single actions ───────────────────────────────────────────────────────────
+
   async function handleApprove(item) {
     await apiFetch(`/inbox/${item.id}/approve`, { method: "POST" });
-    setItems((prev) => prev.filter((i) => i.id !== item.id));
-    showToast("Memory saved! ✅");
+    setItems((p) => p.filter((i) => i.id !== item.id));
+    setSelected((s) => { const n = new Set(s); n.delete(item.id); return n; });
+    showToast("Memory saved ✓");
   }
 
-  // ── Reject ───────────────────────────────────────────────────────────────
   async function handleReject(item) {
     await apiFetch(`/inbox/${item.id}/reject`, { method: "POST" });
-    setItems((prev) => prev.filter((i) => i.id !== item.id));
-    showToast("Draft rejected.", "error");
+    setItems((p) => p.filter((i) => i.id !== item.id));
+    setSelected((s) => { const n = new Set(s); n.delete(item.id); return n; });
+    showToast("Draft rejected", "error");
   }
 
-  // ── Edit → Approve ───────────────────────────────────────────────────────
   async function handleEditSave(edits) {
     await apiFetch(`/inbox/${editingItem.id}/approve`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(edits),
     });
-    setItems((prev) => prev.filter((i) => i.id !== editingItem.id));
+    setItems((p) => p.filter((i) => i.id !== editingItem.id));
     setEditingItem(null);
-    showToast("Memory saved! ✅");
+    showToast("Memory saved ✓");
   }
 
-  const pendingCount = items.filter((i) => i.status === "pending").length;
+  // ── Bulk actions ─────────────────────────────────────────────────────────────
+
+  async function bulkAct(action) {
+    setBulkBusy(action);
+    const ids = [...selected];
+    const fn = action === "approve"
+      ? (id) => apiFetch(`/inbox/${id}/approve`, { method: "POST" })
+      : (id) => apiFetch(`/inbox/${id}/reject`, { method: "POST" });
+    let done = 0;
+    for (const id of ids) {
+      try { await fn(id); done++; } catch { /* continue */ }
+    }
+    setItems((p) => p.filter((i) => !ids.includes(i.id)));
+    setSelected(new Set());
+    setBulkBusy(null);
+    showToast(`${done} item${done !== 1 ? "s" : ""} ${action === "approve" ? "approved ✓" : "rejected"}`);
+  }
+
+  // ── Selection ────────────────────────────────────────────────────────────────
+
+  function toggleSelect(id) {
+    setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+
+  function selectAll() {
+    setSelected(new Set(items.map((i) => i.id)));
+  }
+
+  const pending = items.filter((i) => i.status === "pending");
+  const pendingCount = pending.length;
+
+  const FILTERS = [
+    { id: "pending",  label: "Pending" },
+    { id: "approved", label: "Approved" },
+    { id: "rejected", label: "Rejected" },
+    { id: "all",      label: "All" },
+  ];
 
   return (
-    <div style={{ maxWidth: 740, margin: "0 auto", padding: "32px 16px 80px" }}>
-      {/* ── Header ── */}
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 28, flexWrap: "wrap" }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-            <Link
-              href="/app"
-              style={{ color: "var(--muted)", fontSize: 13, textDecoration: "none" }}
-            >
-              ← Back to projects
-            </Link>
+    <div style={{ maxWidth: 760, margin: "0 auto", padding: "28px 20px 80px" }}>
+
+      {/* Header */}
+      <div style={{ marginBottom: 24 }}>
+        <Link href="/app" style={{ fontSize: "0.8rem", color: "var(--muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4, marginBottom: 12 }}>
+          ← Dashboard
+        </Link>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+          <div style={{ flex: 1 }}>
+            <h1 style={{ margin: 0, fontSize: "1.4rem", fontWeight: 800, display: "flex", alignItems: "center", gap: 10 }}>
+              📥 Inbox
+              {pendingCount > 0 && statusFilter === "pending" && (
+                <span style={{
+                  background: "var(--violet)", color: "#fff",
+                  borderRadius: 999, fontSize: "0.75rem", fontWeight: 700,
+                  padding: "2px 10px", lineHeight: 1.6,
+                }}>
+                  {pendingCount}
+                </span>
+              )}
+            </h1>
+            <p style={{ margin: "4px 0 0", color: "var(--muted)", fontSize: "0.82rem" }}>
+              AI-suggested memories for project #{projectId} — review and approve what to keep.
+            </p>
           </div>
-          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, display: "flex", alignItems: "center", gap: 12 }}>
-            Inbox
-            {pendingCount > 0 && statusFilter === "pending" && (
-              <span
-                style={{
-                  background: "var(--violet)",
-                  color: "#fff",
-                  borderRadius: 99,
-                  fontSize: 12,
-                  fontWeight: 700,
-                  padding: "2px 10px",
-                  lineHeight: 1.6,
-                }}
-              >
-                {pendingCount}
-              </span>
-            )}
-          </h1>
-          <p style={{ margin: "6px 0 0", color: "var(--muted)", fontSize: 13 }}>
-            Review and approve AI-suggested memory drafts for project #{projectId}.
-          </p>
+
+          <button className="btn ghost sm" onClick={load} title="Refresh">↻ Refresh</button>
         </div>
 
-        {/* Status filter tabs */}
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {["pending", "approved", "rejected", "all"].map((s) => (
+        {/* Filter tabs */}
+        <div style={{ display: "flex", gap: 6, marginTop: 16, flexWrap: "wrap" }}>
+          {FILTERS.map(({ id, label }) => (
             <button
-              key={s}
-              onClick={() => setStatusFilter(s)}
+              key={id}
+              onClick={() => setStatusFilter(id)}
               style={{
-                padding: "6px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600,
-                border: statusFilter === s ? "none" : "1px solid var(--border)",
-                background: statusFilter === s ? "var(--violet)" : "var(--surface-1)",
-                color: statusFilter === s ? "#fff" : "var(--text)",
-                cursor: "pointer", textTransform: "capitalize",
+                padding: "6px 16px", borderRadius: 99, fontSize: "0.8rem", fontWeight: 600,
+                border: statusFilter === id ? "none" : "1px solid var(--line)",
+                background: statusFilter === id ? "var(--violet)" : "transparent",
+                color: statusFilter === id ? "#fff" : "var(--muted)",
+                cursor: "pointer", transition: "all 0.15s",
               }}
             >
-              {s}
+              {label}
             </button>
           ))}
+
+          {/* Select-all shortcut — only in pending view */}
+          {!loading && items.length > 0 && statusFilter === "pending" && (
+            <button
+              onClick={selected.size === items.length ? () => setSelected(new Set()) : selectAll}
+              style={{
+                marginLeft: "auto", padding: "6px 14px", borderRadius: 99,
+                border: "1px solid var(--line)", background: "transparent",
+                color: "var(--muted)", fontSize: "0.78rem", cursor: "pointer",
+              }}
+            >
+              {selected.size === items.length ? "Deselect all" : "Select all"}
+            </button>
+          )}
         </div>
       </div>
 
-      {/* ── Body ── */}
+      {/* Bulk action bar */}
+      {selected.size > 0 && (
+        <BulkBar
+          count={selected.size}
+          onApproveAll={() => bulkAct("approve")}
+          onRejectAll={() => bulkAct("reject")}
+          onClear={() => setSelected(new Set())}
+          busy={bulkBusy}
+        />
+      )}
+
+      {/* Body */}
       {loading ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {[0, 1, 2].map((n) => (
-            <div
-              key={n}
-              style={{
-                height: 140, borderRadius: 12,
-                background: "var(--surface-2)",
-                border: "1px solid var(--border)",
-                animation: "pulse 1.5s ease-in-out infinite",
-                animationDelay: `${n * 0.15}s`,
-              }}
-            />
+            <div key={n} style={{
+              height: 160, borderRadius: 14,
+              background: "var(--bg-2)", border: "1px solid var(--line)",
+              animation: "pulse 1.5s ease-in-out infinite",
+              animationDelay: `${n * 0.15}s`,
+            }} />
           ))}
         </div>
       ) : error ? (
-        <div
-          style={{
-            background: "var(--red-soft)", border: "1px solid var(--red-border, var(--border))",
-            borderRadius: 12, padding: "20px 24px", color: "var(--red, #e53)", fontSize: 14,
-          }}
-        >
-          <strong>Error:</strong> {error}
-          <button
-            onClick={load}
-            style={{
-              marginLeft: 16, padding: "4px 14px", borderRadius: 6,
-              border: "1px solid var(--red, #e53)", background: "transparent",
-              color: "var(--red, #e53)", cursor: "pointer", fontSize: 13,
-            }}
-          >
+        <div style={{
+          background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)",
+          borderRadius: 14, padding: "20px 24px",
+          display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
+        }}>
+          <span style={{ color: "#ef4444", fontSize: "0.88rem", flex: 1 }}>
+            <strong>Error:</strong> {error}
+          </span>
+          <button onClick={load} className="btn ghost sm" style={{ color: "#ef4444", borderColor: "rgba(239,68,68,0.3)" }}>
             Retry
           </button>
         </div>
       ) : items.length === 0 ? (
-        <div
-          style={{
-            textAlign: "center", padding: "60px 24px",
-            background: "var(--surface-2)", border: "1px solid var(--border)",
-            borderRadius: 14,
-          }}
-        >
-          <div style={{ fontSize: 48, marginBottom: 16 }}>🎉</div>
-          <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 8 }}>Inbox Zero!</div>
-          <div style={{ color: "var(--muted)", fontSize: 14 }}>
+        <div style={{
+          textAlign: "center", padding: "64px 24px",
+          background: "var(--bg-2)", border: "1px solid var(--line)",
+          borderRadius: 16,
+        }}>
+          <div style={{ fontSize: 52, marginBottom: 16 }}>{statusFilter === "pending" ? "🎉" : "📭"}</div>
+          <div style={{ fontWeight: 800, fontSize: "1.1rem", marginBottom: 8 }}>
+            {statusFilter === "pending" ? "Inbox Zero!" : `No ${statusFilter} items`}
+          </div>
+          <div style={{ color: "var(--muted)", fontSize: "0.85rem", marginBottom: 20 }}>
             {statusFilter === "pending"
-              ? "No pending memories. All caught up!"
-              : `No ${statusFilter} items found.`}
+              ? "No pending drafts. Send some data via POST /ingest/raw to get started."
+              : `Switch to a different filter to see other items.`}
           </div>
           {statusFilter !== "pending" && (
-            <button
-              onClick={() => setStatusFilter("pending")}
-              style={{
-                marginTop: 16, padding: "8px 20px", borderRadius: 8, border: "none",
-                background: "var(--violet)", color: "#fff", cursor: "pointer", fontSize: 14, fontWeight: 600,
-              }}
-            >
+            <button onClick={() => setStatusFilter("pending")} className="btn primary sm">
               View pending
             </button>
           )}
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {items.map((item) => (
             <DraftCard
               key={item.id}
@@ -542,12 +576,14 @@ export default function InboxPage() {
               onApprove={handleApprove}
               onReject={handleReject}
               onEdit={setEditingItem}
+              selected={selected.has(item.id)}
+              onSelect={toggleSelect}
             />
           ))}
         </div>
       )}
 
-      {/* ── Edit Modal ── */}
+      {/* Edit modal */}
       {editingItem && (
         <EditModal
           item={editingItem}
@@ -556,24 +592,14 @@ export default function InboxPage() {
         />
       )}
 
-      {/* ── Toast ── */}
+      {/* Toast */}
       {toast && (
-        <Toast
-          message={toast.message}
-          kind={toast.kind}
-          onDismiss={() => setToast(null)}
-        />
+        <Toast message={toast.msg} kind={toast.kind} onDismiss={() => setToast(null)} />
       )}
 
       <style>{`
-        @keyframes fadeInUp {
-          from { opacity: 0; transform: translateY(12px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50%       { opacity: 0.45; }
-        }
+        @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes pulse  { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
       `}</style>
     </div>
   );

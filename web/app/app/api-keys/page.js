@@ -322,26 +322,16 @@ export default function ApiKeysPage() {
       <div style={{ minHeight: "100vh", background: "var(--bg)", color: "var(--ink)" }}>
         {/* ── Header ── */}
         <div style={{
-          borderBottom: "1px solid var(--line)", padding: "16px 24px",
+          borderBottom: "1px solid var(--line)", padding: "20px 28px",
           display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
         }}>
-          <Link href="/app" style={{ color: "var(--muted)", textDecoration: "none", fontSize: "0.85rem" }}>
-            ← Dashboard
-          </Link>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <h1 style={{ margin: 0, fontSize: "1.15rem", fontWeight: 700 }}>
-              API Keys
-            </h1>
+            <h1 style={{ margin: 0, fontSize: "1.15rem", fontWeight: 700 }}>API Keys</h1>
             <div style={{ fontSize: "0.78rem", color: "var(--muted)", marginTop: 2 }}>
-              {orgName} · {activeKeys.length} active key{activeKeys.length !== 1 ? "s" : ""}
+              {orgName && <>{orgName} · </>}{activeKeys.length} active key{activeKeys.length !== 1 ? "s" : ""}
             </div>
           </div>
-          <a
-            href="/docs/04-api-contract.html"
-            target="_blank"
-            rel="noreferrer"
-            className="btn ghost sm"
-          >
+          <a href="/api/openapi.json" target="_blank" rel="noreferrer" className="btn ghost sm">
             API Docs ↗
           </a>
         </div>
