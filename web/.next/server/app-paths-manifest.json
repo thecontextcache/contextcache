@@ -1,17 +1,17 @@
 {
   "/api/auth/clear/route": "app/api/auth/clear/route.js",
   "/auth/page": "app/auth/page.js",
+  "/pricing/page": "app/pricing/page.js",
   "/waitlist/page": "app/waitlist/page.js",
   "/_not-found/page": "app/_not-found/page.js",
   "/auth/verify/page": "app/auth/verify/page.js",
-  "/admin/page": "app/admin/page.js",
+  "/brain/page": "app/brain/page.js",
   "/clients/page": "app/clients/page.js",
   "/page": "app/page.js",
-  "/pricing/page": "app/pricing/page.js",
+  "/admin/page": "app/admin/page.js",
   "/legal/page": "app/legal/page.js",
-  "/brain/page": "app/brain/page.js",
-  "/app/page": "app/app/page.js",
-  "/app/api-keys/page": "app/app/api-keys/page.js",
   "/app/projects/[id]/inbox/page": "app/app/projects/[id]/inbox/page.js",
-  "/app/orgs/page": "app/app/orgs/page.js"
+  "/app/orgs/page": "app/app/orgs/page.js",
+  "/app/api-keys/page": "app/app/api-keys/page.js",
+  "/app/page": "app/app/page.js"
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { motion } from "framer-motion";
+
 import Link from "next/link";
 import { Terminal, Code2, Chrome, ArrowRight, Download } from "lucide-react";
 
@@ -41,19 +41,6 @@ const CLIENTS = [
 ];
 
 export default function ClientsClient() {
-    const containerVariants = {
-        hidden: { opacity: 0 },
-        show: {
-            opacity: 1,
-            transition: { staggerChildren: 0.15 }
-        }
-    };
-
-    const itemVariants = {
-        hidden: { opacity: 0, y: 30 },
-        show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } }
-    };
-
     return (
         <>
             <section className="l-hero" style={{ minHeight: "50vh", paddingBottom: 60, paddingTop: 120 }}>
@@ -68,58 +55,44 @@ export default function ClientsClient() {
                     }}
                 />
 
-                <motion.div
-                    className="l-badge"
-                    initial={{ opacity: 0, y: -20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.8 }}
-                >
+                <div className="l-badge animate-fade-in" style={{ animationDelay: "0s" }}>
                     <span className="l-badge-dot" />
                     Ecosystem Clients
-                </motion.div>
+                </div>
 
-                <motion.h1
-                    className="l-title"
-                    initial={{ opacity: 0, y: 30, filter: "blur(8px)" }}
-                    animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                    transition={{ duration: 1, delay: 0.1, ease: "easeOut" }}
-                    style={{ fontSize: "clamp(2.4rem, 6vw, 4.5rem)" }}
+                <h1
+                    className="l-title animate-fade-in"
+                    style={{ fontSize: "clamp(2.4rem, 6vw, 4.5rem)", animationDelay: "0.1s" }}
                 >
                     <span className="l-title-white">Connect every tool to your </span>
                     <span className="l-title-grad" style={{ background: "linear-gradient(135deg, #00E5FF 0%, #00E5A0 100%)", WebkitBackgroundClip: "text", color: "transparent" }}>Project Brain.</span>
-                </motion.h1>
+                </h1>
 
-                <motion.p
-                    className="l-tagline"
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 1, delay: 0.25, ease: "easeOut" }}
-                    style={{ maxWidth: 700 }}
+                <p
+                    className="l-tagline animate-fade-in"
+                    style={{ maxWidth: 700, animationDelay: "0.25s" }}
                 >
                     TheContextCache is built to be everywhere you work. Download the official clients to seamlessly integrate memory capture and recall into your terminal, IDE, and browser.
-                </motion.p>
+                </p>
             </section>
 
             <div className="l-section" style={{ paddingTop: 0 }}>
-                <motion.div
-                    className="clients-grid"
-                    variants={containerVariants}
-                    initial="hidden"
-                    animate="show"
+                <div
+                    className="clients-grid animate-fade-in"
                     style={{
                         display: "grid",
                         gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
                         gap: 32,
                         maxWidth: 1200,
                         margin: "0 auto",
-                        padding: "0 24px"
+                        padding: "0 24px",
+                        animationDelay: "0.4s"
                     }}
                 >
                     {CLIENTS.map((client) => (
-                        <motion.div
+                        <div
                             key={client.id}
-                            variants={itemVariants}
-                            className="card"
+                            className="card animate-fade-in"
                             style={{
                                 display: "flex",
                                 flexDirection: "column",
@@ -128,7 +101,8 @@ export default function ClientsClient() {
                                 border: "1px solid rgba(255, 255, 255, 0.05)",
                                 padding: 40,
                                 position: "relative",
-                                overflow: "hidden"
+                                overflow: "hidden",
+                                animationFillMode: "both"
                             }}
                         >
                             {/* Subtle background glow based on client color */}
@@ -211,9 +185,9 @@ export default function ClientsClient() {
                             >
                                 {client.cta} <ArrowRight size={18} />
                             </Link>
-                        </motion.div>
+                        </div>
                     ))}
-                </motion.div>
+                </div>
             </div>
 
             <style jsx global>{`

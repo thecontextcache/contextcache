@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "../lib/api";
 import { useToast } from "../components/toast";
 import { SkeletonCard } from "../components/skeleton";
-import { motion, AnimatePresence } from "framer-motion";
 
 export const dynamic = "force-dynamic";
 
@@ -326,33 +325,14 @@ export default function AdminPage() {
                 {pendingCount}
               </span>
             )}
-            {activeTab === id && (
-              <motion.div
-                layoutId="activeTabIndicator"
-                style={{
-                  position: 'absolute',
-                  bottom: -2,
-                  left: 0,
-                  right: 0,
-                  height: 2,
-                  backgroundColor: 'var(--brand)',
-                  borderRadius: '2px 2px 0 0'
-                }}
-                transition={{ type: "spring", stiffness: 300, damping: 30 }}
-              />
-            )}
           </button>
         ))}
       </div>
 
-      <AnimatePresence mode="wait">
+      <div style={{ marginTop: 24, paddingBottom: 64 }}>
         {/* ── Waitlist tab ── */}
         {activeTab === "waitlist" && (
-          <motion.section
-            key="waitlist"
-            initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}
-            className="card"
-          >
+          <section key="waitlist" className="card animate-fade-in">
             <div className="row spread" style={{ marginBottom: 12 }}>
               <h2 style={{ margin: 0 }}>
                 Waitlist
@@ -426,12 +406,12 @@ export default function AdminPage() {
               </table>
             </div>
             <Paginator total={filteredWaitlist.length} page={wlPage} pageSize={PAGE_SIZE} onPage={setWlPage} />
-          </motion.section>
+          </section>
         )}
 
         {/* ── Invites tab ── */}
         {activeTab === "invites" && (
-          <motion.div key="invites" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} className="stack-lg">
+          <div key="invites" className="stack-lg animate-fade-in">
             <section className="card">
               <h2 style={{ marginBottom: 14 }}>Send invitation</h2>
               <form onSubmit={createInvite} className="grid-2" style={{ alignItems: "end" }}>
@@ -539,12 +519,12 @@ export default function AdminPage() {
               </div>
               <Paginator total={filteredInvites.length} page={invPage} pageSize={PAGE_SIZE} onPage={setInvPage} />
             </section>
-          </motion.div>
+          </div>
         )}
 
         {/* ── Users tab ── */}
         {activeTab === "users" && (
-          <motion.section key="users" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} className="card">
+          <section key="users" className="card animate-fade-in">
             <div className="row spread" style={{ marginBottom: 12 }}>
               <h2 style={{ margin: 0 }}>
                 Users
@@ -659,12 +639,12 @@ export default function AdminPage() {
               </table>
             </div>
             <Paginator total={filteredUsers.length} page={userPage} pageSize={PAGE_SIZE} onPage={setUserPage} />
-          </motion.section>
+          </section>
         )}
 
         {/* ── Login IPs tab ── */}
         {activeTab === "login-ips" && (
-          <motion.div key="login-ips" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} className="stack-lg">
+          <div key="login-ips" className="stack-lg animate-fade-in">
             <section className="card">
               <h2 style={{ marginBottom: 8 }}>Login IP History</h2>
               <p className="muted" style={{ marginBottom: 16, fontSize: "0.88rem" }}>
@@ -787,12 +767,12 @@ export default function AdminPage() {
                 </p>
               </section>
             )}
-          </motion.div>
+          </div>
         )}
 
         {/* ── Usage tab ── */}
         {activeTab === "usage" && (
-          <motion.section key="usage" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} className="card">
+          <section key="usage" className="card animate-fade-in">
             <h2 style={{ marginBottom: 16 }}>Usage — last 30 days</h2>
             {usage.length === 0 ? (
               <p className="muted">No usage events recorded yet.</p>
@@ -814,9 +794,9 @@ export default function AdminPage() {
                 ))}
               </div>
             )}
-          </motion.section>
+          </section>
         )}
-      </AnimatePresence>
+      </div>
     </div>
   );
 }

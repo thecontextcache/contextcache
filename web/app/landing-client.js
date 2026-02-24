@@ -2,7 +2,6 @@
 
 import { useState, useCallback } from "react";
 import Link from "next/link";
-import { motion, useScroll, useTransform } from "framer-motion";
 import BrainGraph from "./components/BrainGraph";
 
 const FEATURES = [
@@ -132,9 +131,6 @@ function FaqItem({ q, a }) {
 }
 
 export default function LandingPage() {
-  const { scrollY } = useScroll();
-  const blob1Y = useTransform(scrollY, [0, 1000], [0, 200]);
-  const blob2Y = useTransform(scrollY, [0, 1000], [0, -150]);
 
   // "Steve Jobs" style premium startup chime (synthetic)
   const playStartupSound = useCallback(() => {
@@ -173,12 +169,6 @@ export default function LandingPage() {
     }
   }, []);
 
-  // Common fade-up variant for sections
-  const sectionVariants = {
-    hidden: { opacity: 0, y: 40 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.8, ease: [0.16, 1, 0.3, 1] } }
-  };
-
   return (
     <>
       {/* ══ HERO ══════════════════════════════════════════════════════════════ */}
@@ -187,68 +177,58 @@ export default function LandingPage() {
         <div className="l-grid-bg" />
 
         {/* Glow blobs with Parallax */}
-        <motion.div
+        <div
           className="l-glow-blob"
           style={{
             width: 600, height: 600,
             background: "radial-gradient(circle, rgba(0,212,255,0.14) 0%, transparent 70%)",
-            top: "-10%", left: "60%",
-            y: blob1Y
+            top: "-10%", left: "60%"
           }}
         />
-        <motion.div
+        <div
           className="l-glow-blob"
           style={{
             width: 500, height: 500,
             background: "radial-gradient(circle, rgba(124,58,255,0.12) 0%, transparent 70%)",
             top: "30%", left: "-10%",
-            animationDelay: "3s",
-            y: blob2Y
+            animationDelay: "3s"
           }}
         />
 
         {/* Badge */}
-        <motion.div
-          className="l-badge"
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.1 }}
+        <div
+          className="l-badge animate-fade-in"
+          style={{ animationDelay: "0.1s" }}
         >
           <span className="l-badge-dot" />
           Invite-only alpha — now live
-        </motion.div>
+        </div>
 
         {/* Headline */}
-        <motion.h1
-          className="l-title"
-          initial={{ opacity: 0, y: 30, filter: "blur(10px)" }}
-          animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-          transition={{ duration: 1, delay: 0.2, ease: "easeOut" }}
+        <h1
+          className="l-title animate-fade-in"
+          style={{ animationDelay: "0.2s" }}
         >
           <span className="l-title-grad">TheContextCache</span>
           <br />
           <span className="l-title-white" style={{ fontSize: "0.55em", letterSpacing: "0.02em", opacity: 0.9 }}>
             Project Brain for AI Teams
           </span>
-        </motion.h1>
+        </h1>
 
         {/* Tagline */}
-        <motion.p
-          className="l-tagline"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 1, delay: 0.35, ease: "easeOut" }}
+        <p
+          className="l-tagline animate-fade-in"
+          style={{ animationDelay: "0.35s" }}
         >
           Capture high-signal decisions and findings. Recall a formatted, paste-ready
           memory pack — in milliseconds — right when your LLM needs them.
-        </motion.p>
+        </p>
 
         {/* CTAs */}
-        <motion.div
-          className="l-actions"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 1, delay: 0.5, ease: "easeOut" }}
+        <div
+          className="l-actions animate-fade-in"
+          style={{ animationDelay: "0.45s" }}
         >
           <Link href="/waitlist" className="btn-glow" onClick={playStartupSound}>
             Join the waitlist →
@@ -256,28 +236,22 @@ export default function LandingPage() {
           <Link href="/auth" className="btn-outline-glow" onClick={playStartupSound}>
             Sign in
           </Link>
-        </motion.div>
+        </div>
 
         {/* Scroll hint */}
-        <motion.div
-          className="l-scroll-hint"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 1, delay: 1.2 }}
+        <div
+          className="l-scroll-hint animate-fade-in"
+          style={{ animationDelay: "1.2s" }}
         >
           <div className="l-scroll-line" />
           scroll
-        </motion.div>
+        </div>
       </section>
 
       {/* ══ LIVE BRAIN PREVIEW ═════════════════════════════════════════════ */}
-      <motion.div
-        className="l-section"
+      <div
+        className="l-section animate-fade-in"
         style={{ paddingTop: 0 }}
-        variants={sectionVariants}
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, margin: "-100px" }}
       >
         <div style={{ marginBottom: 26 }}>
           <p className="l-section-label">Live preview</p>
@@ -300,7 +274,7 @@ export default function LandingPage() {
           <Link href="/brain" className="btn-outline-glow">Learn more</Link>
           <Link href="/waitlist" className="btn-glow" onClick={playStartupSound}>Join waitlist →</Link>
         </div>
-      </motion.div>
+      </div>
 
       {/* ══ TECH STRIP ════════════════════════════════════════════════════════ */}
       <div className="l-tech-strip">
@@ -319,13 +293,7 @@ export default function LandingPage() {
       </div>
 
       {/* ══ HOW IT WORKS ══════════════════════════════════════════════════════ */}
-      <motion.div
-        className="l-section"
-        variants={sectionVariants}
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, margin: "-100px" }}
-      >
+      <div className="l-section animate-fade-in">
         <div style={{ textAlign: "center", marginBottom: 52 }}>
           <p className="l-section-label">How it works</p>
           <h2 className="l-section-title">Three steps. Zero friction.</h2>
@@ -342,16 +310,12 @@ export default function LandingPage() {
             </div>
           ))}
         </div>
-      </motion.div>
+      </div>
 
       {/* ══ TERMINAL DEMO ═════════════════════════════════════════════════════ */}
-      <motion.div
-        className="l-section"
+      <div
+        className="l-section animate-fade-in"
         style={{ paddingTop: 0 }}
-        variants={sectionVariants}
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, margin: "-100px" }}
       >
         <div className="l-terminal">
           <div className="l-terminal-bar">
@@ -376,16 +340,11 @@ export default function LandingPage() {
             <div style={{ marginTop: 8 }}><span className="muted-t">$</span> <span className="l-terminal-cursor" /></div>
           </div>
         </div>
-      </motion.div>
+      </div>
 
-      {/* ══ FEATURES ══════════════════════════════════════════════════════════ */}
-      <motion.div
-        className="l-section"
+      <div
+        className="l-section animate-fade-in"
         style={{ paddingTop: 0 }}
-        variants={sectionVariants}
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, margin: "-100px" }}
       >
         <div style={{ marginBottom: 40 }}>
           <p className="l-section-label">Capabilities</p>
@@ -412,7 +371,7 @@ export default function LandingPage() {
             </div>
           ))}
         </div>
-      </motion.div>
+      </div>
 
       {/* ══ MEMORY TYPES ══════════════════════════════════════════════════════ */}
       <div className="l-section" style={{ paddingTop: 0, textAlign: "center" }}>
@@ -524,13 +483,9 @@ export default function LandingPage() {
       </div>
 
       {/* ══ FINAL CTA ═════════════════════════════════════════════════════════ */}
-      <motion.div
-        className="l-section"
+      <div
+        className="l-section animate-fade-in"
         style={{ paddingTop: 0 }}
-        variants={sectionVariants}
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, margin: "-100px" }}
       >
         <div className="l-cta-box">
           <div className="l-grid-bg" style={{ opacity: 0.5 }} />
@@ -563,7 +518,7 @@ export default function LandingPage() {
             No credit card · Self-hosted · Your data stays yours
           </p>
         </div>
-      </motion.div>
+      </div>
 
       {/* Bottom spacer */}
       <div style={{ height: 40 }} />

@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { motion } from "framer-motion";
 
 export default function PricingPage() {
   const TIERS = [
@@ -153,37 +152,29 @@ export default function PricingPage() {
           }}
         />
 
-        <motion.div
-          className="l-badge"
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.4 }}
+        <div
+          className="l-badge animate-fade-in"
+          style={{ animationDelay: "0s" }}
         >
           <span className="l-badge-dot" />
           Payment gateway — coming soon
-        </motion.div>
+        </div>
 
-        <motion.h1
-          className="l-title" style={{ fontSize: "clamp(2rem, 5.5vw, 4rem)" }}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.1 }}
+        <h1
+          className="l-title animate-fade-in" style={{ fontSize: "clamp(2rem, 5.5vw, 4rem)", animationDelay: "0.1s" }}
         >
           <span className="l-title-grad">Simple pricing.</span>
           <br />
           <span className="l-title-white" style={{ fontSize: "0.6em" }}>
             No surprises, ever.
           </span>
-        </motion.h1>
-        <motion.p
-          className="l-tagline" style={{ maxWidth: 480 }}
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.2 }}
+        </h1>
+        <p
+          className="l-tagline animate-fade-in" style={{ maxWidth: 480, animationDelay: "0.2s" }}
         >
           Start free with an Alpha invite. Paid tiers are in the works — join the waitlist
           and lock in a founding-member rate.
-        </motion.p>
+        </p>
       </section>
 
       {/* ══ PRICING CARDS ═══════════════════════════════════════════════════ */}
@@ -193,11 +184,9 @@ export default function PricingPage() {
           padding: "0 20px 80px",
         }}
       >
-        <motion.div
+        <div
           style={{ marginBottom: 18 }}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.3 }}
+          className="animate-fade-in"
         >
           <div style={{ marginBottom: 8, fontSize: "0.72rem", color: "var(--muted)", letterSpacing: "0.09em", fontFamily: "var(--mono)" }}>
             TIER COMPARISON
@@ -235,7 +224,7 @@ export default function PricingPage() {
           }}>
             <strong style={{ color: "var(--ink)" }}>{activeTier.name}</strong>: {activeTier.description}
           </div>
-        </motion.div>
+        </div>
 
         <div
           style={{
@@ -246,13 +235,12 @@ export default function PricingPage() {
           }}
         >
           {TIERS.map((t, index) => (
-            <motion.div
+            <div
               key={t.id}
-              initial={{ opacity: 0, y: 30 }}
-              whileInView={{ opacity: t.comingSoon ? 0.82 : 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: index * 0.1, duration: 0.5, ease: "easeOut" }}
+              className="animate-fade-in"
               style={{
+                animationDelay: `${0.3 + index * 0.1}s`,
+                animationFillMode: "both",
                 position: "relative",
                 border: t.highlight
                   ? "1px solid rgba(0,212,255,0.45)"
@@ -406,7 +394,7 @@ export default function PricingPage() {
                   Payment gateway coming soon
                 </div>
               )}
-            </motion.div>
+            </div>
           ))}
         </div>
 
@@ -566,27 +554,29 @@ export default function PricingPage() {
             ))}
           </div>
         </div>
+      </div>
 
-        {/* ── Accuracy disclaimer ── */}
-        <div
-          style={{
-            marginTop: 56,
-            padding: "20px 24px",
-            border: "1px solid var(--line)",
-            borderRadius: 10,
-            background: "var(--panel)",
-            fontSize: "0.82rem",
-            color: "var(--muted)",
-            lineHeight: 1.65,
-            fontFamily: "var(--mono)",
-          }}
-        >
-          <span style={{ color: "var(--brand)", marginRight: 6 }}>§</span>
-          Pricing is indicative and subject to change before general availability. All
-          features listed for coming-soon tiers are planned but not guaranteed. For
-          binding commitments, contact us directly. Subject to our{" "}
-          <Link href="/legal" style={{ color: "var(--brand)" }}>Terms of Service</Link>.
-        </div>
+      {/* ── Accuracy disclaimer ── */}
+      <div
+        className="animate-fade-in"
+        style={{
+          marginTop: 60,
+          animationDelay: "0.6s",
+          padding: "20px 24px",
+          border: "1px solid var(--line)",
+          borderRadius: 10,
+          background: "var(--panel)",
+          fontSize: "0.82rem",
+          color: "var(--muted)",
+          lineHeight: 1.65,
+          fontFamily: "var(--mono)",
+        }}
+      >
+        <span style={{ color: "var(--brand)", marginRight: 6 }}>§</span>
+        Pricing is indicative and subject to change before general availability. All
+        features listed for coming-soon tiers are planned but not guaranteed. For
+        binding commitments, contact us directly. Subject to our{" "}
+        <Link href="/legal" style={{ color: "var(--brand)" }}>Terms of Service</Link>.
       </div>
     </>
   );
