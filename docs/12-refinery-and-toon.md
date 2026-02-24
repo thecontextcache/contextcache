@@ -25,18 +25,35 @@ surface the insights, then let a human approve or reject each one.
 
 ### Pipeline Overview
 
+The pipeline has two execution paths depending on whether the Celery worker is running:
+
+**With worker (WORKER_ENABLED=true):**
 ```
-Capture source                 API                   Worker            Inbox
-─────────────────   ──────────────────────────   ─────────────   ────────────────
-CLI / Chrome ext  ──▶ POST /ingest/raw           process_raw     inbox_items
-MCP / email       ──▶  → RawCapture saved        capture_task    (status=pending)
-                       → task queued             → LLM extract       │
-                                                 → InboxItems         ▼
-                                                   inserted     Human reviews
-                                                                  ↓ approve  → Memory (full pipeline)
-                                                                  ↓ reject   → status=rejected
-                                                                  ↓ edit+approve → edited Memory
+Capture source          API                      Celery Worker        Inbox
+────────────────   ─────────────────────────   ─────────────────   ──────────────
+CLI / Chrome ext  ──▶ POST /ingest/raw  ──▶   process_raw          inbox_items
+MCP / email            → RawCapture saved       capture_task         (pending)
+                       → task enqueued  ──▶    → LLM extract  ──▶       │
+                       202 Accepted             → InboxItems            ▼
+                                                  inserted         Human reviews
+                                                                   ↓ approve → Memory
+                                                                   ↓ reject  → rejected
 ```
+
+**Without worker (WORKER_ENABLED=false — default):**
+```
+Capture source          API (inline, same request)                   Inbox
+────────────────   ──────────────────────────────────────────   ──────────────
+CLI / Chrome ext  ──▶ POST /ingest/raw                              inbox_items
+MCP / email            → RawCapture saved                           (pending)
+                       → refine_content_with_llm() called inline ──▶     │
+                       → InboxItems inserted in same DB session          ▼
+                       202 Accepted                               Human reviews
+```
+
+The inline path means the Inbox is populated **immediately** in the same HTTP
+request, with no Redis or Celery required. When a real LLM is wired into
+`refine_content_with_llm`, both paths benefit from the same function.
 
 ---
 
@@ -314,10 +331,39 @@ The Inbox UI lives at `/app/projects/{id}/inbox`.
 
 ## Deployment Notes
 
-1. The Refinery worker requires the `worker` Docker Compose profile:
-   ```
+### Inline mode (default — no worker needed)
+
+Out of the box, `WORKER_ENABLED=false`. In this mode:
+
+- `POST /ingest/raw` saves the `RawCapture` and immediately calls
+  `refine_content_with_llm()` inline in the same DB session.
+- `InboxItem` rows are created before the 202 response is returned.
+- **No Redis, no Celery, no extra services required.**
+
+This is the recommended mode for single-server deployments and development.
+
+### Async mode (scalable — with worker)
+
+For high-ingestion production use:
+
+1. Start Redis and the worker:
+   ```bash
    docker compose --profile worker up -d
    ```
-2. Without `WORKER_ENABLED=true`, `POST /ingest/raw` still queues the task
-   but it will not run. Captures can be retried later once the worker is enabled.
-3. The `retry_stale_raw_captures` Beat task automatically handles this case.
+2. Set `WORKER_ENABLED=true` in your `.env`.
+3. `POST /ingest/raw` will enqueue via Celery and return 202 immediately.
+   The LLM extraction runs in the background worker process.
+
+### Stale capture retry
+
+If captures are ingested while the worker is temporarily down, the Celery Beat
+task `retry_stale_raw_captures` re-enqueues them hourly. Runs automatically
+when the `worker` profile is active.
+
+### Dependency note
+
+`celery` is a required dependency in `api/pyproject.toml` even when
+`WORKER_ENABLED=false`. The API imports `_enqueue_if_enabled` at request time,
+which requires celery to be importable. The import is guarded — if the package
+were somehow absent, the API raises a clear `ImportError` explaining how to fix
+it rather than crashing with a confusing stack trace.

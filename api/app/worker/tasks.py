@@ -419,67 +419,159 @@ def contextualize_memory_with_ollama(self, memory_id: int) -> dict:
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
-# LLM Refinery — stub extraction function
+# LLM Refinery — Gemini 1.5 Flash extraction
 # ---------------------------------------------------------------------------
 
-def refine_content_with_llm(payload: dict) -> list[dict]:
-    """Extract structured memory drafts from a raw capture payload.
+_GEMINI_SYSTEM_PROMPT = """You are an expert Data Engineer for a project memory tool.
 
-    STUB — returns deterministic mock data so the pipeline can be tested
-    end-to-end without burning LLM API credits.
+Analyze the input text. Extract distinct, high-value insights.
 
-    TODO: Replace this body with a real LLM call, e.g.:
-      - Gemini 1.5 Flash via ``google-generativeai``
-      - GPT-4o-mini via ``openai``
-    The system prompt should instruct the model to:
-      1. Identify key decisions, findings, definitions, todos, and code snippets.
-      2. Return a JSON array of objects with keys:
-         { type, title, content, confidence_score }
-      3. Keep each item focused — one insight per card.
+Classify them as: DECISION, FINDING, TODO, CODE, or NOTE.
 
-    Example prompt template (to be expanded):
-      SYSTEM: You are a knowledge extraction assistant. Given a raw payload
-              (chat log, terminal history, email, or DOM dump), extract the
-              most important pieces of project knowledge as structured memory
-              cards. Return ONLY valid JSON.
-      USER:   <payload text>
-    """
-    text = ""
-    if isinstance(payload, dict):
-        text = payload.get("text") or payload.get("content") or payload.get("body") or str(payload)
+Strictly output valid JSON (a list of objects) with exactly these keys:
+  type            - one of: decision, finding, todo, code, note  (lowercase)
+  title           - short, descriptive title (max 80 characters)
+  content         - the full extracted insight (concise but complete)
+  confidence_score - float 0.0–1.0 reflecting how clearly this was stated
 
-    # Build mock drafts based on whatever text was provided.
-    mock_title_prefix = (text[:40].strip().replace("\n", " ") + "…") if len(text) > 40 else (text.strip() or "Captured content")
+Rules:
+- Output ONLY the JSON array. No markdown fences, no commentary, no keys outside the schema.
+- Each item must contain exactly one insight — do not combine multiple points.
+- Ignore greetings, thanks, and conversational filler.
+- If nothing meaningful is found, return an empty array: []
+"""
 
+
+def _gemini_fallback(text: str, reason: str) -> list[dict]:
+    """Return a raw Note card so captured data is never silently lost."""
     return [
         {
-            "type": "decision",
-            "title": f"Decision extracted from: {mock_title_prefix}",
-            "content": (
-                f"[MOCK] A key decision was identified in the raw capture. "
-                f"Original text excerpt: {text[:200]!r}"
-            ),
-            "confidence_score": 0.85,
-        },
-        {
-            "type": "todo",
-            "title": "Follow-up action item",
-            "content": (
-                "[MOCK] An action item was detected. "
-                "Replace this stub with a real LLM call to extract actual todos."
-            ),
-            "confidence_score": 0.70,
-        },
-        {
-            "type": "finding",
-            "title": "Key finding",
-            "content": (
-                "[MOCK] A notable finding was detected in the capture. "
-                "When real LLM extraction is enabled, this will contain the actual insight."
-            ),
-            "confidence_score": 0.60,
-        },
+            "type": "note",
+            "title": "Raw capture (extraction failed)",
+            "content": f"[Gemini extraction failed: {reason}]\n\n{text[:2000]}",
+            "confidence_score": 0.4,
+        }
     ]
+
+
+def refine_content_with_llm(payload: dict) -> list[dict]:
+    """Extract structured memory drafts from a raw capture payload via Gemini 1.5 Flash.
+
+    Reads GOOGLE_API_KEY from the environment.  Falls back to a raw Note card
+    if the API call fails or returns unparseable JSON — captured data is never
+    silently discarded.
+
+    Return schema (list of dicts):
+        type            str   decision | finding | todo | code | note
+        title           str   short headline
+        content         str   full extracted insight
+        confidence_score float 0.0–1.0
+    """
+    import json
+    import os
+
+    text: str = ""
+    source: str = "unknown"
+    if isinstance(payload, dict):
+        text = (
+            payload.get("text")
+            or payload.get("content")
+            or payload.get("body")
+            or str(payload)
+        )
+        source = payload.get("source", "unknown")
+
+    text = text.strip()
+    if not text:
+        logger.warning("[refinery] empty payload — skipping Gemini call")
+        return []
+
+    api_key = os.environ.get("GOOGLE_API_KEY", "").strip()
+    if not api_key:
+        logger.error(
+            "[refinery] GOOGLE_API_KEY not set — falling back to raw note"
+        )
+        return _gemini_fallback(text, "GOOGLE_API_KEY not configured")
+
+    try:
+        import google.generativeai as genai  # noqa: PLC0415
+    except ImportError:
+        logger.error(
+            "[refinery] google-generativeai not installed — "
+            "run: uv add google-generativeai"
+        )
+        return _gemini_fallback(text, "google-generativeai package not installed")
+
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(
+            model_name="gemini-1.5-flash",
+            system_instruction=_GEMINI_SYSTEM_PROMPT,
+        )
+
+        user_prompt = (
+            f"Source: {source}\n\n"
+            f"---\n\n"
+            f"{text}"
+        )
+
+        response = model.generate_content(
+            user_prompt,
+            generation_config=genai.GenerationConfig(
+                temperature=0.2,        # low temperature = more deterministic extraction
+                max_output_tokens=2048,
+            ),
+        )
+
+        raw_json = response.text.strip()
+
+        # Strip optional markdown fences the model sometimes adds despite instructions
+        if raw_json.startswith("```"):
+            raw_json = raw_json.split("\n", 1)[-1]
+            raw_json = raw_json.rsplit("```", 1)[0].strip()
+
+        drafts: list[dict] = json.loads(raw_json)
+
+        if not isinstance(drafts, list):
+            raise ValueError(f"Expected a JSON array, got {type(drafts).__name__}")
+
+        # Validate and normalise each item
+        valid_types = {"decision", "finding", "todo", "code", "note"}
+        cleaned: list[dict] = []
+        for item in drafts:
+            if not isinstance(item, dict):
+                continue
+            item_type = str(item.get("type", "note")).lower().strip()
+            if item_type not in valid_types:
+                item_type = "note"
+            content = str(item.get("content", "")).strip()
+            if not content:
+                continue
+            cleaned.append(
+                {
+                    "type": item_type,
+                    "title": str(item.get("title", ""))[:500].strip() or content[:80],
+                    "content": content,
+                    "confidence_score": max(
+                        0.0, min(1.0, float(item.get("confidence_score", 0.75)))
+                    ),
+                }
+            )
+
+        logger.info(
+            "[refinery] Gemini extracted %d item(s) from %d chars of text",
+            len(cleaned),
+            len(text),
+        )
+        return cleaned
+
+    except json.JSONDecodeError as exc:
+        logger.error("[refinery] JSON parse failed: %s — raw response: %.300s", exc, raw_json)
+        return _gemini_fallback(text, f"JSON parse error: {exc}")
+
+    except Exception as exc:  # noqa: BLE001
+        logger.error("[refinery] Gemini API call failed: %s", exc)
+        return _gemini_fallback(text, str(exc))
 
 
 # ---------------------------------------------------------------------------
