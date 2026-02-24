@@ -13,17 +13,10 @@ const AUTHED_REDIRECT = [];
 export function middleware(request) {
   const { pathname } = request.nextUrl;
 
-  // Primary exact match (works natively if SESSION_COOKIE is kept at default)
-  let hasSession = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
-
-  // Fallback heuristic: If name overriding happened in the backend but the env var
-  // didn't arrive here, scan for ANY cookie containing a 64-character hex token 
-  // (the native format of our auth sessions: os.urandom(32).hex()).
-  if (!hasSession) {
-    const all = request.cookies.getAll();
-    const fallback = all.find(c => /^[0-9a-f]{64}$/i.test(c.value));
-    hasSession = Boolean(fallback);
-  }
+  // Check the named session cookie only. No fallback heuristic — scanning all
+  // cookies for a hex-pattern could match third-party analytics or tracker
+  // cookies and grant false auth, bypassing protected routes.
+  const hasSession = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
 
   // Authenticated users on landing/auth pages → send to /app
   if (AUTHED_REDIRECT.includes(pathname) && hasSession) {

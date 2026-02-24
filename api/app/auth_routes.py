@@ -364,11 +364,16 @@ async def verify_link(
 
     await db.commit()
 
+    # Set Secure=true whenever the request arrived via HTTPS — not just in prod.
+    # Cloudflare terminates TLS and forwards X-Forwarded-Proto: https; the
+    # internal request.url.scheme is still "http" on the Docker network.
+    forwarded_proto = request.headers.get("x-forwarded-proto", "").lower()
+    is_https = forwarded_proto == "https" or IS_PROD
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=raw_session,
         httponly=True,
-        secure=IS_PROD,
+        secure=is_https,
         samesite="lax",
         domain=SESSION_COOKIE_DOMAIN,
         max_age=int((new_session.expires_at - now).total_seconds()),

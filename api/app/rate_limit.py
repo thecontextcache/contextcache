@@ -18,6 +18,13 @@ RECALL_RATE_LIMIT_PER_IP_PER_HOUR = int(os.getenv("RECALL_RATE_LIMIT_PER_IP_PER_
 RECALL_RATE_LIMIT_PER_ACCOUNT_PER_HOUR = int(os.getenv("RECALL_RATE_LIMIT_PER_ACCOUNT_PER_HOUR", "240"))
 HEDGE_P95_CACHE_TTL_SECONDS = int(os.getenv("HEDGE_P95_CACHE_TTL_SECONDS", "900"))
 
+# Write-endpoint burst limits — prevents flooding DB with projects/memories/orgs
+# via a valid API key. Configurable via env vars; 0 = disabled.
+WRITE_RATE_LIMIT_PER_IP_PER_MINUTE = int(os.getenv("WRITE_RATE_LIMIT_PER_IP_PER_MINUTE", "60"))
+WRITE_RATE_LIMIT_PER_ACCOUNT_PER_MINUTE = int(os.getenv("WRITE_RATE_LIMIT_PER_ACCOUNT_PER_MINUTE", "60"))
+INGEST_RATE_LIMIT_PER_IP_PER_MINUTE = int(os.getenv("INGEST_RATE_LIMIT_PER_IP_PER_MINUTE", "30"))
+INGEST_RATE_LIMIT_PER_ACCOUNT_PER_MINUTE = int(os.getenv("INGEST_RATE_LIMIT_PER_ACCOUNT_PER_MINUTE", "30"))
+
 _REQUESTS: dict[str, deque[datetime]] = defaultdict(deque)
 _REDIS_CLIENT = None
 
@@ -145,4 +152,26 @@ def check_recall_limits(ip: str, account_key: str) -> tuple[bool, str | None]:
         return False, "Too many recall requests from this IP. Please try again later."
     if account_key and not _allow_redis(f"recall:acct:{account_key}", RECALL_RATE_LIMIT_PER_ACCOUNT_PER_HOUR, 3600):
         return False, "Too many recall requests for this account. Please try again later."
+    return True, None
+
+
+def check_write_limits(ip: str, account_key: str) -> tuple[bool, str | None]:
+    """Burst rate limit for general write endpoints (projects, memories, orgs)."""
+    if WRITE_RATE_LIMIT_PER_IP_PER_MINUTE > 0:
+        if not _allow_redis(f"write:ip:{ip}", WRITE_RATE_LIMIT_PER_IP_PER_MINUTE, 60):
+            return False, "Too many write requests from this IP. Please slow down."
+    if account_key and WRITE_RATE_LIMIT_PER_ACCOUNT_PER_MINUTE > 0:
+        if not _allow_redis(f"write:acct:{account_key}", WRITE_RATE_LIMIT_PER_ACCOUNT_PER_MINUTE, 60):
+            return False, "Too many write requests for this account. Please slow down."
+    return True, None
+
+
+def check_ingest_limits(ip: str, account_key: str) -> tuple[bool, str | None]:
+    """Burst rate limit for the /ingest/raw endpoint (higher volume, stricter limit)."""
+    if INGEST_RATE_LIMIT_PER_IP_PER_MINUTE > 0:
+        if not _allow_redis(f"ingest:ip:{ip}", INGEST_RATE_LIMIT_PER_IP_PER_MINUTE, 60):
+            return False, "Too many ingest requests from this IP. Please slow down."
+    if account_key and INGEST_RATE_LIMIT_PER_ACCOUNT_PER_MINUTE > 0:
+        if not _allow_redis(f"ingest:acct:{account_key}", INGEST_RATE_LIMIT_PER_ACCOUNT_PER_MINUTE, 60):
+            return False, "Too many ingest requests for this account. Please slow down."
     return True, None

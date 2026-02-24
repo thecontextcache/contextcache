@@ -28,10 +28,11 @@ from sqlalchemy.orm import sessionmaker
 
 from app.models import ApiKey, Organization, User, Membership  # noqa: F401
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+asyncpg://contextcache:change-me@db:5432/contextcache",
-)
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    print("ERROR: DATABASE_URL environment variable is required.", file=sys.stderr)
+    print("  Run inside the container:  docker compose exec api uv run python scripts/create_api_key.py ...", file=sys.stderr)
+    sys.exit(1)
 
 
 def _hash_key(raw: str) -> str:

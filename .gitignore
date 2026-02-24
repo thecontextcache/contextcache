@@ -7,3 +7,9 @@ __pycache__/
 .DS_Store
 node_modules/
 PROJECT_REPORT.md
+
+# Next.js build output — generated, never committed
+web/.next/
+# Extension build output
+extension/dist/
+contextcache-extension/dist/

@@ -40,10 +40,11 @@ from app.models import (
 )
 from app.analyzer.algorithm import compute_embedding, compute_hilbert_index
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+asyncpg://contextcache:change-me@db:5432/contextcache",
-)
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    print("ERROR: DATABASE_URL environment variable is required.", file=sys.stderr)
+    print("  Run inside the container:  docker compose exec api uv run python scripts/seed_mock_data.py ...", file=sys.stderr)
+    sys.exit(1)
 
 # ── Realistic sample data ─────────────────────────────────────────────────────
 

@@ -22,7 +22,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import get_db
 from .models import InboxItem, Organization, RawCapture
-from .routes import RequestContext, get_actor_context, require_role
+from .rate_limit import check_ingest_limits
+from .routes import RequestContext, _extract_client_ip, get_actor_context, require_role
 from .schemas import RawCaptureIn, RawCaptureQueuedOut
 
 logger = logging.getLogger(__name__)
@@ -103,6 +104,12 @@ async def ingest_raw(
     The Inbox endpoint (GET /projects/{id}/inbox) surfaces the resulting drafts.
     """
     require_role(ctx, "member")
+
+    client_ip = _extract_client_ip(request)
+    account_key = str(ctx.org_id or "")
+    allowed, rl_detail = check_ingest_limits(client_ip, account_key)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=rl_detail)
 
     if ctx.org_id is None:
         raise HTTPException(status_code=400, detail="X-Org-Id required")

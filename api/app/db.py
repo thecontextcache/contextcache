@@ -14,7 +14,28 @@ import logging
 
 DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./contextcache.db")
 
-engine: AsyncEngine = create_async_engine(DATABASE_URL, echo=False, future=True)
+# Explicit pool configuration.
+# Defaults (5 connections, 10 overflow) exhaust quickly under load because the
+# auth middleware opens an AsyncSessionLocal() on *every* request in addition to
+# the route-level get_db() session. Tune with DB_POOL_SIZE / DB_MAX_OVERFLOW env vars.
+_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "10"))
+_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "20"))
+_POOL_TIMEOUT = int(os.getenv("DB_POOL_TIMEOUT", "30"))
+_POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "1800"))  # 30 min — prevents stale connections
+
+# SQLite doesn't support pool parameters; only apply them for PostgreSQL
+_IS_PG = "postgresql" in DATABASE_URL or "postgres" in DATABASE_URL
+_engine_kwargs: dict = {"echo": False, "future": True}
+if _IS_PG:
+    _engine_kwargs.update({
+        "pool_size": _POOL_SIZE,
+        "max_overflow": _MAX_OVERFLOW,
+        "pool_timeout": _POOL_TIMEOUT,
+        "pool_recycle": _POOL_RECYCLE,
+        "pool_pre_ping": True,
+    })
+
+engine: AsyncEngine = create_async_engine(DATABASE_URL, **_engine_kwargs)
 
 
 @event.listens_for(engine.sync_engine, "connect")

@@ -42,7 +42,13 @@ from .models import (
     User,
 )
 from .recall import build_memory_pack
-from .rate_limit import check_recall_limits, get_cached_hedge_p95_ms, get_counter, incr_counter
+from .rate_limit import (
+    check_recall_limits,
+    check_write_limits,
+    get_cached_hedge_p95_ms,
+    get_counter,
+    incr_counter,
+)
 from .schemas import (
     ApiKeyCreate,
     ApiKeyCreatedOut,
@@ -456,9 +462,15 @@ async def get_my_usage(
 @router.post("/orgs", response_model=OrgOut, status_code=201)
 async def create_org(
     payload: OrgCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     ctx: RequestContext = Depends(get_actor_context),
 ) -> OrgOut:
+    client_ip = _extract_client_ip(request)
+    account_key = str(ctx.org_id or ctx.actor_user_id or "")
+    allowed, detail = check_write_limits(client_ip, account_key)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=detail)
     org_count = (await db.execute(select(func.count(Organization.id)))).scalar_one()
     if org_count > 0:
         require_role(ctx, "admin")
@@ -886,6 +898,11 @@ async def create_project(
 ) -> ProjectOut:
     if ctx.org_id is None:
         raise HTTPException(status_code=400, detail="X-Org-Id required")
+    client_ip = _extract_client_ip(request)
+    account_key = str(ctx.org_id or "")
+    allowed, detail = check_write_limits(client_ip, account_key)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=detail)
     return await create_org_project(org_id=ctx.org_id, payload=payload, request=request, db=db, ctx=ctx)
 
 
@@ -1143,6 +1160,11 @@ async def create_memory(
     ctx: RequestContext = Depends(get_actor_context),
 ) -> MemoryOut:
     require_role(ctx, "member")
+    client_ip = _extract_client_ip(request)
+    account_key = str(ctx.org_id or "")
+    allowed, detail = check_write_limits(client_ip, account_key)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=detail)
     project = await get_project_or_404(db, project_id, ctx)
 
     auth_user_id: int | None = getattr(request.state, "auth_user_id", None)
