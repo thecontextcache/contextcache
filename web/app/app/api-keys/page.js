@@ -182,25 +182,30 @@ export default function ApiKeysPage() {
   // ── Bootstrap: resolve org ──────────────────────────────────────────────────
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       try {
         const orgs = await apiFetch("/me/orgs");
+        if (cancelled) return;
         if (!orgs?.length) { router.push("/auth"); return; }
         const org = orgs[0];
         setOrgId(org.id);
         setOrgName(org.name);
         localStorage.setItem("CONTEXTCACHE_ORG_ID", String(org.id));
       } catch (e) {
+        if (cancelled) return;
         if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
           router.push("/auth");
         } else {
           toast.error("Could not load your organisation.");
         }
       } finally {
-        setAuthLoading(false);
+        if (!cancelled) setAuthLoading(false);
       }
     })();
-  }, [router, toast]);
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Load keys whenever orgId is known ──────────────────────────────────────
 
@@ -215,14 +220,15 @@ export default function ApiKeysPage() {
     } finally {
       setKeysLoading(false);
     }
-  }, [orgId, toast]);
+  // toast is intentionally omitted — it changes reference every render
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId]);
 
   const loadAuditLogs = useCallback(async () => {
     if (!orgId) return;
     setLogsLoading(true);
     try {
       const data = await apiFetch(`/orgs/${orgId}/audit-logs?limit=50`);
-      // Filter to key-related events
       const keyEvents = (data ?? []).filter(
         (l) => l.action?.startsWith("api_key.")
       );
@@ -232,6 +238,7 @@ export default function ApiKeysPage() {
     } finally {
       setLogsLoading(false);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
 
   useEffect(() => {
