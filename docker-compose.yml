@@ -48,6 +48,12 @@ services:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-contextcache}:${POSTGRES_PASSWORD:-change-me}@db:5432/${POSTGRES_DB:-contextcache}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - RUN_MIGRATIONS=1
+      # ── Refinery / LLM extraction ────────────────────
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.0-flash}
+      # ── Email ────────────────────────────────────────
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - RESEND_FROM_EMAIL=${RESEND_FROM_EMAIL:-noreply@thecontextcache.com}
     depends_on:
       db:
         condition: service_healthy
@@ -127,6 +133,9 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - WORKER_ENABLED=true
+      # ── Refinery / LLM extraction ────────────────────
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.0-flash}
     depends_on:
       redis:
         condition: service_healthy

@@ -130,10 +130,64 @@ export function DashboardShell({ children }: { children: ReactNode }) {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-5xl px-4 py-8 lg:px-8">
+      <main className="flex-1 overflow-y-auto flex flex-col">
+        <div className="mx-auto max-w-5xl flex-1 px-4 py-8 lg:px-8">
           {children}
         </div>
+
+        {/* Dashboard footer */}
+        <footer className="border-t border-line bg-bg-2/30 px-4 py-6 lg:px-8">
+          <div className="mx-auto max-w-5xl">
+            <div className="flex flex-col items-center justify-between gap-4 sm:flex-row">
+              <div className="flex items-center gap-4">
+                <Link href="/" className="font-display text-xs font-bold gradient-text">
+                  {APP_NAME}
+                </Link>
+                <span className="text-xs text-muted">
+                  &copy; 2024&ndash;2026 TheContextCache. All rights reserved.
+                </span>
+              </div>
+              <div className="flex items-center gap-4">
+                <Link
+                  href="/legal"
+                  className="text-xs text-muted transition-colors hover:text-ink-2"
+                >
+                  Legal
+                </Link>
+                <a
+                  href="https://docs.thecontextcache.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-muted transition-colors hover:text-ink-2"
+                >
+                  Docs
+                </a>
+                <a
+                  href="mailto:support@thecontextcache.com"
+                  className="text-xs text-muted transition-colors hover:text-ink-2"
+                >
+                  Support
+                </a>
+                <a
+                  href="https://instagram.com/thecontextcache"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-muted transition-colors hover:text-ink-2"
+                >
+                  Instagram
+                </a>
+                <a
+                  href="https://bsky.app/profile/thecontextcache.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-muted transition-colors hover:text-ink-2"
+                >
+                  Bluesky
+                </a>
+              </div>
+            </div>
+          </div>
+        </footer>
       </main>
     </div>
   );

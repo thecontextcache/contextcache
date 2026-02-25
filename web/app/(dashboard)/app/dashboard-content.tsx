@@ -32,6 +32,7 @@ import {
   Inbox,
   CheckCircle,
   XCircle,
+  AlertTriangle,
 } from 'lucide-react';
 
 type BadgeVariant = 'brand' | 'violet' | 'ok' | 'warn' | 'err' | 'muted';
@@ -366,7 +367,31 @@ export function DashboardContent() {
                   {item.suggested_title && (
                     <h4 className="font-semibold text-ink">{item.suggested_title}</h4>
                   )}
-                  <p className="mt-1 line-clamp-3 text-sm text-ink-2">{item.suggested_content}</p>
+
+                  {/* Handle extraction failure display */}
+                  {item.suggested_content.startsWith('[Gemini extraction failed:') ? (
+                    <div className="mt-2">
+                      <div className="flex items-start gap-2 rounded-lg border border-warn/20 bg-warn/10 px-3 py-2">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
+                        <div>
+                          <p className="text-xs font-medium text-warn">Extraction failed — raw capture preserved</p>
+                          <p className="mt-0.5 text-xs text-warn/70">
+                            The AI couldn&apos;t process this capture. You can approve it as a raw note or reject it.
+                          </p>
+                        </div>
+                      </div>
+                      <details className="mt-2">
+                        <summary className="cursor-pointer text-xs text-muted hover:text-ink-2">
+                          Show raw content
+                        </summary>
+                        <pre className="mt-1 max-h-40 overflow-auto rounded-lg border border-line bg-bg-2 p-3 font-mono text-xs text-ink-2 whitespace-pre-wrap">
+                          {item.suggested_content.replace(/^\[Gemini extraction failed: [^\]]*\]\n*/, '')}
+                        </pre>
+                      </details>
+                    </div>
+                  ) : (
+                    <p className="mt-1 line-clamp-3 text-sm text-ink-2">{item.suggested_content}</p>
+                  )}
                   {item.status === 'pending' && (
                     <div className="mt-3 flex gap-2">
                       <Button size="sm" onClick={() => handleApproveInbox(item.id)}>

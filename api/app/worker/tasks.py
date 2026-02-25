@@ -492,6 +492,11 @@ def refine_content_with_llm(payload: dict) -> list[dict]:
         return []
 
     api_key = os.environ.get("GOOGLE_API_KEY", "").strip()
+    # Strip surrounding quotes that Docker Compose env_file may include
+    if api_key.startswith('"') and api_key.endswith('"'):
+        api_key = api_key[1:-1]
+    if api_key.startswith("'") and api_key.endswith("'"):
+        api_key = api_key[1:-1]
     if not api_key:
         logger.error("[refinery] GOOGLE_API_KEY not set — falling back to raw note")
         return _gemini_fallback(text, "GOOGLE_API_KEY not configured")
