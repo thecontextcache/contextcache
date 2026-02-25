@@ -527,50 +527,52 @@ export function OrgsContent() {
               <p className="text-sm text-ink-2">No audit log entries.</p>
             </Card>
           ) : (
-            <div className="overflow-x-auto rounded-xl border border-line">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-line bg-bg-2 text-left">
-                    <th className="px-4 py-3 font-medium text-ink-2">Action</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Entity</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Actor</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Time</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {auditLogs.map((log) => (
-                    <tr key={log.id} className="border-b border-line last:border-0">
-                      <td className="px-4 py-3">
-                        <Badge variant={actionBadge(log.action)}>{formatAction(log.action)}</Badge>
-                      </td>
-                      <td className="px-4 py-3 text-ink-2">
-                        {log.entity_type} #{log.entity_id}
-                      </td>
-                      <td className="px-4 py-3 text-muted">
-                        {(log.metadata?.actor_email as string | undefined)
-                          || (log.metadata?.email as string | undefined)
-                          || (log.actor_user_id ? `User #${log.actor_user_id}` : log.api_key_prefix ? `Key ${log.api_key_prefix}...` : '—')}
-                      </td>
-                      <td className="px-4 py-3 text-muted">
-                        <div className="flex items-center gap-1">
-                          <Clock3 className="h-3.5 w-3.5" />
-                          <span>{timeAgo(log.created_at)} · {new Date(log.created_at).toLocaleString()}</span>
-                        </div>
-                      </td>
+            <>
+              <div className="overflow-x-auto rounded-xl border border-line">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-line bg-bg-2 text-left">
+                      <th className="px-4 py-3 font-medium text-ink-2">Action</th>
+                      <th className="px-4 py-3 font-medium text-ink-2">Entity</th>
+                      <th className="px-4 py-3 font-medium text-ink-2">Actor</th>
+                      <th className="px-4 py-3 font-medium text-ink-2">Time</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="mt-4 flex justify-center">
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => setAuditLimit((v) => v + 50)}
-              >
-                Load more
-              </Button>
-            </div>
+                  </thead>
+                  <tbody>
+                    {auditLogs.map((log) => (
+                      <tr key={log.id} className="border-b border-line last:border-0">
+                        <td className="px-4 py-3">
+                          <Badge variant={actionBadge(log.action)}>{formatAction(log.action)}</Badge>
+                        </td>
+                        <td className="px-4 py-3 text-ink-2">
+                          {log.entity_type} #{log.entity_id}
+                        </td>
+                        <td className="px-4 py-3 text-muted">
+                          {(log.metadata?.actor_email as string | undefined)
+                            || (log.metadata?.email as string | undefined)
+                            || (log.actor_user_id ? `User #${log.actor_user_id}` : log.api_key_prefix ? `Key ${log.api_key_prefix}...` : '—')}
+                        </td>
+                        <td className="px-4 py-3 text-muted">
+                          <div className="flex items-center gap-1">
+                            <Clock3 className="h-3.5 w-3.5" />
+                            <span>{timeAgo(log.created_at)} · {new Date(log.created_at).toLocaleString()}</span>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-4 flex justify-center">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setAuditLimit((v) => v + 50)}
+                >
+                  Load more
+                </Button>
+              </div>
+            </>
           )}
         </div>
       )}
