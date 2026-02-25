@@ -49,7 +49,7 @@ services:
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
       - CORS_ORIGINS=${CORS_ORIGINS:-https://thecontextcache.com}
       - APP_PUBLIC_BASE_URL=${APP_PUBLIC_BASE_URL:-https://thecontextcache.com}
-      - MAGIC_LINK_ALLOW_LOG_FALLBACK=${MAGIC_LINK_ALLOW_LOG_FALLBACK:-true}
+      - MAGIC_LINK_ALLOW_LOG_FALLBACK=${MAGIC_LINK_ALLOW_LOG_FALLBACK:-false}
       - RUN_MIGRATIONS=1
       - WORKER_ENABLED=${WORKER_ENABLED:-true}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
@@ -93,7 +93,7 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - WORKER_ENABLED=true
-      - MAGIC_LINK_ALLOW_LOG_FALLBACK=${MAGIC_LINK_ALLOW_LOG_FALLBACK:-true}
+      - MAGIC_LINK_ALLOW_LOG_FALLBACK=${MAGIC_LINK_ALLOW_LOG_FALLBACK:-false}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.0-flash}
     depends_on:
