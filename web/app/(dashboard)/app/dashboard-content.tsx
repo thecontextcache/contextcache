@@ -354,7 +354,7 @@ export function DashboardContent() {
         </div>
 
         {memLoading ? (
-          <div className="grid gap-5 sm:grid-cols-2">
+          <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
             {[1, 2, 3, 4].map((i) => <SkeletonCard key={i} />)}
           </div>
         ) : memoryList.length === 0 ? (
@@ -363,7 +363,7 @@ export function DashboardContent() {
             <p className="text-sm text-ink-2">No memories yet. Add your first memory card.</p>
           </Card>
         ) : (
-          <div className="grid gap-5 sm:grid-cols-2">
+          <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
             {memoryList.map((m) => (
               <Card key={m.id} hover className={`group relative border-l-4 ${typeBorderMap[m.type] || 'border-l-muted'}`}>
                 <div className="mb-3 flex items-center gap-2.5">
@@ -736,7 +736,7 @@ export function DashboardContent() {
       </div>
 
       {loading ? (
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {[1, 2, 3].map((i) => <SkeletonCard key={i} />)}
         </div>
       ) : projectList.length === 0 ? (
@@ -749,7 +749,7 @@ export function DashboardContent() {
           </Button>
         </Card>
       ) : (
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {projectList.map((p) => (
             <Card
               key={p.id}

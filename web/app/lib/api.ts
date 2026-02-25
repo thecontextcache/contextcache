@@ -523,9 +523,8 @@ export const admin = {
   revokeAdmin: (userId: number) => request<void>(`/api/admin/users/${userId}/revoke-admin`, { method: 'POST' }),
   revokeSessions: (userId: number) => request<void>(`/api/admin/users/${userId}/revoke-sessions`, { method: 'POST' }),
   setUnlimited: (userId: number, unlimited: boolean) =>
-    request<void>(`/api/admin/users/${userId}/set-unlimited`, {
+    request<void>(`/api/admin/users/${userId}/set-unlimited?unlimited=${String(unlimited)}`, {
       method: 'POST',
-      body: JSON.stringify({ is_unlimited: unlimited }),
     }),
 
   orgs: () => request<Org[]>('/api/admin/orgs'),

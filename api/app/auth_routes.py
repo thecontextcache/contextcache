@@ -651,7 +651,7 @@ async def set_unlimited(
     user_id: int,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    unlimited: bool = True,
+    unlimited: bool | None = None,
 ):
     """Grant or remove the unlimited-usage flag for a user (admin-only).
 
@@ -661,6 +661,15 @@ async def set_unlimited(
     user = (await db.execute(select(AuthUser).where(AuthUser.id == user_id).limit(1))).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    if unlimited is None:
+        try:
+            body = await request.json()
+            if isinstance(body, dict) and "is_unlimited" in body:
+                unlimited = bool(body.get("is_unlimited"))
+        except Exception:
+            unlimited = None
+    if unlimited is None:
+        unlimited = True
     user.is_unlimited = unlimited
     await db.commit()
     return {"status": "ok", "is_unlimited": unlimited}

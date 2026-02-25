@@ -8,14 +8,14 @@
   --color-err: #FF3B6E;
   --color-warn: #FFB800;
 
-  --color-bg: #060C18;
-  --color-bg-2: #0A1628;
-  --color-panel: #0D1B30;
-  --color-line: rgba(0, 212, 255, 0.08);
+  --color-bg: #071327;
+  --color-bg-2: #0D223A;
+  --color-panel: #122B48;
+  --color-line: rgba(148, 173, 200, 0.20);
 
-  --color-ink: #E2EEF9;
-  --color-ink-2: #94ADC8;
-  --color-muted: #4A6685;
+  --color-ink: #F2F7FF;
+  --color-ink-2: #B4C7DD;
+  --color-muted: #7E9ABC;
 
   --font-display: 'Orbitron', monospace;
   --font-body: 'Space Grotesk', system-ui, sans-serif;

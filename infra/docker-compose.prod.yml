@@ -49,6 +49,9 @@ services:
       - APP_PUBLIC_BASE_URL=${APP_PUBLIC_BASE_URL:-https://thecontextcache.com}
       - MAGIC_LINK_ALLOW_LOG_FALLBACK=${MAGIC_LINK_ALLOW_LOG_FALLBACK:-true}
       - RUN_MIGRATIONS=1
+      - WORKER_ENABLED=${WORKER_ENABLED:-true}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.0-flash}
     ports:
       - "8000:8000"
     depends_on:
@@ -87,6 +90,8 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - WORKER_ENABLED=true
       - MAGIC_LINK_ALLOW_LOG_FALLBACK=${MAGIC_LINK_ALLOW_LOG_FALLBACK:-true}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.0-flash}
     depends_on:
       db:
         condition: service_healthy

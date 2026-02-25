@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useState, useEffect, type ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 import { auth } from '@/lib/api';
-import { APP_NAME, NAV_ITEMS } from '@/lib/constants';
+import { APP_NAME } from '@/lib/constants';
 import {
   LayoutDashboard,
   Key,
@@ -80,7 +80,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
       {/* Sidebar */}
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-line bg-bg-2 transition-transform duration-200 lg:static lg:translate-x-0',
+          'fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-line bg-bg-2 transition-transform duration-200 lg:static lg:translate-x-0',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
@@ -131,11 +131,11 @@ export function DashboardShell({ children }: { children: ReactNode }) {
 
       {/* Main content */}
       <main className="flex-1 overflow-y-auto flex flex-col">
-        <div className="mx-auto max-w-5xl flex-1 px-4 py-8 lg:px-8">
+        <div className="mx-auto w-full max-w-[1400px] flex-1 px-4 py-8 lg:px-8">
           {children}
         </div>
         <footer className="mt-auto border-t border-line bg-bg-2/30 px-4 py-5 lg:px-8">
-          <div className="mx-auto max-w-5xl flex flex-col items-center justify-between gap-3 sm:flex-row">
+          <div className="mx-auto w-full max-w-[1400px] flex flex-col items-center justify-between gap-3 sm:flex-row">
             <div className="flex items-center gap-3">
               <Link href="/" className="font-display text-xs font-bold gradient-text">{APP_NAME}</Link>
               <span className="text-[11px] text-muted">&copy; 2024&ndash;2026 TheContextCache</span>

@@ -170,7 +170,7 @@ export function AdminContent() {
     try {
       await action();
       toast('success', msg);
-      loadTab('users');
+      await loadTab('users');
     } catch (err) {
       toast('error', err instanceof ApiError ? err.message : 'Action failed');
     }
