@@ -665,9 +665,22 @@ def refine_content_with_llm(payload: dict) -> list[dict]:
                 response_text = "\n".join(parts).strip()
 
             raw_json = _extract_first_json_block(response_text)
-            drafts: list[dict] = json.loads(raw_json)
-            if not isinstance(drafts, list):
-                raise ValueError(f"Expected a JSON array, got {type(drafts).__name__}")
+            parsed = json.loads(raw_json)
+            if isinstance(parsed, list):
+                drafts = parsed
+            elif isinstance(parsed, dict):
+                maybe_list = (
+                    parsed.get("items")
+                    or parsed.get("drafts")
+                    or parsed.get("memories")
+                    or parsed.get("results")
+                )
+                if isinstance(maybe_list, list):
+                    drafts = maybe_list
+                else:
+                    raise ValueError("JSON object did not contain an item list")
+            else:
+                raise ValueError(f"Expected JSON list/object, got {type(parsed).__name__}")
 
             valid_types = {"decision", "finding", "todo", "code", "note"}
             cleaned: list[dict] = []
@@ -691,13 +704,22 @@ def refine_content_with_llm(payload: dict) -> list[dict]:
                     }
                 )
 
-            logger.info(
-                "[refinery] Gemini extracted %d item(s) from %d chars via model=%s",
-                len(cleaned),
-                len(text),
+            if cleaned:
+                logger.info(
+                    "[refinery] Gemini extracted %d item(s) from %d chars via model=%s",
+                    len(cleaned),
+                    len(text),
+                    model_name,
+                )
+                return cleaned
+            logger.warning(
+                "[refinery] Gemini returned no valid items via model=%s; applying local heuristic fallback",
                 model_name,
             )
-            return cleaned
+            heuristic = _heuristic_extract_from_text(text)
+            if heuristic:
+                return heuristic
+            return _gemini_fallback(text, f"{model_name}: no usable extraction items")
         except Exception as exc:  # noqa: BLE001
             last_error = f"{model_name}: {exc}"
             logger.warning("[refinery] model=%s failed: %s", model_name, exc)

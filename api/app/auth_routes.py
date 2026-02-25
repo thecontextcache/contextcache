@@ -37,6 +37,7 @@ from .models import (
 )
 from .rate_limit import check_request_link_limits, check_verify_limits
 from .schemas import (
+    AdminLlmHealthOut,
     AdminInviteCreateIn,
     AdminInviteOut,
     CagCacheStatsOut,
@@ -850,6 +851,44 @@ async def admin_cag_evaporate(request: Request) -> CagCacheStatsOut:
     evaporate_pheromones()
     stats = get_cag_cache_stats()
     return CagCacheStatsOut(**stats)
+
+
+@router.get("/admin/system/llm-health", response_model=AdminLlmHealthOut)
+async def admin_llm_health(request: Request) -> AdminLlmHealthOut:
+    _require_admin_auth(request)
+    provider = "gemini"
+    model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip() or "gemini-2.0-flash"
+    worker_enabled = os.getenv("WORKER_ENABLED", "false").strip().lower() == "true"
+    api_key = os.getenv("GOOGLE_API_KEY", "").strip()
+    if len(api_key) >= 2 and api_key[0] == api_key[-1] and api_key[0] in ('"', "'"):
+        api_key = api_key[1:-1].strip()
+
+    google_genai_installed = True
+    try:
+        from google import genai as _genai  # noqa: F401
+    except Exception:
+        google_genai_installed = False
+
+    notes: list[str] = []
+    if not worker_enabled:
+        notes.append("WORKER_ENABLED is false; async refinery tasks will not run.")
+    if not api_key:
+        notes.append("GOOGLE_API_KEY is missing or empty.")
+    if not google_genai_installed:
+        notes.append("google-genai package is not installed in runtime image.")
+    if not notes:
+        notes.append("LLM extraction prerequisites are configured.")
+
+    ready = worker_enabled and bool(api_key) and google_genai_installed
+    return AdminLlmHealthOut(
+        provider=provider,
+        model=model,
+        worker_enabled=worker_enabled,
+        google_api_key_configured=bool(api_key),
+        google_genai_installed=google_genai_installed,
+        ready=ready,
+        notes=notes,
+    )
 
 
 # ---------------------------------------------------------------------------

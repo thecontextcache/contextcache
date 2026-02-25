@@ -320,6 +320,16 @@ class CagCacheStatsOut(BaseModel):
     top_entries: list[CagCacheEntryOut] = Field(default_factory=list)
 
 
+class AdminLlmHealthOut(BaseModel):
+    provider: str
+    model: str
+    worker_enabled: bool
+    google_api_key_configured: bool
+    google_genai_installed: bool
+    ready: bool
+    notes: list[str] = Field(default_factory=list)
+
+
 # ---------------------------------------------------------------------------
 # Admin — usage
 # ---------------------------------------------------------------------------

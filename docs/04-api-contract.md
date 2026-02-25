@@ -124,6 +124,7 @@ Response for `GET /admin/users/{id}/stats`:
 | `GET`  | `/admin/recall/logs` | Last recall decision logs (`limit`, `offset`, `project_id`) |
 | `GET`  | `/admin/cag/cache-stats` | CAG cache metrics (pheromone/LRU state, hit rate, KV stub budget) |
 | `POST` | `/admin/cag/evaporate` | Trigger immediate pheromone evaporation pass |
+| `GET`  | `/admin/system/llm-health` | LLM extraction readiness (worker flag, Gemini key presence, SDK install status, model) |
 | `GET`  | `/me/usage` | Current user's today usage + configured limits |
 
 Example `GET /admin/recall/logs` item:

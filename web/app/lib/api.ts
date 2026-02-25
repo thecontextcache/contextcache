@@ -525,6 +525,16 @@ export interface CagCacheStats {
   kv_token_budget_used: number;
 }
 
+export interface AdminLlmHealth {
+  provider: string;
+  model: string;
+  worker_enabled: boolean;
+  google_api_key_configured: boolean;
+  google_genai_installed: boolean;
+  ready: boolean;
+  notes: string[];
+}
+
 export const admin = {
   users: () => request<AdminUser[]>('/api/admin/users'),
   listUsers: () => request<AdminUser[]>('/api/admin/users'),
@@ -572,6 +582,7 @@ export const admin = {
   cagCacheStats: () => request<CagCacheStats>('/api/admin/cag/cache-stats'),
   cagStats: () => request<CagCacheStats>('/api/admin/cag/cache-stats'),
   cagEvaporate: () => request<CagCacheStats>('/api/admin/cag/evaporate', { method: 'POST' }),
+  llmHealth: () => request<AdminLlmHealth>('/api/admin/system/llm-health'),
 };
 
 // ── Health ────────────────────────────────────────────────────

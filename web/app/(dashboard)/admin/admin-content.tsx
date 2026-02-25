@@ -8,6 +8,7 @@ import {
   type AdminWaitlistEntry,
   type AdminRecallLog,
   type CagCacheStats,
+  type AdminLlmHealth,
   type AdminUsageRow,
   ApiError,
 } from '@/lib/api';
@@ -68,6 +69,7 @@ export function AdminContent() {
 
   // System / CAG
   const [cagStats, setCagStats] = useState<CagCacheStats | null>(null);
+  const [llmHealth, setLlmHealth] = useState<AdminLlmHealth | null>(null);
 
   const [loading, setLoading] = useState(true);
 
@@ -116,12 +118,12 @@ export function AdminContent() {
           break;
         }
         case 'system': {
-          try {
-            const data = await admin.cagCacheStats();
-            setCagStats(data);
-          } catch {
-            setCagStats(null);
-          }
+          const [cagRes, llmRes] = await Promise.allSettled([
+            admin.cagCacheStats(),
+            admin.llmHealth(),
+          ]);
+          setCagStats(cagRes.status === 'fulfilled' ? cagRes.value : null);
+          setLlmHealth(llmRes.status === 'fulfilled' ? llmRes.value : null);
           break;
         }
       }
@@ -652,6 +654,41 @@ export function AdminContent() {
           {/* ── System ────────────────────────────────── */}
           {tab === 'system' && (
             <div className="space-y-6">
+              <Card>
+                <h2 className="mb-4 text-lg font-semibold">LLM Extraction Health</h2>
+                {llmHealth ? (
+                  <div className="space-y-4">
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                      <div>
+                        <p className="text-xs uppercase tracking-wider text-muted">Status</p>
+                        <p className="mt-1 font-semibold text-ink">
+                          {llmHealth.ready ? 'Ready' : 'Not ready'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs uppercase tracking-wider text-muted">Provider / Model</p>
+                        <p className="mt-1 font-mono text-sm text-ink">
+                          {llmHealth.provider} · {llmHealth.model}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs uppercase tracking-wider text-muted">Prerequisites</p>
+                        <p className="mt-1 font-semibold text-ink">
+                          worker={llmHealth.worker_enabled ? 'on' : 'off'} · key={llmHealth.google_api_key_configured ? 'set' : 'missing'} · sdk={llmHealth.google_genai_installed ? 'ok' : 'missing'}
+                        </p>
+                      </div>
+                    </div>
+                    <ul className="list-disc space-y-1 pl-5 text-sm text-muted">
+                      {llmHealth.notes.map((n, idx) => (
+                        <li key={idx}>{n}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted">LLM health unavailable.</p>
+                )}
+              </Card>
+
               <Card>
                 <h2 className="mb-4 text-lg font-semibold">CAG Cache</h2>
                 {cagStats ? (

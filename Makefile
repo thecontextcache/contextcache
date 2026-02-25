@@ -4,8 +4,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Compose overlay files for production
-PROD_COMPOSE := -f infra/docker-compose.prod.yml
-DEV_COMPOSE  := -f docker-compose.yml
+PROD_COMPOSE := --env-file .env -f infra/docker-compose.prod.yml
+DEV_COMPOSE  := --env-file .env -f docker-compose.yml
 
 .PHONY: help dev dev-down dev-logs prod-deploy prod-up prod-down prod-logs
 
