@@ -517,6 +517,82 @@ def _extract_first_json_block(raw: str) -> str:
     return text
 
 
+def _payload_to_text(payload: dict) -> tuple[str, str]:
+    """Normalize diverse ingest payloads into plain text + source."""
+    if not isinstance(payload, dict):
+        return (str(payload or ""), "unknown")
+
+    source = str(payload.get("source", "unknown"))
+    title = str(payload.get("title", "")).strip()
+    url = str(payload.get("url", "")).strip()
+
+    conversation = payload.get("conversation")
+    conversation_text = ""
+    if isinstance(conversation, list):
+        turns: list[str] = []
+        for turn in conversation:
+            if not isinstance(turn, dict):
+                continue
+            role = str(turn.get("role", "unknown")).upper()
+            content = str(turn.get("content", "")).strip()
+            if content:
+                turns.append(f"{role}: {content}")
+        if turns:
+            conversation_text = "\n\n".join(turns)
+
+    base_text = (
+        str(payload.get("text", "")).strip()
+        or str(payload.get("content", "")).strip()
+        or str(payload.get("body", "")).strip()
+        or conversation_text
+        or str(payload)
+    )
+
+    prefix: list[str] = []
+    if title:
+        prefix.append(f"Title: {title}")
+    if url:
+        prefix.append(f"URL: {url}")
+
+    if prefix:
+        return ("\n".join(prefix) + "\n\n" + base_text, source)
+    return (base_text, source)
+
+
+def _heuristic_extract_from_text(text: str) -> list[dict]:
+    """Local fallback extraction to avoid raw-loss cards when model calls fail."""
+    body = text.strip()
+    if not body:
+        return []
+
+    # Keep output tight and deterministic so tests are stable.
+    preview = body[:1600]
+    lower = preview.lower()
+    item_type = "note"
+    if "todo" in lower or "next step" in lower or "action item" in lower:
+        item_type = "todo"
+    elif "decide" in lower or "decision" in lower:
+        item_type = "decision"
+    elif "found" in lower or "finding" in lower or "result" in lower:
+        item_type = "finding"
+    elif "```" in preview or "def " in lower or "class " in lower:
+        item_type = "code"
+
+    title = preview.splitlines()[0].strip()
+    if not title:
+        title = "Captured insight"
+    title = title[:80]
+
+    return [
+        {
+            "type": item_type,
+            "title": title,
+            "content": preview,
+            "confidence_score": 0.6,
+        }
+    ]
+
+
 def refine_content_with_llm(payload: dict) -> list[dict]:
     """Extract structured memory drafts from a raw capture payload via Gemini.
 
@@ -535,16 +611,7 @@ def refine_content_with_llm(payload: dict) -> list[dict]:
     """
     import json
 
-    text: str = ""
-    source: str = "unknown"
-    if isinstance(payload, dict):
-        text = (
-            payload.get("text")
-            or payload.get("content")
-            or payload.get("body")
-            or str(payload)
-        )
-        source = payload.get("source", "unknown")
+    text, source = _payload_to_text(payload)
 
     text = text.strip()
     if not text:
@@ -641,6 +708,10 @@ def refine_content_with_llm(payload: dict) -> list[dict]:
         last_error,
         raw_json,
     )
+    heuristic = _heuristic_extract_from_text(text)
+    if heuristic:
+        logger.info("[refinery] using local heuristic extraction fallback")
+        return heuristic
     return _gemini_fallback(text, last_error or "all configured models failed")
 
 
