@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { apiKeys, type ApiKey, type ApiKeyCreated, ApiError } from '@/lib/api';
+import { ORG_ID_KEY } from '@/lib/constants';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
 import { SkeletonTable } from '@/components/skeleton';
@@ -16,21 +16,32 @@ export function ApiKeysContent() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
-  const [label, setLabel] = useState('');
+  const [name, setName] = useState('');
   const [creating, setCreating] = useState(false);
   const [newKey, setNewKey] = useState<ApiKeyCreated | null>(null);
   const [copied, setCopied] = useState(false);
+  const [noOrg, setNoOrg] = useState(false);
 
   useEffect(() => {
+    const orgId = localStorage.getItem(ORG_ID_KEY);
+    if (!orgId) {
+      setNoOrg(true);
+      setLoading(false);
+      return;
+    }
     loadKeys();
   }, []);
 
   async function loadKeys() {
     try {
       const data = await apiKeys.list();
-      setKeys(data);
-    } catch {
-      toast('error', 'Failed to load API keys');
+      setKeys(data.filter((k) => !k.revoked_at));
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 400) {
+        setNoOrg(true);
+      } else {
+        toast('error', 'Failed to load API keys');
+      }
     } finally {
       setLoading(false);
     }
@@ -40,10 +51,10 @@ export function ApiKeysContent() {
     e.preventDefault();
     setCreating(true);
     try {
-      const created = await apiKeys.create(label);
+      const created = await apiKeys.create(name);
       setNewKey(created);
       setKeys((prev) => [...prev, created]);
-      setLabel('');
+      setName('');
     } catch (err) {
       toast('error', err instanceof ApiError ? err.message : 'Failed to create key');
     } finally {
@@ -65,6 +76,21 @@ export function ApiKeysContent() {
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  }
+
+  if (noOrg) {
+    return (
+      <div className="animate-fade-in">
+        <h1 className="mb-6 font-display text-2xl font-bold">API Keys</h1>
+        <Card className="py-12 text-center">
+          <AlertTriangle className="mx-auto mb-3 h-10 w-10 text-warn" />
+          <p className="mb-2 text-sm text-ink-2">No organisation selected.</p>
+          <p className="text-sm text-muted">
+            Go to <strong>Organisation</strong> and select or create one first.
+          </p>
+        </Card>
+      </div>
+    );
   }
 
   return (
@@ -93,17 +119,18 @@ export function ApiKeysContent() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line bg-bg-2 text-left">
-                <th className="px-4 py-3 font-medium text-ink-2">Label</th>
+                <th className="px-4 py-3 font-medium text-ink-2">Name</th>
                 <th className="px-4 py-3 font-medium text-ink-2">Prefix</th>
                 <th className="px-4 py-3 font-medium text-ink-2">Created</th>
                 <th className="px-4 py-3 font-medium text-ink-2">Last used</th>
+                <th className="px-4 py-3 font-medium text-ink-2">Uses</th>
                 <th className="px-4 py-3 font-medium text-ink-2" />
               </tr>
             </thead>
             <tbody>
               {keys.map((k) => (
                 <tr key={k.id} className="border-b border-line last:border-0">
-                  <td className="px-4 py-3 font-medium text-ink">{k.label}</td>
+                  <td className="px-4 py-3 font-medium text-ink">{k.name}</td>
                   <td className="px-4 py-3">
                     <code className="rounded bg-bg-2 px-2 py-1 font-mono text-xs text-ink-2">{k.prefix}...</code>
                   </td>
@@ -113,6 +140,7 @@ export function ApiKeysContent() {
                   <td className="px-4 py-3 text-muted">
                     {k.last_used_at ? new Date(k.last_used_at).toLocaleDateString() : 'Never'}
                   </td>
+                  <td className="px-4 py-3 text-muted">{k.use_count}</td>
                   <td className="px-4 py-3">
                     <button
                       onClick={() => handleRevoke(k.id)}
@@ -142,9 +170,9 @@ export function ApiKeysContent() {
               </p>
             </div>
             <div className="flex items-center gap-2 rounded-lg border border-line bg-bg-2 px-4 py-3 font-mono text-sm">
-              <code className="flex-1 break-all text-ok">{newKey.key}</code>
+              <code className="flex-1 break-all text-ok">{newKey.api_key}</code>
               <button
-                onClick={() => handleCopy(newKey.key)}
+                onClick={() => handleCopy(newKey.api_key)}
                 className="shrink-0 rounded p-1 text-muted hover:text-ink"
               >
                 {copied ? <Check className="h-4 w-4 text-ok" /> : <Copy className="h-4 w-4" />}
@@ -161,11 +189,11 @@ export function ApiKeysContent() {
         ) : (
           <form onSubmit={handleCreate} className="space-y-4">
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-ink">Label</label>
+              <label className="mb-1.5 block text-sm font-medium text-ink">Name</label>
               <Input
                 required
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
                 placeholder="e.g. CI/CD pipeline"
               />
             </div>

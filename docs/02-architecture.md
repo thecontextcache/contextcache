@@ -110,13 +110,16 @@ sequenceDiagram
 - Exposes port 8001
 - Auto-rebuilds on file changes (dev mode)
 
-### 4. Next.js (Tiny Web UI)
+### 4. Next.js (Web UI)
 
 **Purpose:** Fast shareable interface for creating memories and exporting recall output.
 
 **Key details:**
-- Next.js app-router frontend
-- Runs in Docker container
+- Next.js 15 App Router with React 19 and TypeScript (strict mode)
+- Tailwind CSS v4 for styling, shadcn/ui for primitives
+- Route groups: `(dashboard)/` for authenticated pages, `(marketing)/` for public pages
+- Persistent sidebar via shared `dashboard-shell.tsx`
+- Runs in Docker container (`node:22-alpine`, standalone output)
 - Exposes port 3000
 - Proxies `/api/*` server-side to FastAPI (`api:8000`) in production mode
 
@@ -203,6 +206,7 @@ Result: Prompts stay small, signal stays high.
 | Database | Postgres | Reliable, battle-tested |
 | ORM | SQLAlchemy | Flexible, async support |
 | Package manager | uv | Fast, lockfile-based |
+| Frontend | Next.js 15 + React 19 + TypeScript | Server components, type safety, Tailwind v4 |
 | Containers | Docker Compose | Simple multi-service orchestration |
 | Docs | MkDocs Material | Clean, markdown-based |
 

@@ -13,7 +13,7 @@ Capture high-signal decisions and findings, then recall paste-ready context pack
 | Layer | Technology |
 |-------|-----------|
 | API | FastAPI + SQLAlchemy (async) + Postgres 16 |
-| Web | Next.js 14 App Router |
+| Web | Next.js 15 App Router + React 19 + TypeScript + Tailwind CSS v4 |
 | Auth | Magic-link sessions (HttpOnly cookie) + API keys |
 | Docs | MkDocs Material |
 | Infra | Docker Compose |

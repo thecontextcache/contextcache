@@ -12,6 +12,7 @@ import {
   Building2,
   Brain,
   Shield,
+  BarChart3,
   LogOut,
   Menu,
   X,
@@ -21,8 +22,9 @@ const sidebarItems = [
   { href: '/app', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/app/api-keys', label: 'API Keys', icon: Key },
   { href: '/app/orgs', label: 'Organisation', icon: Building2 },
+  { href: '/app/usage', label: 'Usage', icon: BarChart3 },
   { href: '/brain', label: 'Brain', icon: Brain },
-  { href: '/admin', label: 'Admin', icon: Shield },
+  { href: '/admin', label: 'Admin', icon: Shield, adminOnly: true },
 ];
 
 export function DashboardShell({ children }: { children: ReactNode }) {
@@ -53,7 +55,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
   }
 
   const visibleItems = sidebarItems.filter((item) => {
-    if (item.href === '/admin' && !user?.is_admin) return false;
+    if ('adminOnly' in item && item.adminOnly && !user?.is_admin) return false;
     return true;
   });
 

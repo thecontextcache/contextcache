@@ -14,6 +14,12 @@ function getOrgId(): string | null {
   return localStorage.getItem(ORG_ID_KEY);
 }
 
+function requireOrgId(): string {
+  const id = getOrgId();
+  if (!id) throw new ApiError('No organisation selected', 400);
+  return id;
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {}
@@ -55,8 +61,9 @@ async function request<T>(
 
 // ── Auth ──────────────────────────────────────────────────────
 export const auth = {
+  /** Returns { status, detail } — debug_link never exposed to UI. */
   requestLink: (email: string) =>
-    request<{ message: string; debug_link?: string }>('/api/auth/request-link', {
+    request<{ status: string; detail: string }>('/api/auth/request-link', {
       method: 'POST',
       body: JSON.stringify({ email }),
     }),
@@ -65,13 +72,16 @@ export const auth = {
     request<{ user: { id: number; email: string; is_admin: boolean } }>(`/api/auth/verify?token=${token}`),
 
   me: () =>
-    request<{ id: number; email: string; is_admin: boolean }>('/api/auth/me'),
+    request<{
+      email: string;
+      is_admin: boolean;
+      is_unlimited: boolean;
+      created_at: string;
+      last_login_at: string | null;
+    }>('/api/auth/me'),
 
   logout: () =>
     request<void>('/api/auth/logout', { method: 'POST' }),
-
-  clear: () =>
-    request<void>('/api/auth/clear', { method: 'POST' }),
 };
 
 // ── Projects ──────────────────────────────────────────────────
@@ -126,68 +136,299 @@ export const memories = {
 };
 
 // ── Recall ────────────────────────────────────────────────────
+export interface RecallItem extends Memory {
+  rank_score: number | null;
+}
+
+export interface RecallResult {
+  project_id: number;
+  query: string;
+  memory_pack_text: string;
+  items: RecallItem[];
+}
+
 export const recall = {
-  query: (projectId: number, query: string) =>
-    request<unknown>(`/api/projects/${projectId}/recall?query=${encodeURIComponent(query)}`),
+  query: (projectId: number, q: string) =>
+    request<RecallResult>(`/api/projects/${projectId}/recall?query=${encodeURIComponent(q)}`),
+
+  search: (projectId: number, q: string) =>
+    request<{ project_id: number; query: string; total: number; items: RecallItem[] }>(
+      `/api/projects/${projectId}/search?query=${encodeURIComponent(q)}`
+    ),
 };
 
-// ── API Keys ──────────────────────────────────────────────────
+// ── Inbox ─────────────────────────────────────────────────────
+export interface InboxItem {
+  id: number;
+  project_id: number;
+  raw_capture_id: number | null;
+  promoted_memory_id: number | null;
+  suggested_type: string;
+  suggested_title: string | null;
+  suggested_content: string;
+  confidence_score: number;
+  status: string;
+  created_at: string;
+  reviewed_at: string | null;
+}
+
+export interface InboxList {
+  project_id: number;
+  total: number;
+  items: InboxItem[];
+}
+
+export const inbox = {
+  list: (projectId: number) =>
+    request<InboxList>(`/api/projects/${projectId}/inbox`),
+
+  approve: (itemId: number, edits?: { suggested_type?: string; suggested_title?: string; suggested_content?: string }) =>
+    request<Memory>(`/api/inbox/${itemId}/approve`, {
+      method: 'POST',
+      body: JSON.stringify(edits ?? {}),
+    }),
+
+  reject: (itemId: number) =>
+    request<InboxItem>(`/api/inbox/${itemId}/reject`, { method: 'POST' }),
+};
+
+// ── API Keys (org-scoped) ─────────────────────────────────────
 export interface ApiKey {
   id: number;
-  label: string;
+  org_id: number;
+  name: string;
   prefix: string;
   created_at: string;
-  last_used_at?: string;
+  revoked_at: string | null;
+  last_used_at: string | null;
+  use_count: number;
 }
 
 export interface ApiKeyCreated extends ApiKey {
-  key: string;
+  api_key: string;
 }
 
 export const apiKeys = {
-  list: () => request<ApiKey[]>('/api/api-keys'),
+  list: () => {
+    const orgId = requireOrgId();
+    return request<ApiKey[]>(`/api/orgs/${orgId}/api-keys`);
+  },
 
-  create: (label: string) =>
-    request<ApiKeyCreated>('/api/api-keys', {
+  create: (name: string) => {
+    const orgId = requireOrgId();
+    return request<ApiKeyCreated>(`/api/orgs/${orgId}/api-keys`, {
       method: 'POST',
-      body: JSON.stringify({ label }),
-    }),
+      body: JSON.stringify({ name }),
+    });
+  },
 
-  revoke: (id: number) =>
-    request<void>(`/api/api-keys/${id}`, { method: 'DELETE' }),
+  revoke: (keyId: number) => {
+    const orgId = requireOrgId();
+    return request<ApiKey>(`/api/orgs/${orgId}/api-keys/${keyId}/revoke`, {
+      method: 'POST',
+    });
+  },
 };
 
 // ── Orgs ──────────────────────────────────────────────────────
 export interface Org {
   id: number;
   name: string;
-  slug: string;
+  created_at: string;
+}
+
+export interface OrgMember {
+  id: number;
+  org_id: number;
+  user_id: number;
+  email: string;
+  display_name: string | null;
+  role: string;
+  created_at: string;
+}
+
+export interface AuditLog {
+  id: number;
+  org_id: number;
+  actor_user_id: number | null;
+  api_key_prefix: string | null;
+  action: string;
+  entity_type: string;
+  entity_id: number;
+  metadata: Record<string, unknown>;
   created_at: string;
 }
 
 export const orgs = {
-  list: () => request<Org[]>('/api/me/orgs'),
+  list: () => request<{ id: number; name: string; role: string | null }[]>('/api/me/orgs'),
+
+  create: (name: string) =>
+    request<Org>('/api/orgs', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
 
   get: (id: number) => request<Org>(`/api/orgs/${id}`),
 
-  update: (id: number, data: Partial<Org>) =>
+  update: (id: number, data: { name: string }) =>
     request<Org>(`/api/orgs/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
     }),
+
+  delete: (id: number) =>
+    request<void>(`/api/orgs/${id}`, { method: 'DELETE' }),
+
+  members: (orgId: number) =>
+    request<OrgMember[]>(`/api/orgs/${orgId}/memberships`),
+
+  addMember: (orgId: number, data: { email: string; role: string; display_name?: string }) =>
+    request<OrgMember>(`/api/orgs/${orgId}/memberships`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  auditLogs: (orgId: number) =>
+    request<AuditLog[]>(`/api/orgs/${orgId}/audit-logs`),
+};
+
+// ── Usage (per-user) ──────────────────────────────────────────
+export interface UsageLimits {
+  memories_per_day: number;
+  recalls_per_day: number;
+  projects_per_day: number;
+  memories_per_week: number;
+  recalls_per_week: number;
+  projects_per_week: number;
+}
+
+export interface Usage {
+  day: string;
+  memories_created: number;
+  recall_queries: number;
+  projects_created: number;
+  week_start: string;
+  weekly_memories_created: number;
+  weekly_recall_queries: number;
+  weekly_projects_created: number;
+  limits: UsageLimits;
+}
+
+export const usage = {
+  me: () => request<Usage>('/api/me/usage'),
 };
 
 // ── Admin ─────────────────────────────────────────────────────
+export interface AdminUser {
+  id: number;
+  email: string;
+  created_at: string;
+  last_login_at: string | null;
+  is_admin: boolean;
+  is_disabled: boolean;
+  is_unlimited: boolean;
+}
+
+export interface AdminInvite {
+  id: number;
+  email: string;
+  invited_by_user_id: number | null;
+  created_at: string;
+  expires_at: string;
+  accepted_at: string | null;
+  revoked_at: string | null;
+  notes: string | null;
+}
+
+export interface AdminUserStats {
+  user_id: number;
+  memory_count: number;
+  today_memories: number;
+  today_recalls: number;
+  today_projects: number;
+}
+
+export interface LoginEvent {
+  id: number;
+  user_id: number;
+  ip: string;
+  user_agent: string | null;
+  created_at: string;
+}
+
+export interface AdminRecallLog {
+  id: number;
+  org_id: number;
+  project_id: number;
+  actor_user_id: number | null;
+  strategy: string;
+  query_text: string;
+  input_memory_ids: number[];
+  ranked_memory_ids: number[];
+  weights: Record<string, number>;
+  score_details: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AdminUsageRow {
+  date: string;
+  event_type: string;
+  count: number;
+}
+
+export interface CagCacheStats {
+  enabled: boolean;
+  mode: string;
+  embedding_model: string;
+  cache_items: number;
+  cache_max_items: number;
+  total_queries: number;
+  total_hits: number;
+  total_misses: number;
+  hit_rate: number;
+  total_evicted: number;
+  avg_pheromone: number;
+  last_evaporation_at: string | null;
+  evaporation_factor: number;
+  evaporation_interval_seconds: number;
+  kv_stub_enabled: boolean;
+  kv_token_budget_used: number;
+}
+
 export const admin = {
-  users: () => request<unknown[]>('/api/admin/users'),
-  orgs: () => request<unknown[]>('/api/admin/orgs'),
-  waitlist: () => request<unknown[]>('/api/admin/waitlist'),
-  invite: (email: string) =>
-    request<unknown>('/api/admin/invite', {
+  users: () => request<AdminUser[]>('/api/admin/users'),
+  userStats: (userId: number) => request<AdminUserStats>(`/api/admin/users/${userId}/stats`),
+  loginEvents: (userId: number) => request<LoginEvent[]>(`/api/admin/users/${userId}/login-events`),
+  disableUser: (userId: number) => request<void>(`/api/admin/users/${userId}/disable`, { method: 'POST' }),
+  enableUser: (userId: number) => request<void>(`/api/admin/users/${userId}/enable`, { method: 'POST' }),
+  grantAdmin: (userId: number) => request<void>(`/api/admin/users/${userId}/grant-admin`, { method: 'POST' }),
+  revokeAdmin: (userId: number) => request<void>(`/api/admin/users/${userId}/revoke-admin`, { method: 'POST' }),
+  revokeSessions: (userId: number) => request<void>(`/api/admin/users/${userId}/revoke-sessions`, { method: 'POST' }),
+  setUnlimited: (userId: number, unlimited: boolean) =>
+    request<void>(`/api/admin/users/${userId}/set-unlimited`, {
       method: 'POST',
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ is_unlimited: unlimited }),
     }),
-  usage: () => request<unknown>('/api/admin/usage'),
+
+  orgs: () => request<Org[]>('/api/admin/orgs'),
+
+  invites: () => request<AdminInvite[]>('/api/admin/invites'),
+  createInvite: (email: string, notes?: string) =>
+    request<AdminInvite>('/api/admin/invites', {
+      method: 'POST',
+      body: JSON.stringify({ email, notes }),
+    }),
+  revokeInvite: (inviteId: number) =>
+    request<void>(`/api/admin/invites/${inviteId}/revoke`, { method: 'POST' }),
+
+  waitlist: () => request<unknown[]>('/api/admin/waitlist'),
+
+  usage: () => request<AdminUsageRow[]>('/api/admin/usage'),
+
+  recallLogs: () => request<AdminRecallLog[]>('/api/admin/recall/logs'),
+
+  cagCacheStats: () => request<CagCacheStats>('/api/admin/cag/cache-stats'),
+  cagEvaporate: () => request<CagCacheStats>('/api/admin/cag/evaporate', { method: 'POST' }),
 };
 
 // ── Health ────────────────────────────────────────────────────
@@ -198,7 +439,7 @@ export const health = {
 // ── Waitlist ──────────────────────────────────────────────────
 export const waitlist = {
   join: (data: { email: string; name?: string; company?: string; use_case?: string }) =>
-    request<{ message: string }>('/api/waitlist/join', {
+    request<{ status: string; detail: string }>('/api/waitlist', {
       method: 'POST',
       body: JSON.stringify(data),
     }),

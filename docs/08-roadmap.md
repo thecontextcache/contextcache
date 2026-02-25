@@ -51,12 +51,21 @@
 - KV-cache prep stub path for future compressive memory integration
 
 ### UX
-- Next.js App Router with dark/light theme
+- Next.js 15 App Router with React 19, TypeScript strict mode, Tailwind CSS v4
+- Full frontend rewrite from JavaScript → TypeScript with route groups and shared dashboard layout
+- shadcn/ui component library (Button, Card, Badge, Input, Dialog)
+- Persistent sidebar navigation via `dashboard-shell.tsx`
 - Brain visualization (`/brain`) — interactive neural graph of projects and memories
+- 7-tab admin panel (users with expandable rows, invites, orgs, waitlist, usage, recall logs, system/CAG)
+- Organisation management (create, rename, delete, members, audit log)
+- API key management (create, list with usage stats, revoke)
+- Usage statistics page (`/app/usage`)
+- Recall and inbox sections in dashboard
 - Terms of Service checkbox on sign-in
 - 404 / 500 error pages
 - Legal page with full terms, privacy, and IP retention details
-- Admin panel: users, invites, waitlist, login IPs, usage stats
+- `debug_link` removed from frontend UI (security — backend still returns in dev for CLI/log access)
+- Docker: `node:22-alpine` multi-stage build with standalone output
 
 ### CLI & SDK
 - `cc` CLI (Python, zero dependencies): health, projects, mem, recall, usage, invites, waitlist

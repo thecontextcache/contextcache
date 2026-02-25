@@ -18,6 +18,7 @@ export const NAV_ITEMS = [
   { href: '/app', label: 'Dashboard' },
   { href: '/app/api-keys', label: 'API Keys' },
   { href: '/app/orgs', label: 'Organisation' },
+  { href: '/app/usage', label: 'Usage' },
 ] as const;
 
 export const PRICING_TIERS = [

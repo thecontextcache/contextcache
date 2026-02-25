@@ -51,7 +51,7 @@ docker compose --profile test down -v
 1. Sign in as admin (existing session) and open `/admin`.
 2. Create invite for user email.
 3. User opens `/auth` and requests link.
-4. In dev, if SES fails/sandbox blocks, use `debug_link` returned by `/auth/request-link`.
+4. In dev, if SES fails/sandbox blocks, use `debug_link` returned by `/auth/request-link` (visible in API logs and CLI; not shown in the web UI for security).
 5. `/auth/verify` sets session cookie and redirects to `/app`.
 
 ### Multi-org behavior in the web UI

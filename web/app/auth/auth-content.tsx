@@ -12,7 +12,6 @@ export function AuthContent() {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
-  const [debugLink, setDebugLink] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [termsAccepted, setTermsAccepted] = useState(false);
 
@@ -26,11 +25,8 @@ export function AuthContent() {
     setLoading(true);
 
     try {
-      const res = await auth.requestLink(email);
+      await auth.requestLink(email);
       setSent(true);
-      if (res.debug_link) {
-        setDebugLink(res.debug_link);
-      }
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.status === 403) {
@@ -58,17 +54,6 @@ export function AuthContent() {
             We sent a sign-in link to <strong className="text-ink">{email}</strong>.
             Click the link to sign in.
           </p>
-          {debugLink && (
-            <div className="mt-6 rounded-lg border border-warn/20 bg-warn/10 p-4">
-              <p className="mb-2 text-xs font-medium text-warn">Dev mode — magic link:</p>
-              <a
-                href={debugLink}
-                className="break-all text-xs text-brand underline"
-              >
-                {debugLink}
-              </a>
-            </div>
-          )}
         </div>
       </div>
     );

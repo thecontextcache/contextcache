@@ -1,14 +1,25 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { projects, memories, type Project, type Memory, ApiError } from '@/lib/api';
+import {
+  projects,
+  memories,
+  recall,
+  inbox,
+  type Project,
+  type Memory,
+  type RecallResult,
+  type InboxItem,
+  type InboxList,
+  ApiError,
+} from '@/lib/api';
 import { MEMORY_TYPES } from '@/lib/constants';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
-import { SkeletonCard } from '@/components/skeleton';
+import { SkeletonCard, SkeletonTable } from '@/components/skeleton';
 import { useToast } from '@/components/toast';
 import {
   Plus,
@@ -17,6 +28,10 @@ import {
   ChevronRight,
   Brain,
   ArrowLeft,
+  Search,
+  Inbox,
+  CheckCircle,
+  XCircle,
 } from 'lucide-react';
 
 type BadgeVariant = 'brand' | 'violet' | 'ok' | 'warn' | 'err' | 'muted';
@@ -51,6 +66,16 @@ export function DashboardContent() {
   const [memType, setMemType] = useState('note');
   const [creatingMem, setCreatingMem] = useState(false);
 
+  // Recall
+  const [recallQuery, setRecallQuery] = useState('');
+  const [recallResult, setRecallResult] = useState<RecallResult | null>(null);
+  const [recalling, setRecalling] = useState(false);
+
+  // Inbox
+  const [inboxItems, setInboxItems] = useState<InboxItem[]>([]);
+  const [inboxTotal, setInboxTotal] = useState(0);
+  const [inboxLoading, setInboxLoading] = useState(false);
+
   useEffect(() => {
     loadProjects();
   }, []);
@@ -69,6 +94,8 @@ export function DashboardContent() {
   async function openProject(project: Project) {
     setSelectedProject(project);
     setMemLoading(true);
+    setRecallResult(null);
+    setRecallQuery('');
     try {
       const data = await memories.list(project.id);
       setMemoryList(data);
@@ -76,6 +103,63 @@ export function DashboardContent() {
       toast('error', 'Failed to load memories');
     } finally {
       setMemLoading(false);
+    }
+    loadInbox(project.id);
+  }
+
+  async function loadInbox(projectId: number) {
+    setInboxLoading(true);
+    try {
+      const data = await inbox.list(projectId);
+      setInboxItems(data.items);
+      setInboxTotal(data.total);
+    } catch {
+      // Inbox may not be available — silent fail
+      setInboxItems([]);
+      setInboxTotal(0);
+    } finally {
+      setInboxLoading(false);
+    }
+  }
+
+  async function handleRecall(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedProject || !recallQuery.trim()) return;
+    setRecalling(true);
+    try {
+      const result = await recall.query(selectedProject.id, recallQuery);
+      setRecallResult(result);
+    } catch (err) {
+      toast('error', err instanceof ApiError ? err.message : 'Recall failed');
+    } finally {
+      setRecalling(false);
+    }
+  }
+
+  async function handleApproveInbox(itemId: number) {
+    try {
+      await inbox.approve(itemId);
+      setInboxItems((prev) => prev.filter((i) => i.id !== itemId));
+      setInboxTotal((prev) => prev - 1);
+      toast('success', 'Item approved as memory');
+      // Reload memories
+      if (selectedProject) {
+        const data = await memories.list(selectedProject.id);
+        setMemoryList(data);
+      }
+    } catch (err) {
+      toast('error', err instanceof ApiError ? err.message : 'Failed to approve');
+    }
+  }
+
+  async function handleRejectInbox(itemId: number) {
+    try {
+      await inbox.reject(itemId);
+      setInboxItems((prev) => prev.filter((i) => i.id !== itemId));
+      setInboxTotal((prev) => prev - 1);
+      toast('success', 'Item rejected');
+    } catch {
+      toast('error', 'Failed to reject');
     }
   }
 
@@ -200,6 +284,106 @@ export function DashboardContent() {
             ))}
           </div>
         )}
+
+        {/* ── Recall Search ─────────────────────────── */}
+        <div className="mt-8">
+          <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
+            <Search className="h-5 w-5 text-brand" />
+            Recall
+          </h2>
+          <form onSubmit={handleRecall} className="flex gap-2">
+            <Input
+              value={recallQuery}
+              onChange={(e) => setRecallQuery(e.target.value)}
+              placeholder="Ask the project brain..."
+              className="flex-1"
+            />
+            <Button type="submit" loading={recalling} size="sm">
+              Search
+            </Button>
+          </form>
+          {recallResult && (
+            <div className="mt-4 space-y-3">
+              <p className="text-xs text-muted">
+                {recallResult.items.length} result{recallResult.items.length !== 1 ? 's' : ''} for &quot;{recallResult.query}&quot;
+              </p>
+              {recallResult.items.map((item) => (
+                <Card key={item.id} className="border-brand/20">
+                  <div className="mb-1 flex items-center gap-2">
+                    <Badge variant={typeVariantMap[item.type] || 'muted'}>{item.type}</Badge>
+                    {item.rank_score != null && (
+                      <span className="text-xs text-muted">score: {item.rank_score.toFixed(3)}</span>
+                    )}
+                  </div>
+                  <h4 className="font-semibold text-ink">{item.title}</h4>
+                  <p className="mt-1 line-clamp-3 text-sm text-ink-2">{item.body}</p>
+                </Card>
+              ))}
+              {recallResult.memory_pack_text && (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs text-muted hover:text-ink-2">
+                    Show memory pack text
+                  </summary>
+                  <pre className="mt-2 max-h-60 overflow-auto rounded-lg border border-line bg-bg-2 p-4 font-mono text-xs text-ink-2">
+                    {recallResult.memory_pack_text}
+                  </pre>
+                </details>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ── Inbox ─────────────────────────────────── */}
+        <div className="mt-8">
+          <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
+            <Inbox className="h-5 w-5 text-violet" />
+            Inbox
+            {inboxTotal > 0 && (
+              <Badge variant="violet">{inboxTotal}</Badge>
+            )}
+          </h2>
+          {inboxLoading ? (
+            <SkeletonTable rows={2} />
+          ) : inboxItems.length === 0 ? (
+            <Card className="py-6 text-center">
+              <p className="text-sm text-muted">No inbox items. Captured data will appear here for review.</p>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {inboxItems.map((item) => (
+                <Card key={item.id} className="border-violet/20">
+                  <div className="mb-1 flex items-center gap-2">
+                    <Badge variant={typeVariantMap[item.suggested_type] || 'muted'}>
+                      {item.suggested_type}
+                    </Badge>
+                    <span className="text-xs text-muted">
+                      confidence: {(item.confidence_score * 100).toFixed(0)}%
+                    </span>
+                    <Badge variant={item.status === 'pending' ? 'warn' : 'muted'}>
+                      {item.status}
+                    </Badge>
+                  </div>
+                  {item.suggested_title && (
+                    <h4 className="font-semibold text-ink">{item.suggested_title}</h4>
+                  )}
+                  <p className="mt-1 line-clamp-3 text-sm text-ink-2">{item.suggested_content}</p>
+                  {item.status === 'pending' && (
+                    <div className="mt-3 flex gap-2">
+                      <Button size="sm" onClick={() => handleApproveInbox(item.id)}>
+                        <CheckCircle className="h-4 w-4" />
+                        Approve
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => handleRejectInbox(item.id)}>
+                        <XCircle className="h-4 w-4" />
+                        Reject
+                      </Button>
+                    </div>
+                  )}
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
 
         <Dialog open={showCreateMem} onClose={() => setShowCreateMem(false)} title="Add memory card">
           <form onSubmit={handleCreateMemory} className="space-y-4">
