@@ -1,25 +1,17 @@
-FROM node:20-alpine
-
+FROM node:22-alpine AS base
 WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
 
-ARG NEXT_PUBLIC_API_BASE_URL=
-ARG NEXT_PUBLIC_DOCS_URL=
-ARG NEXT_PUBLIC_ASSET_VERSION=20260220
-ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
-ENV NEXT_PUBLIC_DOCS_URL=${NEXT_PUBLIC_DOCS_URL}
-ENV NEXT_PUBLIC_ASSET_VERSION=${NEXT_PUBLIC_ASSET_VERSION}
-
-COPY package.json /app/package.json
-COPY package-lock.json /app/package-lock.json
-RUN npm install
-
-COPY app /app/app
-COPY public /app/public
-COPY scripts /app/scripts
-COPY next.config.js /app/next.config.js
-COPY middleware.js /app/middleware.js
-
+FROM base AS builder
+COPY . .
 RUN npm run build
 
+FROM node:22-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
 EXPOSE 3000
-CMD ["npm", "run", "start"]
+CMD ["node", "server.js"]

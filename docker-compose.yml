@@ -73,22 +73,15 @@ services:
   web:
     build:
       context: ./web
-      args:
-        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-}
-        NEXT_PUBLIC_DOCS_URL: ${NEXT_PUBLIC_DOCS_URL:-}
-        NEXT_PUBLIC_ASSET_VERSION: ${NEXT_PUBLIC_ASSET_VERSION:-20260220}
     ports:
       - "3000:3000"
     environment:
-      # API_UPSTREAM is server-side only (not exposed to browser).
-      # next.config.js rewrites /api/* → API_UPSTREAM/* so the browser
-      # never calls port 8000 directly — no CORS issues on any network.
       - SESSION_COOKIE_NAME=${SESSION_COOKIE_NAME:-contextcache_session}
       - API_UPSTREAM=http://api:8000
-      - NEXT_PUBLIC_DOCS_URL=${NEXT_PUBLIC_DOCS_URL:-}
       - APP_ENV=${APP_ENV:-dev}
     depends_on:
-      - api
+      api:
+        condition: service_started
     restart: unless-stopped
 
   docs:
