@@ -12,6 +12,7 @@ Options:
     --org      Org name to create/reuse      (default: "ContextCache HQ")
     --projects N   Number of projects        (default: 5)
     --mems-per N   Memories per project      (default: 12)
+    --batch-size N Commit every N memories   (default: 500)
     --dry-run  Print plan, make no changes
 """
 from __future__ import annotations
@@ -26,7 +27,7 @@ from datetime import datetime, timezone, timedelta
 # ── Ensure app package is importable when running from repo root ──────────────
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from sqlalchemy import select, func, text
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -166,6 +167,18 @@ PROJECTS = [
 
 TYPES = ["decision", "finding", "definition", "note", "link", "todo", "chat", "doc", "code"]
 SOURCES = ["manual", "chatgpt", "claude", "cursor", "codex"]
+CORPUS = [
+    "Ship invite-only beta first, then expand to waitlist cohorts in weekly waves.",
+    "Most onboarding questions were about org scoping and API key setup.",
+    "A qualified memory is concise, actionable, and references a project decision.",
+    "Run migration and backup dry-run before increasing beta limits.",
+    "Combine FTS + vectors + recency; keep weights configurable via env.",
+    "Cloudflare Tunnel routes root to web and api subdomain to FastAPI.",
+    "Use semantic recall for project memory and deterministic fallbacks for test stability.",
+    "Daily usage limits can be overridden by the admin is_unlimited flag.",
+    "Record audit logs for project creation, memory ingestion, and recall calls.",
+    "Prefer server-side sessions for web UI and API keys for integrations/CLI.",
+]
 
 
 def _ts(days_ago: int = 0) -> datetime:
@@ -177,6 +190,7 @@ async def seed(
     org_name: str,
     num_projects: int,
     mems_per_project: int,
+    batch_size: int,
     dry_run: bool,
 ) -> None:
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, echo=False)
@@ -247,14 +261,24 @@ async def seed(
                 await session.flush()
 
         # ── 5. Create projects & memories ─────────────────────────────────────
-        projects_data = PROJECTS[:num_projects]
+        if num_projects <= len(PROJECTS):
+            projects_data = PROJECTS[:num_projects]
+        else:
+            projects_data = PROJECTS + [
+                {
+                    "name": f"Synthetic Project {idx + 1}",
+                    "memories": [],
+                }
+                for idx in range(num_projects - len(PROJECTS))
+            ]
         total_mems = 0
+        pending_since_commit = 0
 
         for proj_idx, pdata in enumerate(projects_data):
             print(f"[seed] {'[DRY] ' if dry_run else ''}Project {proj_idx + 1}: '{pdata['name']}'")
 
             if dry_run:
-                mem_count = min(len(pdata["memories"]), mems_per_project)
+                mem_count = mems_per_project if proj_idx >= len(PROJECTS) else min(len(pdata["memories"]), mems_per_project)
                 print(f"       → would create {mem_count} memories")
                 continue
 
@@ -267,17 +291,37 @@ async def seed(
             session.add(proj)
             await session.flush()
 
-            mems = pdata["memories"][:mems_per_project]
-            for mem_type, content, title in mems:
+            if proj_idx < len(PROJECTS):
+                mems = pdata["memories"][:mems_per_project]
+            else:
+                mems = []
+                for midx in range(mems_per_project):
+                    seed_idx = (proj_idx * mems_per_project) + midx
+                    mem_type = TYPES[seed_idx % len(TYPES)]
+                    content = CORPUS[seed_idx % len(CORPUS)]
+                    title = f"{pdata['name']} memory {midx + 1}"
+                    mems.append((mem_type, content, title))
+
+            for mem_idx, (mem_type, content, title) in enumerate(mems):
                 embedding_input = " ".join(part for part in [title or "", content or ""] if part).strip()
                 embedding = compute_embedding(embedding_input)
+                source = random.choice(SOURCES)
+                now_iso = _ts(days_ago=random.randint(0, 14)).isoformat()
                 mem = Memory(
                     project_id=proj.id,
-                    created_by_user_id=auth_user.id,
+                    created_by_user_id=legacy_user.id,
                     type=mem_type,
-                    source=random.choice(SOURCES),
+                    source=source,
                     title=title,
                     content=content,
+                    metadata_json={
+                        "source_url": f"https://docs.thecontextcache.com/reference/{proj.id}/{mem_idx + 1}",
+                        "file_path": f"/seed/{proj.id}/memory_{mem_idx + 1}.md",
+                        "captured_at": now_iso,
+                        "author": email,
+                        "seeded_by": "scripts/seed_mock_data.py",
+                        "pipeline": "direct-db-seed",
+                    },
                     search_vector=embedding,
                     embedding_vector=embedding,
                     hilbert_index=compute_hilbert_index(embedding),
@@ -285,11 +329,18 @@ async def seed(
                 )
                 session.add(mem)
                 total_mems += 1
+                pending_since_commit += 1
+                if pending_since_commit >= batch_size:
+                    await session.flush()
+                    await session.commit()
+                    pending_since_commit = 0
 
             await session.flush()
             print(f"       ✓ created project id={proj.id} with {len(mems)} memories")
 
         if not dry_run:
+            if pending_since_commit > 0:
+                await session.flush()
             await session.commit()
             print(f"\n[seed] Done. Created {len(projects_data)} projects, {total_mems} memories.")
             print(f"[seed] Log in at https://thecontextcache.com/app to verify.")
@@ -303,16 +354,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Seed mock data for a specific user.")
     parser.add_argument("--email",    required=True,  help="Target auth_user email")
     parser.add_argument("--org",      default="ContextCache HQ", help="Org name (created if absent)")
-    parser.add_argument("--projects", type=int, default=5,  help="Number of projects (max 5)")
-    parser.add_argument("--mems-per", type=int, default=6,  help="Memories per project (max 6)")
+    parser.add_argument("--projects", type=int, default=5,  help="Number of projects")
+    parser.add_argument("--mems-per", type=int, default=6,  help="Memories per project")
+    parser.add_argument("--batch-size", type=int, default=500, help="Commit every N inserted memories")
     parser.add_argument("--dry-run",  action="store_true",  help="Print plan, no DB changes")
     args = parser.parse_args()
 
     asyncio.run(seed(
         email=args.email,
         org_name=args.org,
-        num_projects=min(args.projects, len(PROJECTS)),
-        mems_per_project=min(args.mems_per, 6),
+        num_projects=max(1, args.projects),
+        mems_per_project=max(1, args.mems_per),
+        batch_size=max(50, args.batch_size),
         dry_run=args.dry_run,
     ))
 

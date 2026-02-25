@@ -21,7 +21,7 @@ from .auth_utils import (
 )
 from .analyzer.cag import evaporate_pheromones, get_cag_cache_stats
 from .db import get_db
-from .emailer import send_magic_link
+from .emailer import send_invite_email, send_magic_link
 from .models import (
     AuthInvite,
     AuthLoginEvent,
@@ -458,6 +458,14 @@ async def create_invite(
         notes=payload.notes,
     )
     db.add(invite)
+    sent, _send_status = send_invite_email(email)
+    if not sent:
+        await db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Invite email delivery failed. Invite was not saved. Check SES/Resend configuration.",
+        )
+
     await db.commit()
     await db.refresh(invite)
     return AdminInviteOut(
@@ -879,7 +887,14 @@ async def waitlist_join(
             detail="You're already on the waitlist. We'll email you when your spot is ready.",
         )
 
-    db.add(Waitlist(email=email))
+    db.add(
+        Waitlist(
+            email=email,
+            name=(payload.name or "").strip() or None,
+            company=(payload.company or "").strip() or None,
+            use_case=(payload.use_case or "").strip() or None,
+        )
+    )
     await db.commit()
     return WaitlistJoinOut(status="ok", detail="You're on the list — we'll reach out when your spot is ready.")
 
@@ -916,6 +931,9 @@ async def list_waitlist(
         AdminWaitlistOut(
             id=w.id,
             email=w.email,
+            name=w.name,
+            company=w.company,
+            use_case=w.use_case,
             status=w.status,
             notes=w.notes,
             created_at=w.created_at,
@@ -944,10 +962,6 @@ async def approve_waitlist(
         raise HTTPException(status_code=409, detail="Entry is already approved")
 
     now = now_utc()
-    entry.status = "approved"
-    entry.reviewed_at = now
-    entry.reviewed_by_admin_id = auth_user_id
-
     existing_user = (
         await db.execute(select(AuthUser).where(func.lower(AuthUser.email) == entry.email).limit(1))
     ).scalar_one_or_none()
@@ -976,6 +990,18 @@ async def approve_waitlist(
         notes=f"Approved from waitlist (entry #{entry.id})",
     )
     db.add(invite)
+    entry.status = "approved"
+    entry.reviewed_at = now
+    entry.reviewed_by_admin_id = auth_user_id
+
+    sent, _send_status = send_invite_email(entry.email)
+    if not sent:
+        await db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Invite email delivery failed. Waitlist entry was not approved. Check SES/Resend configuration.",
+        )
+
     await db.commit()
     await db.refresh(invite)
 

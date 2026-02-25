@@ -5,6 +5,7 @@ import {
   admin,
   type AdminUser,
   type AdminInvite,
+  type AdminWaitlistEntry,
   type AdminRecallLog,
   type CagCacheStats,
   type AdminUsageRow,
@@ -57,7 +58,7 @@ export function AdminContent() {
   const [orgsList, setOrgsList] = useState<Record<string, unknown>[]>([]);
 
   // Waitlist
-  const [waitlistEntries, setWaitlistEntries] = useState<Record<string, unknown>[]>([]);
+  const [waitlistEntries, setWaitlistEntries] = useState<AdminWaitlistEntry[]>([]);
 
   // Usage
   const [usageData, setUsageData] = useState<AdminUsageRow[]>([]);
@@ -101,7 +102,7 @@ export function AdminContent() {
         }
         case 'waitlist': {
           const data = await admin.waitlist();
-          setWaitlistEntries(data as Record<string, unknown>[]);
+          setWaitlistEntries(data);
           break;
         }
         case 'usage': {
@@ -183,6 +184,27 @@ export function AdminContent() {
       toast('success', 'Invite revoked');
     } catch {
       toast('error', 'Failed to revoke invite');
+    }
+  }
+
+  async function handleApproveWaitlist(id: number) {
+    try {
+      await admin.approveWaitlist(id);
+      toast('success', 'Waitlist entry approved and invite sent');
+      await loadTab('waitlist');
+      await loadTab('invites');
+    } catch (err) {
+      toast('error', err instanceof ApiError ? err.message : 'Failed to approve waitlist entry');
+    }
+  }
+
+  async function handleRejectWaitlist(id: number) {
+    try {
+      await admin.rejectWaitlist(id);
+      toast('success', 'Waitlist entry rejected');
+      await loadTab('waitlist');
+    } catch (err) {
+      toast('error', err instanceof ApiError ? err.message : 'Failed to reject waitlist entry');
     }
   }
 
@@ -488,26 +510,60 @@ export function AdminContent() {
                 <thead>
                   <tr className="border-b border-line bg-bg-2 text-left">
                     <th className="px-4 py-3 font-medium text-ink-2">Email</th>
+                    <th className="px-4 py-3 font-medium text-ink-2">Name</th>
+                    <th className="px-4 py-3 font-medium text-ink-2">Company</th>
+                    <th className="px-4 py-3 font-medium text-ink-2">Use case</th>
                     <th className="px-4 py-3 font-medium text-ink-2">Status</th>
                     <th className="px-4 py-3 font-medium text-ink-2">Date</th>
+                    <th className="px-4 py-3 font-medium text-ink-2">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {waitlistEntries.map((w, i) => (
                     <tr key={i} className="border-b border-line last:border-0">
-                      <td className="px-4 py-3 text-ink">{String(w.email || '')}</td>
+                      <td className="px-4 py-3 text-ink">{w.email}</td>
+                      <td className="px-4 py-3 text-muted">{w.name || '—'}</td>
+                      <td className="px-4 py-3 text-muted">{w.company || '—'}</td>
+                      <td className="max-w-[260px] truncate px-4 py-3 text-muted">{w.use_case || '—'}</td>
                       <td className="px-4 py-3">
                         <Badge variant={w.status === 'approved' ? 'ok' : w.status === 'rejected' ? 'err' : 'warn'}>
-                          {String(w.status || 'pending')}
+                          {w.status}
                         </Badge>
                       </td>
                       <td className="px-4 py-3 text-muted">
-                        {w.created_at ? new Date(String(w.created_at)).toLocaleDateString() : '—'}
+                        {w.created_at ? new Date(w.created_at).toLocaleDateString() : '—'}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          {w.status === 'pending' ? (
+                            <>
+                              <Button
+                                size="sm"
+                                className="h-8"
+                                onClick={() => handleApproveWaitlist(w.id)}
+                                title="Approve and send invite"
+                              >
+                                Approve
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                className="h-8 text-err hover:bg-err/10"
+                                onClick={() => handleRejectWaitlist(w.id)}
+                                title="Reject waitlist entry"
+                              >
+                                Reject
+                              </Button>
+                            </>
+                          ) : (
+                            <span className="text-xs text-muted">No actions</span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
                   {waitlistEntries.length === 0 && (
-                    <tr><td colSpan={3} className="px-4 py-8 text-center text-muted">No waitlist entries</td></tr>
+                    <tr><td colSpan={7} className="px-4 py-8 text-center text-muted">No waitlist entries</td></tr>
                   )}
                 </tbody>
               </table>

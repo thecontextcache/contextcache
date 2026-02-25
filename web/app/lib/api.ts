@@ -455,6 +455,19 @@ export interface AdminInvite {
   notes: string | null;
 }
 
+export interface AdminWaitlistEntry {
+  id: number;
+  email: string;
+  name: string | null;
+  company: string | null;
+  use_case: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  notes: string | null;
+  created_at: string;
+  reviewed_at: string | null;
+  reviewed_by_admin_id: number | null;
+}
+
 export interface AdminUserStats {
   user_id: number;
   memory_count: number;
@@ -539,7 +552,11 @@ export const admin = {
   revokeInvite: (inviteId: number) =>
     request<void>(`/api/admin/invites/${inviteId}/revoke`, { method: 'POST' }),
 
-  waitlist: () => request<unknown[]>('/api/admin/waitlist'),
+  waitlist: () => request<AdminWaitlistEntry[]>('/api/admin/waitlist'),
+  approveWaitlist: (entryId: number) =>
+    request<AdminInvite>(`/api/admin/waitlist/${entryId}/approve`, { method: 'POST' }),
+  rejectWaitlist: (entryId: number) =>
+    request<void>(`/api/admin/waitlist/${entryId}/reject`, { method: 'POST' }),
 
   usage: () => request<AdminUsageRow[]>('/api/admin/usage'),
 

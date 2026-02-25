@@ -7,6 +7,7 @@ import json
 
 # ── Configuration ────────────────────────────────────────────────────────────
 APP_ENV = os.getenv("APP_ENV", "dev").strip().lower()
+APP_PUBLIC_BASE_URL = os.getenv("APP_PUBLIC_BASE_URL", "http://localhost:3000").rstrip("/")
 
 # Allow returning debug_link in non-dev when SES/Resend is broken (temp recovery)
 MAGIC_LINK_ALLOW_LOG_FALLBACK = (
@@ -22,6 +23,35 @@ SES_FROM_EMAIL = os.getenv("SES_FROM_EMAIL", "support@thecontextcache.com")
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "").strip()
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "").strip()
+
+
+def _send_email_with_fallback(email: str, subject: str, body: str) -> tuple[bool, str]:
+    """Send via Resend->SES, then optional debug-log fallback in dev."""
+    last_exc: Exception | None = None
+
+    # 1. Try Resend first (if configured)
+    if RESEND_API_KEY:
+        try:
+            _send_via_resend(email, subject, body)
+            return True, "sent"
+        except Exception as exc:
+            last_exc = exc
+            print(f"[emailer] Resend failed: {exc} — trying SES fallback")
+
+    # 2. Try AWS SES fallback
+    try:
+        _send_via_ses(email, subject, body)
+        return True, "sent"
+    except Exception as exc:
+        last_exc = exc
+
+    # 3. Dev / emergency log fallback
+    if APP_ENV == "dev" or MAGIC_LINK_ALLOW_LOG_FALLBACK:
+        print(f"[email-debug] email={email} subject={subject!r} error={last_exc}")
+        print(body)
+        return True, "logged"
+
+    return False, "failed"
 
 
 def _send_via_resend(email: str, subject: str, body: str) -> None:
@@ -74,27 +104,20 @@ def send_magic_link(email: str, link: str, template_type: str = "login") -> tupl
         "If you didn't request this, you can ignore this email.\n"
     )
 
-    last_exc: Exception | None = None
+    sent, status = _send_email_with_fallback(email, subject, body)
+    if sent and status == "logged":
+        print(f"[magic-link-debug] email={email} link={link}")
+    return sent, status
 
-    # 1. Try Resend first (if configured)
-    if RESEND_API_KEY:
-        try:
-            _send_via_resend(email, subject, body)
-            return True, "sent"
-        except Exception as exc:
-            last_exc = exc
-            print(f"[emailer] Resend failed: {exc} — trying SES fallback")
 
-    # 2. Try AWS SES fallback
-    try:
-        _send_via_ses(email, subject, body)
-        return True, "sent"
-    except Exception as exc:
-        last_exc = exc
-
-    # 3. Dev / emergency log fallback
-    if APP_ENV == "dev" or MAGIC_LINK_ALLOW_LOG_FALLBACK:
-        print(f"[magic-link-debug] email={email} link={link} error={last_exc}")
-        return True, "logged"
-
-    return False, "failed"
+def send_invite_email(email: str) -> tuple[bool, str]:
+    """Send a lightweight invite email that points users to /auth."""
+    auth_url = f"{APP_PUBLIC_BASE_URL}/auth"
+    subject = "You have been invited to ContextCache"
+    body = (
+        "You've been invited to ContextCache alpha.\n\n"
+        f"Continue here: {auth_url}\n\n"
+        "Enter this email and request your secure sign-in link.\n"
+        "If this wasn't expected, you can ignore this email.\n"
+    )
+    return _send_email_with_fallback(email, subject, body)

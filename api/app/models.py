@@ -391,6 +391,9 @@ class Waitlist(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    company: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    use_case: Mapped[str | None] = mapped_column(Text, nullable=True)
     # pending | approved | rejected
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'pending'"), index=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

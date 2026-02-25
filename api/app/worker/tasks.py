@@ -457,6 +457,57 @@ def _gemini_fallback(text: str, reason: str) -> list[dict]:
 _GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
 
+def _extract_first_json_block(raw: str) -> str:
+    """Best-effort extractor for the first top-level JSON object/array in text."""
+    text = raw.strip()
+    if not text:
+        return text
+    if text.startswith("```"):
+        text = text.split("\n", 1)[-1]
+        text = text.rsplit("```", 1)[0].strip()
+    # Fast path
+    if text and text[0] in "[{":
+        return text
+
+    start = -1
+    open_char = ""
+    close_char = ""
+    for idx, ch in enumerate(text):
+        if ch in "[{":
+            start = idx
+            open_char = ch
+            close_char = "]" if ch == "[" else "}"
+            break
+    if start < 0:
+        return text
+
+    depth = 0
+    in_string = False
+    escaped = False
+    for idx in range(start, len(text)):
+        ch = text[idx]
+        if in_string:
+            if escaped:
+                escaped = False
+                continue
+            if ch == "\\":
+                escaped = True
+                continue
+            if ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+            continue
+        if ch == open_char:
+            depth += 1
+        elif ch == close_char:
+            depth -= 1
+            if depth == 0:
+                return text[start : idx + 1]
+    return text
+
+
 def refine_content_with_llm(payload: dict) -> list[dict]:
     """Extract structured memory drafts from a raw capture payload via Gemini.
 
@@ -519,15 +570,11 @@ def refine_content_with_llm(payload: dict) -> list[dict]:
                 system_instruction=_GEMINI_SYSTEM_PROMPT,
                 temperature=0.2,
                 max_output_tokens=2048,
+                response_mime_type="application/json",
             ),
         )
 
-        raw_json = (response.text or "").strip()
-
-        # Strip optional markdown fences the model sometimes adds
-        if raw_json.startswith("```"):
-            raw_json = raw_json.split("\n", 1)[-1]
-            raw_json = raw_json.rsplit("```", 1)[0].strip()
+        raw_json = _extract_first_json_block((response.text or "").strip())
 
         drafts: list[dict] = json.loads(raw_json)
 

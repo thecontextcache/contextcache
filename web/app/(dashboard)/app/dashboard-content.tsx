@@ -6,13 +6,14 @@ import {
   memories,
   recall,
   inbox,
+  orgs,
   type Project,
   type Memory,
   type RecallResult,
   type InboxItem,
   ApiError,
 } from '@/lib/api';
-import { MEMORY_TYPES } from '@/lib/constants';
+import { MEMORY_TYPES, ORG_ID_KEY } from '@/lib/constants';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -34,9 +35,11 @@ import {
   AlertTriangle,
   Pencil,
   Copy,
+  Building2,
 } from 'lucide-react';
 
 type BadgeVariant = 'brand' | 'violet' | 'ok' | 'warn' | 'err' | 'muted';
+type OrgContext = { id: number; name: string; role: string | null };
 
 const typeVariantMap: Record<string, BadgeVariant> = {
   decision: 'brand',
@@ -75,6 +78,11 @@ export function DashboardContent() {
   const [memTitle, setMemTitle] = useState('');
   const [memBody, setMemBody] = useState('');
   const [memType, setMemType] = useState('note');
+  const [memSource, setMemSource] = useState('manual');
+  const [memTags, setMemTags] = useState('');
+  const [memSourceUrl, setMemSourceUrl] = useState('');
+  const [memFilePath, setMemFilePath] = useState('');
+  const [memCapturedAt, setMemCapturedAt] = useState('');
   const [creatingMem, setCreatingMem] = useState(false);
 
   // Recall
@@ -97,7 +105,15 @@ export function DashboardContent() {
   const [editMemTitle, setEditMemTitle] = useState('');
   const [editMemBody, setEditMemBody] = useState('');
   const [editMemType, setEditMemType] = useState('note');
+  const [editMemSource, setEditMemSource] = useState('manual');
+  const [editMemTags, setEditMemTags] = useState('');
+  const [editMemSourceUrl, setEditMemSourceUrl] = useState('');
+  const [editMemFilePath, setEditMemFilePath] = useState('');
+  const [editMemCapturedAt, setEditMemCapturedAt] = useState('');
   const [savingMemory, setSavingMemory] = useState(false);
+
+  const [orgList, setOrgList] = useState<OrgContext[]>([]);
+  const [activeOrgId, setActiveOrgId] = useState('');
 
   const [approvingItem, setApprovingItem] = useState<InboxItem | null>(null);
   const [approveType, setApproveType] = useState('note');
@@ -111,11 +127,37 @@ export function DashboardContent() {
 
   useEffect(() => {
     loadProjects();
+    loadOrgContext();
   }, []);
+
+  async function loadOrgContext() {
+    try {
+      const data = await orgs.list();
+      setOrgList(data as OrgContext[]);
+    } catch {
+      setOrgList([]);
+    }
+    setActiveOrgId(localStorage.getItem(ORG_ID_KEY) || '');
+  }
 
   async function loadProjects() {
     try {
-      const data = await projects.list();
+      let data = await projects.list();
+      if (data.length === 0) {
+        const memberships = await orgs.list();
+        const current = localStorage.getItem(ORG_ID_KEY) || '';
+        for (const candidate of memberships) {
+          if (String(candidate.id) === current) continue;
+          localStorage.setItem(ORG_ID_KEY, String(candidate.id));
+          const candidateProjects = await projects.list();
+          if (candidateProjects.length > 0) {
+            data = candidateProjects;
+            setActiveOrgId(String(candidate.id));
+            toast('info', `Switched to ${candidate.name} (has existing projects)`);
+            break;
+          }
+        }
+      }
       setProjectList(data);
     } catch {
       toast('error', 'Failed to load projects');
@@ -283,12 +325,24 @@ export function DashboardContent() {
         title: memTitle,
         body: memBody,
         type: memType,
+        source: memSource,
+        tags: memTags.split(',').map((t) => t.trim()).filter(Boolean),
+        metadata: {
+          source_url: memSourceUrl || undefined,
+          file_path: memFilePath || undefined,
+          captured_at: memCapturedAt || undefined,
+        },
       });
       setMemoryList((prev) => [...prev, m]);
       setShowCreateMem(false);
       setMemTitle('');
       setMemBody('');
       setMemType('note');
+      setMemSource('manual');
+      setMemTags('');
+      setMemSourceUrl('');
+      setMemFilePath('');
+      setMemCapturedAt('');
       toast('success', 'Memory card created');
     } catch (err) {
       toast('error', err instanceof ApiError ? err.message : 'Failed to create memory');
@@ -317,6 +371,14 @@ export function DashboardContent() {
         title: editMemTitle,
         body: editMemBody,
         type: editMemType,
+        source: editMemSource,
+        tags: editMemTags.split(',').map((t) => t.trim()).filter(Boolean),
+        metadata: {
+          ...(editingMemory.metadata || {}),
+          source_url: editMemSourceUrl || undefined,
+          file_path: editMemFilePath || undefined,
+          captured_at: editMemCapturedAt || undefined,
+        },
       });
       setMemoryList((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
       setEditingMemory(null);
@@ -346,6 +408,10 @@ export function DashboardContent() {
             {selectedProject.description && (
               <p className="mt-1 text-sm text-ink-2">{selectedProject.description}</p>
             )}
+            <div className="mt-2 inline-flex items-center gap-2 rounded-lg border border-line px-2 py-1 text-xs text-muted">
+              <Building2 className="h-3.5 w-3.5" />
+              Org: {orgList.find((o) => String(o.id) === activeOrgId)?.name || 'Not selected'}
+            </div>
           </div>
           <Button size="sm" onClick={() => setShowCreateMem(true)}>
             <Plus className="h-4 w-4" />
@@ -374,6 +440,19 @@ export function DashboardContent() {
                 </div>
                 <h3 className="mb-1.5 text-base font-semibold text-ink">{m.title || 'Untitled memory'}</h3>
                 <p className="line-clamp-4 text-sm leading-relaxed text-ink-2">{m.body}</p>
+                {m.metadata && Object.keys(m.metadata).length > 0 && (
+                  <div className="mt-2 rounded-lg border border-line/60 bg-bg-2/40 p-2 text-[11px] text-muted">
+                    {'source_url' in m.metadata && Boolean((m.metadata as Record<string, unknown>)['source_url']) && (
+                      <p className="truncate">URL: {String((m.metadata as Record<string, unknown>)['source_url'])}</p>
+                    )}
+                    {'file_path' in m.metadata && Boolean((m.metadata as Record<string, unknown>)['file_path']) && (
+                      <p className="truncate">File: {String((m.metadata as Record<string, unknown>)['file_path'])}</p>
+                    )}
+                    {'captured_at' in m.metadata && Boolean((m.metadata as Record<string, unknown>)['captured_at']) && (
+                      <p>Captured: {String((m.metadata as Record<string, unknown>)['captured_at'])}</p>
+                    )}
+                  </div>
+                )}
                 {m.tags && m.tags.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1">
                     {m.tags.map((tag) => (
@@ -385,12 +464,17 @@ export function DashboardContent() {
                 )}
                 <button
                   title="Edit memory"
-                  onClick={() => {
-                    setEditingMemory(m);
-                    setEditMemTitle(m.title || '');
-                    setEditMemBody(m.body || '');
-                    setEditMemType(m.type || 'note');
-                  }}
+                onClick={() => {
+                  setEditingMemory(m);
+                  setEditMemTitle(m.title || '');
+                  setEditMemBody(m.body || '');
+                  setEditMemType(m.type || 'note');
+                  setEditMemSource(m.source || 'manual');
+                  setEditMemTags((m.tags || []).join(', '));
+                  setEditMemSourceUrl(String(((m.metadata || {}) as Record<string, unknown>)['source_url'] || ''));
+                  setEditMemFilePath(String(((m.metadata || {}) as Record<string, unknown>)['file_path'] || ''));
+                  setEditMemCapturedAt(String(((m.metadata || {}) as Record<string, unknown>)['captured_at'] || ''));
+                }}
                   className="absolute right-10 top-3 rounded p-1 text-muted opacity-0 transition-all hover:bg-brand/10 hover:text-brand group-hover:opacity-100"
                 >
                   <Pencil className="h-4 w-4" />
@@ -628,6 +712,28 @@ export function DashboardContent() {
                 className="w-full rounded-lg border border-line bg-bg-2 px-4 py-2.5 text-sm text-ink placeholder:text-muted outline-none focus:border-brand/50"
               />
             </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-ink">Source</label>
+                <Input value={memSource} onChange={(e) => setMemSource(e.target.value)} placeholder="manual | chatgpt | cli | extension" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-ink">Tags (comma-separated)</label>
+                <Input value={memTags} onChange={(e) => setMemTags(e.target.value)} placeholder="auth, ses, invite" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-ink">Source URL</label>
+                <Input value={memSourceUrl} onChange={(e) => setMemSourceUrl(e.target.value)} placeholder="https://..." />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-ink">File Path</label>
+                <Input value={memFilePath} onChange={(e) => setMemFilePath(e.target.value)} placeholder="/docs/notes.md" />
+              </div>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-ink">Captured At (optional)</label>
+              <Input value={memCapturedAt} onChange={(e) => setMemCapturedAt(e.target.value)} placeholder="2026-02-25T18:30:00Z" />
+            </div>
             <Button type="submit" loading={creatingMem} className="w-full">Create memory</Button>
           </form>
         </Dialog>
@@ -659,6 +765,28 @@ export function DashboardContent() {
                 rows={5}
                 className="w-full rounded-lg border border-line bg-bg-2 px-4 py-2.5 text-sm text-ink placeholder:text-muted outline-none focus:border-brand/50"
               />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-ink">Source</label>
+                <Input value={editMemSource} onChange={(e) => setEditMemSource(e.target.value)} />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-ink">Tags (comma-separated)</label>
+                <Input value={editMemTags} onChange={(e) => setEditMemTags(e.target.value)} />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-ink">Source URL</label>
+                <Input value={editMemSourceUrl} onChange={(e) => setEditMemSourceUrl(e.target.value)} />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-ink">File Path</label>
+                <Input value={editMemFilePath} onChange={(e) => setEditMemFilePath(e.target.value)} />
+              </div>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-ink">Captured At</label>
+              <Input value={editMemCapturedAt} onChange={(e) => setEditMemCapturedAt(e.target.value)} placeholder="2026-02-25T18:30:00Z" />
             </div>
             <Button type="submit" loading={savingMemory} className="w-full">Save changes</Button>
           </form>
@@ -728,7 +856,18 @@ export function DashboardContent() {
   return (
     <div className="animate-fade-in">
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="font-display text-2xl font-bold">Projects</h1>
+        <div>
+          <h1 className="font-display text-2xl font-bold">Projects</h1>
+          <div className="mt-1 inline-flex items-center gap-2 text-xs text-muted">
+            <Building2 className="h-3.5 w-3.5" />
+            Org: {orgList.find((o) => String(o.id) === activeOrgId)?.name || 'Not selected'}
+            {orgList.length > 1 && (
+              <a href="/app/orgs" className="text-brand hover:underline">
+                Switch
+              </a>
+            )}
+          </div>
+        </div>
         <Button size="sm" onClick={() => setShowCreate(true)}>
           <Plus className="h-4 w-4" />
           New project

@@ -499,6 +499,9 @@ def cmd_seed_mock_data(args: list[str]) -> None:
                         "seeded_by": "cc seed-mock-data",
                         "ingestion_chunk_index": mem_idx,
                         "pipeline": "cli-http-seed",
+                        "source_url": f"https://docs.thecontextcache.com/mock/{project_id}/{mem_idx + 1}",
+                        "file_path": f"/seed/{project_id}/memory_{mem_idx + 1}.md",
+                        "captured_at": "2026-02-25T00:00:00Z",
                     },
                     tags=["seed", mem_type, f"project-{project_idx + 1}"],
                 )

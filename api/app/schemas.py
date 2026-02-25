@@ -336,6 +336,9 @@ class AdminUsageOut(BaseModel):
 
 class WaitlistJoinIn(BaseModel):
     email: str = Field(min_length=3, max_length=255)
+    name: str | None = Field(default=None, max_length=120)
+    company: str | None = Field(default=None, max_length=180)
+    use_case: str | None = Field(default=None, max_length=500)
 
 
 class WaitlistJoinOut(BaseModel):
@@ -346,6 +349,9 @@ class WaitlistJoinOut(BaseModel):
 class AdminWaitlistOut(BaseModel):
     id: int
     email: str
+    name: str | None = None
+    company: str | None = None
+    use_case: str | None = None
     status: WaitlistStatus
     notes: str | None = None
     created_at: datetime
