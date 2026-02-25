@@ -235,7 +235,7 @@ export function DashboardContent() {
       <div className="animate-fade-in">
         <button
           onClick={() => { setSelectedProject(null); setMemoryList([]); }}
-          className="mb-4 flex items-center gap-1 text-sm text-ink-2 transition-colors hover:text-ink"
+          className="mb-6 flex items-center gap-2 rounded-lg py-1.5 text-sm text-ink-2 transition-colors hover:text-ink"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to projects
@@ -255,7 +255,7 @@ export function DashboardContent() {
         </div>
 
         {memLoading ? (
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-5 sm:grid-cols-2">
             {[1, 2, 3, 4].map((i) => <SkeletonCard key={i} />)}
           </div>
         ) : memoryList.length === 0 ? (
@@ -264,17 +264,17 @@ export function DashboardContent() {
             <p className="text-sm text-ink-2">No memories yet. Add your first memory card.</p>
           </Card>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-5 sm:grid-cols-2">
             {memoryList.map((m) => (
               <Card key={m.id} hover className="group relative">
-                <div className="mb-2 flex items-center gap-2">
+                <div className="mb-3 flex items-center gap-2.5">
                   <Badge variant={typeVariantMap[m.type] || 'muted'}>{m.type}</Badge>
                   <span className="text-xs text-muted">
                     {new Date(m.created_at).toLocaleDateString()}
                   </span>
                 </div>
-                <h3 className="mb-1 font-semibold text-ink">{m.title}</h3>
-                <p className="line-clamp-3 text-sm text-ink-2">{m.body}</p>
+                <h3 className="mb-1.5 text-base font-semibold text-ink">{m.title}</h3>
+                <p className="line-clamp-4 text-sm leading-relaxed text-ink-2">{m.body}</p>
                 <button
                   onClick={() => handleDeleteMemory(m.id)}
                   className="absolute right-3 top-3 rounded p-1 text-muted opacity-0 transition-all hover:bg-err/10 hover:text-err group-hover:opacity-100"
@@ -287,45 +287,51 @@ export function DashboardContent() {
         )}
 
         {/* ── Recall Search ─────────────────────────── */}
-        <div className="mt-8">
-          <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
-            <Search className="h-5 w-5 text-brand" />
-            Recall
-          </h2>
-          <form onSubmit={handleRecall} className="flex gap-2">
+        <div className="mt-10">
+          <div className="mb-5">
+            <h2 className="flex items-center gap-2.5 text-xl font-semibold">
+              <Search className="h-5 w-5 text-brand" />
+              Recall
+            </h2>
+            <p className="mt-1.5 text-sm text-ink-2">
+              Search across your project&apos;s memory
+            </p>
+          </div>
+          <form onSubmit={handleRecall} className="flex gap-3">
             <Input
               value={recallQuery}
               onChange={(e) => setRecallQuery(e.target.value)}
               placeholder="Ask the project brain..."
               className="flex-1"
             />
-            <Button type="submit" loading={recalling} size="sm">
+            <Button type="submit" loading={recalling}>
               Search
             </Button>
           </form>
           {recallResult && (
-            <div className="mt-4 space-y-3">
-              <p className="text-xs text-muted">
+            <div className="mt-5 space-y-4">
+              <p className="text-sm text-muted">
                 {recallResult.items.length} result{recallResult.items.length !== 1 ? 's' : ''} for &quot;{recallResult.query}&quot;
               </p>
               {recallResult.items.map((item) => (
                 <Card key={item.id} className="border-brand/20">
-                  <div className="mb-1 flex items-center gap-2">
+                  <div className="mb-2.5 flex items-center gap-2.5">
                     <Badge variant={typeVariantMap[item.type] || 'muted'}>{item.type}</Badge>
                     {item.rank_score != null && (
                       <span className="text-xs text-muted">score: {item.rank_score.toFixed(3)}</span>
                     )}
                   </div>
-                  <h4 className="font-semibold text-ink">{item.title}</h4>
-                  <p className="mt-1 line-clamp-3 text-sm text-ink-2">{item.body}</p>
+                  <h4 className="text-base font-semibold text-ink">{item.title}</h4>
+                  <p className="mt-1.5 line-clamp-4 text-sm leading-relaxed text-ink-2">{item.body}</p>
                 </Card>
               ))}
               {recallResult.memory_pack_text && (
-                <details className="mt-2">
-                  <summary className="cursor-pointer text-xs text-muted hover:text-ink-2">
+                <details className="group mt-4">
+                  <summary className="flex cursor-pointer select-none items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-ink-2 transition-colors hover:bg-bg-2 hover:text-ink">
+                    <ChevronRight className="h-4 w-4 shrink-0 transition-transform duration-200 group-open:rotate-90" />
                     Show memory pack text
                   </summary>
-                  <pre className="mt-2 max-h-60 overflow-auto rounded-lg border border-line bg-bg-2 p-4 font-mono text-xs text-ink-2">
+                  <pre className="mt-2 max-h-72 overflow-auto rounded-xl border border-line bg-bg-2 p-5 font-mono text-xs leading-relaxed text-ink-2 whitespace-pre-wrap">
                     {recallResult.memory_pack_text}
                   </pre>
                 </details>
@@ -335,77 +341,107 @@ export function DashboardContent() {
         </div>
 
         {/* ── Inbox ─────────────────────────────────── */}
-        <div className="mt-8">
-          <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
-            <Inbox className="h-5 w-5 text-violet" />
-            Inbox
-            {inboxTotal > 0 && (
-              <Badge variant="violet">{inboxTotal}</Badge>
-            )}
-          </h2>
+        <div className="mt-10">
+          <div className="mb-5">
+            <h2 className="flex items-center gap-2.5 text-xl font-semibold">
+              <Inbox className="h-5 w-5 text-violet" />
+              Inbox
+              {inboxTotal > 0 && (
+                <Badge variant="violet">{inboxTotal}</Badge>
+              )}
+            </h2>
+            <p className="mt-1.5 text-sm text-ink-2">
+              Captured data awaiting your review
+            </p>
+          </div>
           {inboxLoading ? (
             <SkeletonTable rows={2} />
           ) : inboxItems.length === 0 ? (
-            <Card className="py-6 text-center">
-              <p className="text-sm text-muted">No inbox items. Captured data will appear here for review.</p>
+            <Card className="py-10 text-center">
+              <Inbox className="mx-auto mb-3 h-8 w-8 text-muted" />
+              <p className="text-sm text-ink-2">No inbox items yet.</p>
+              <p className="mt-1 text-xs text-muted">Captured data will appear here for review.</p>
             </Card>
           ) : (
-            <div className="space-y-3">
-              {inboxItems.map((item) => (
-                <Card key={item.id} className="border-violet/20">
-                  <div className="mb-1 flex items-center gap-2">
-                    <Badge variant={typeVariantMap[item.suggested_type] || 'muted'}>
-                      {item.suggested_type}
-                    </Badge>
-                    <span className="text-xs text-muted">
-                      confidence: {(item.confidence_score * 100).toFixed(0)}%
-                    </span>
-                    <Badge variant={item.status === 'pending' ? 'warn' : 'muted'}>
-                      {item.status}
-                    </Badge>
-                  </div>
-                  {item.suggested_title && (
-                    <h4 className="font-semibold text-ink">{item.suggested_title}</h4>
-                  )}
+            <div className="space-y-5">
+              {inboxItems.map((item) => {
+                const isFailed = item.suggested_content.startsWith('[Gemini extraction failed:');
+                return (
+                  <Card key={item.id} className={isFailed ? 'border-warn/25' : 'border-violet/20'}>
+                    {/* Header: type + status badges */}
+                    <div className="mb-4 flex flex-wrap items-center gap-2.5">
+                      <Badge variant={typeVariantMap[item.suggested_type] || 'muted'}>
+                        {item.suggested_type}
+                      </Badge>
+                      <Badge variant={item.status === 'pending' ? 'warn' : 'muted'}>
+                        {item.status}
+                      </Badge>
+                      {isFailed && (
+                        <Badge variant="err">extraction failed</Badge>
+                      )}
+                    </div>
 
-                  {/* Handle extraction failure display */}
-                  {item.suggested_content.startsWith('[Gemini extraction failed:') ? (
-                    <div className="mt-2">
-                      <div className="flex items-start gap-2 rounded-lg border border-warn/20 bg-warn/10 px-3 py-2">
-                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
-                        <div>
-                          <p className="text-xs font-medium text-warn">Extraction failed — raw capture preserved</p>
-                          <p className="mt-0.5 text-xs text-warn/70">
-                            The AI couldn&apos;t process this capture. You can approve it as a raw note or reject it.
-                          </p>
+                    {/* Title */}
+                    {item.suggested_title && (
+                      <h4 className="mb-2 text-base font-semibold leading-snug text-ink">
+                        {item.suggested_title}
+                      </h4>
+                    )}
+
+                    {/* Content: failure state or normal */}
+                    {isFailed ? (
+                      <div className="space-y-4">
+                        {/* Warning banner */}
+                        <div className="flex items-start gap-3.5 rounded-xl border border-warn/20 bg-warn/[0.06] p-4">
+                          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-warn/15">
+                            <AlertTriangle className="h-5 w-5 text-warn" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold text-warn">Extraction Failed</p>
+                            <p className="mt-1.5 text-sm leading-relaxed text-ink-2">
+                              The AI couldn&apos;t process this capture. You can approve it as a raw note or reject it.
+                            </p>
+                          </div>
                         </div>
+
+                        {/* Expandable raw content */}
+                        <details className="group">
+                          <summary className="flex cursor-pointer select-none items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-ink-2 transition-colors hover:bg-bg-2 hover:text-ink">
+                            <ChevronRight className="h-4 w-4 shrink-0 transition-transform duration-200 group-open:rotate-90" />
+                            View raw captured content
+                          </summary>
+                          <pre className="mt-2 max-h-80 overflow-auto rounded-xl border border-line bg-bg-2 p-5 font-mono text-xs leading-relaxed text-ink-2 whitespace-pre-wrap break-words">
+                            {item.suggested_content.replace(/^\[Gemini extraction failed: [^\]]*\]\n*/, '')}
+                          </pre>
+                        </details>
                       </div>
-                      <details className="mt-2">
-                        <summary className="cursor-pointer text-xs text-muted hover:text-ink-2">
-                          Show raw content
-                        </summary>
-                        <pre className="mt-1 max-h-40 overflow-auto rounded-lg border border-line bg-bg-2 p-3 font-mono text-xs text-ink-2 whitespace-pre-wrap">
-                          {item.suggested_content.replace(/^\[Gemini extraction failed: [^\]]*\]\n*/, '')}
-                        </pre>
-                      </details>
+                    ) : (
+                      <p className="mt-1 line-clamp-4 text-sm leading-relaxed text-ink-2">
+                        {item.suggested_content}
+                      </p>
+                    )}
+
+                    {/* Footer: metadata + actions */}
+                    <div className="mt-5 border-t border-line/50 pt-4">
+                      <div className="mb-3 text-xs text-muted">
+                        Confidence: {(item.confidence_score * 100).toFixed(0)}%
+                      </div>
+                      {item.status === 'pending' && (
+                        <div className="flex flex-wrap gap-3">
+                          <Button onClick={() => handleApproveInbox(item.id)}>
+                            <CheckCircle className="h-4 w-4" />
+                            {isFailed ? 'Approve as raw note' : 'Approve'}
+                          </Button>
+                          <Button variant="ghost" onClick={() => handleRejectInbox(item.id)}>
+                            <XCircle className="h-4 w-4" />
+                            Reject
+                          </Button>
+                        </div>
+                      )}
                     </div>
-                  ) : (
-                    <p className="mt-1 line-clamp-3 text-sm text-ink-2">{item.suggested_content}</p>
-                  )}
-                  {item.status === 'pending' && (
-                    <div className="mt-3 flex gap-2">
-                      <Button size="sm" onClick={() => handleApproveInbox(item.id)}>
-                        <CheckCircle className="h-4 w-4" />
-                        Approve
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => handleRejectInbox(item.id)}>
-                        <XCircle className="h-4 w-4" />
-                        Reject
-                      </Button>
-                    </div>
-                  )}
-                </Card>
-              ))}
+                  </Card>
+                );
+              })}
             </div>
           )}
         </div>
@@ -458,7 +494,7 @@ export function DashboardContent() {
       </div>
 
       {loading ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {[1, 2, 3].map((i) => <SkeletonCard key={i} />)}
         </div>
       ) : projectList.length === 0 ? (
@@ -471,7 +507,7 @@ export function DashboardContent() {
           </Button>
         </Card>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {projectList.map((p) => (
             <Card
               key={p.id}
@@ -479,12 +515,12 @@ export function DashboardContent() {
               className="group relative cursor-pointer"
               onClick={() => openProject(p)}
             >
-              <div className="mb-2 flex items-center justify-between">
-                <h3 className="font-semibold text-ink">{p.name}</h3>
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-base font-semibold text-ink">{p.name}</h3>
                 <ChevronRight className="h-4 w-4 text-muted transition-transform group-hover:translate-x-0.5" />
               </div>
               {p.description && (
-                <p className="mb-2 line-clamp-2 text-sm text-ink-2">{p.description}</p>
+                <p className="mb-3 line-clamp-2 text-sm leading-relaxed text-ink-2">{p.description}</p>
               )}
               <div className="flex items-center gap-3 text-xs text-muted">
                 <span>{new Date(p.created_at).toLocaleDateString()}</span>
