@@ -3,9 +3,6 @@
 #
 # Required environment variables (set in .env or shell):
 #   POSTGRES_PASSWORD, JWT_SECRET, CORS_ORIGINS, APP_PUBLIC_BASE_URL
-#
-# Optional:
-#   NEXT_PUBLIC_ASSET_VERSION  (cache-busting string, e.g. "20260220")
 
 services:
   db:
@@ -64,17 +61,16 @@ services:
     build:
       context: ../web
       dockerfile: Dockerfile
-      args:
-        NEXT_PUBLIC_ASSET_VERSION: ${NEXT_PUBLIC_ASSET_VERSION:-20260220}
     restart: always
     environment:
-      # Server-side proxy: Next.js rewrites /api/* → http://api:8000/*
-      # Browser never calls port 8000 directly — zero CORS issues
+      - SESSION_COOKIE_NAME=${SESSION_COOKIE_NAME:-contextcache_session}
       - API_UPSTREAM=http://api:8000
+      - APP_ENV=prod
     ports:
       - "3000:3000"
     depends_on:
-      - api
+      api:
+        condition: service_started
 
   worker:
     build:
