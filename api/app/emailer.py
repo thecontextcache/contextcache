@@ -121,3 +121,16 @@ def send_invite_email(email: str) -> tuple[bool, str]:
         "If this wasn't expected, you can ignore this email.\n"
     )
     return _send_email_with_fallback(email, subject, body)
+
+
+def send_waitlist_rejection_email(email: str) -> tuple[bool, str]:
+    """Send a polite waitlist rejection/deferral note for limited alpha capacity."""
+    subject = "ContextCache waitlist update"
+    body = (
+        "Thanks for your interest in ContextCache.\n\n"
+        "We are currently in a limited-slot alpha and are self-funding this phase.\n"
+        "Because of that, we cannot approve additional access right now.\n\n"
+        "You are on our priority list, and we will reach out first as we open more slots.\n\n"
+        "— The ContextCache team\n"
+    )
+    return _send_email_with_fallback(email, subject, body)

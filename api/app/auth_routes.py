@@ -21,7 +21,7 @@ from .auth_utils import (
 )
 from .analyzer.cag import evaporate_pheromones, get_cag_cache_stats
 from .db import get_db
-from .emailer import send_invite_email, send_magic_link
+from .emailer import send_invite_email, send_magic_link, send_waitlist_rejection_email
 from .models import (
     AuthInvite,
     AuthLoginEvent,
@@ -1074,5 +1074,17 @@ async def reject_waitlist(
     entry.status = "rejected"
     entry.reviewed_at = now
     entry.reviewed_by_admin_id = auth_user_id
+
+    sent, _send_status = send_waitlist_rejection_email(entry.email)
+    if not sent:
+        failure_note = "Rejection email delivery failed; entry remains rejected."
+        entry.notes = f"{entry.notes}\n{failure_note}" if entry.notes else failure_note
+
     await db.commit()
-    return {"status": "ok"}
+    if not sent:
+        return {
+            "status": "ok",
+            "email_sent": False,
+            "detail": "Entry rejected and stored, but rejection email delivery failed.",
+        }
+    return {"status": "ok", "email_sent": True}
