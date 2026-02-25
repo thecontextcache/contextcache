@@ -160,7 +160,7 @@ export function BrainContent() {
             memCount++;
             newNodes.push({
               id: mId,
-              label: mem.title,
+              label: mem.title ?? `Memory #${mem.id}`,
               type: (mem.type || 'note') as GraphNode['type'],
               x: mExisting?.x ?? cx + Math.cos(mAngle) * mDist,
               y: mExisting?.y ?? cy + Math.sin(mAngle) * mDist,
