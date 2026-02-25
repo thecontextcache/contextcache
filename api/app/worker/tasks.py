@@ -455,6 +455,15 @@ def _gemini_fallback(text: str, reason: str) -> list[dict]:
 
 
 _GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+_GEMINI_FALLBACK_MODELS = [
+    m.strip() for m in os.getenv(
+        "GEMINI_FALLBACK_MODELS",
+        "gemini-2.0-flash,gemini-2.0-flash-lite,gemini-1.5-flash",
+    ).split(",") if m.strip()
+]
+if _GEMINI_MODEL not in _GEMINI_FALLBACK_MODELS:
+    _GEMINI_FALLBACK_MODELS.insert(0, _GEMINI_MODEL)
+_REFINERY_MAX_INPUT_CHARS = int(os.getenv("REFINERY_MAX_INPUT_CHARS", "12000"))
 
 
 def _extract_first_json_block(raw: str) -> str:
@@ -541,6 +550,8 @@ def refine_content_with_llm(payload: dict) -> list[dict]:
     if not text:
         logger.warning("[refinery] empty payload — skipping Gemini call")
         return []
+    if len(text) > _REFINERY_MAX_INPUT_CHARS:
+        text = text[:_REFINERY_MAX_INPUT_CHARS]
 
     api_key = os.environ.get("GOOGLE_API_KEY", "").strip()
     # Docker Compose env_file does NOT strip quotes — handle both cases
@@ -557,69 +568,80 @@ def refine_content_with_llm(payload: dict) -> list[dict]:
         logger.error("[refinery] google-genai not installed — run: uv add google-genai")
         return _gemini_fallback(text, "google-genai package not installed")
 
+    client = genai.Client(api_key=api_key)
+    user_prompt = f"Source: {source}\n\n---\n\n{text}"
     raw_json = ""
-    try:
-        client = genai.Client(api_key=api_key)
+    last_error: str | None = None
 
-        user_prompt = f"Source: {source}\n\n---\n\n{text}"
-
-        response = client.models.generate_content(
-            model=_GEMINI_MODEL,
-            contents=user_prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=_GEMINI_SYSTEM_PROMPT,
-                temperature=0.2,
-                max_output_tokens=2048,
-                response_mime_type="application/json",
-            ),
-        )
-
-        raw_json = _extract_first_json_block((response.text or "").strip())
-
-        drafts: list[dict] = json.loads(raw_json)
-
-        if not isinstance(drafts, list):
-            raise ValueError(f"Expected a JSON array, got {type(drafts).__name__}")
-
-        valid_types = {"decision", "finding", "todo", "code", "note"}
-        cleaned: list[dict] = []
-        for item in drafts:
-            if not isinstance(item, dict):
-                continue
-            item_type = str(item.get("type", "note")).lower().strip()
-            if item_type not in valid_types:
-                item_type = "note"
-            content = str(item.get("content", "")).strip()
-            if not content:
-                continue
-            cleaned.append(
-                {
-                    "type": item_type,
-                    "title": str(item.get("title", ""))[:500].strip() or content[:80],
-                    "content": content,
-                    "confidence_score": max(
-                        0.0, min(1.0, float(item.get("confidence_score", 0.75)))
-                    ),
-                }
+    for model_name in _GEMINI_FALLBACK_MODELS:
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=user_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=_GEMINI_SYSTEM_PROMPT,
+                    temperature=0.2,
+                    max_output_tokens=2048,
+                    response_mime_type="application/json",
+                ),
             )
 
-        logger.info(
-            "[refinery] Gemini extracted %d item(s) from %d chars via model=%s",
-            len(cleaned),
-            len(text),
-            _GEMINI_MODEL,
-        )
-        return cleaned
+            response_text = (getattr(response, "text", None) or "").strip()
+            if not response_text and getattr(response, "candidates", None):
+                parts: list[str] = []
+                for cand in (response.candidates or []):
+                    content = getattr(cand, "content", None)
+                    for part in getattr(content, "parts", []) or []:
+                        maybe_text = getattr(part, "text", None)
+                        if maybe_text:
+                            parts.append(maybe_text)
+                response_text = "\n".join(parts).strip()
 
-    except json.JSONDecodeError as exc:
-        logger.error(
-            "[refinery] JSON parse failed: %s — raw response: %.300s", exc, raw_json
-        )
-        return _gemini_fallback(text, f"JSON parse error: {exc}")
+            raw_json = _extract_first_json_block(response_text)
+            drafts: list[dict] = json.loads(raw_json)
+            if not isinstance(drafts, list):
+                raise ValueError(f"Expected a JSON array, got {type(drafts).__name__}")
 
-    except Exception as exc:  # noqa: BLE001
-        logger.error("[refinery] Gemini API call failed: %s", exc)
-        return _gemini_fallback(text, str(exc))
+            valid_types = {"decision", "finding", "todo", "code", "note"}
+            cleaned: list[dict] = []
+            for item in drafts:
+                if not isinstance(item, dict):
+                    continue
+                item_type = str(item.get("type", "note")).lower().strip()
+                if item_type not in valid_types:
+                    item_type = "note"
+                content = str(item.get("content", "")).strip()
+                if not content:
+                    continue
+                cleaned.append(
+                    {
+                        "type": item_type,
+                        "title": str(item.get("title", ""))[:500].strip() or content[:80],
+                        "content": content,
+                        "confidence_score": max(
+                            0.0, min(1.0, float(item.get("confidence_score", 0.75)))
+                        ),
+                    }
+                )
+
+            logger.info(
+                "[refinery] Gemini extracted %d item(s) from %d chars via model=%s",
+                len(cleaned),
+                len(text),
+                model_name,
+            )
+            return cleaned
+        except Exception as exc:  # noqa: BLE001
+            last_error = f"{model_name}: {exc}"
+            logger.warning("[refinery] model=%s failed: %s", model_name, exc)
+            continue
+
+    logger.error(
+        "[refinery] all Gemini models failed; last_error=%s raw=%.300s",
+        last_error,
+        raw_json,
+    )
+    return _gemini_fallback(text, last_error or "all configured models failed")
 
 
 # ---------------------------------------------------------------------------
