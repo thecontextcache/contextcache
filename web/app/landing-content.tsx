@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { Badge } from '@/components/ui/badge';
+import { NeuralBackground } from '@/components/neural-bg';
 import {
   Brain,
   Zap,
@@ -134,15 +135,19 @@ export function LandingContent() {
 
   return (
     <div className="animate-fade-in">
+      {/* Neural particle background */}
+      <NeuralBackground />
+
       {/* ── Hero ──────────────────────────────────────────── */}
       <section className="relative overflow-hidden px-4 pb-20 pt-24 sm:px-6 sm:pt-32 lg:pt-40">
-        {/* Background gradient orbs */}
+        {/* Animated gradient orbs */}
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div className="absolute -top-40 left-1/4 h-80 w-80 rounded-full bg-brand/5 blur-[100px]" />
-          <div className="absolute -top-20 right-1/4 h-60 w-60 rounded-full bg-violet/5 blur-[80px]" />
+          <div className="absolute -top-40 left-1/4 h-80 w-80 rounded-full bg-brand/5 blur-[100px] animate-pulse-glow" />
+          <div className="absolute -top-20 right-1/4 h-60 w-60 rounded-full bg-violet/5 blur-[80px] animate-pulse-glow" style={{ animationDelay: '0.7s' }} />
+          <div className="absolute top-10 left-1/2 h-48 w-48 rounded-full bg-brand/3 blur-[120px] animate-pulse-glow" style={{ animationDelay: '1.4s' }} />
         </div>
 
-        <div className="relative mx-auto max-w-4xl text-center">
+        <div className="relative z-10 mx-auto max-w-4xl text-center">
           <Badge className="mb-6 animate-fade-in-up">
             Invite-only alpha — now live
           </Badge>
