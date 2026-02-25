@@ -59,6 +59,35 @@ async function request<T>(
   return JSON.parse(text) as T;
 }
 
+function normalizeProject(raw: any): Project {
+  return {
+    id: raw.id,
+    org_id: raw.org_id,
+    name: raw.name,
+    description: raw.description ?? undefined,
+    created_at: raw.created_at,
+    updated_at: raw.updated_at ?? null,
+    memory_count: raw.memory_count ?? undefined,
+  };
+}
+
+function normalizeMemory(raw: any): Memory {
+  const content = raw?.content ?? raw?.body ?? '';
+  return {
+    id: raw.id,
+    project_id: raw.project_id,
+    type: raw.type,
+    source: raw.source ?? 'manual',
+    title: raw.title ?? '',
+    body: content,
+    content,
+    metadata: raw.metadata ?? {},
+    tags: Array.isArray(raw.tags) ? raw.tags : [],
+    created_at: raw.created_at,
+    updated_at: raw.updated_at ?? null,
+  };
+}
+
 // ── Auth ──────────────────────────────────────────────────────
 export const auth = {
   /** Returns { status, detail } — debug_link never exposed to UI. */
@@ -87,22 +116,33 @@ export const auth = {
 // ── Projects ──────────────────────────────────────────────────
 export interface Project {
   id: number;
+  org_id?: number;
   name: string;
   description?: string;
   created_at: string;
+  updated_at?: string | null;
   memory_count?: number;
 }
 
 export const projects = {
-  list: () => request<Project[]>('/api/projects'),
+  list: async () => {
+    const rows = await request<any[]>('/api/projects');
+    return rows.map(normalizeProject);
+  },
 
   create: (data: { name: string; description?: string }) =>
-    request<Project>('/api/projects', {
+    request<any>('/api/projects', {
       method: 'POST',
       body: JSON.stringify(data),
-    }),
+    }).then(normalizeProject),
 
-  get: (id: number) => request<Project>(`/api/projects/${id}`),
+  get: (id: number) => request<any>(`/api/projects/${id}`).then(normalizeProject),
+
+  update: (id: number, data: { name?: string; description?: string }) =>
+    request<any>(`/api/projects/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }).then(normalizeProject),
 
   delete: (id: number) =>
     request<void>(`/api/projects/${id}`, { method: 'DELETE' }),
@@ -113,21 +153,54 @@ export interface Memory {
   id: number;
   project_id: number;
   type: string;
-  title: string;
+  source?: string;
+  title: string | null;
   body: string;
+  content?: string;
+  metadata?: Record<string, unknown>;
   tags?: string[];
   created_at: string;
+  updated_at?: string | null;
 }
 
 export const memories = {
-  list: (projectId: number) =>
-    request<Memory[]>(`/api/projects/${projectId}/memories`),
+  list: async (projectId: number) => {
+    const rows = await request<any[]>(`/api/projects/${projectId}/memories`);
+    return rows.map(normalizeMemory);
+  },
+
+  get: (projectId: number, memId: number) =>
+    request<any>(`/api/projects/${projectId}/memories/${memId}`).then(normalizeMemory),
 
   create: (projectId: number, data: Partial<Memory>) =>
-    request<Memory>(`/api/projects/${projectId}/memories`, {
+    request<any>(`/api/projects/${projectId}/memories`, {
       method: 'POST',
-      body: JSON.stringify(data),
-    }),
+      body: JSON.stringify({
+        type: data.type,
+        source: data.source ?? 'manual',
+        title: data.title,
+        content: data.content ?? data.body ?? '',
+        metadata: data.metadata ?? {},
+        tags: data.tags ?? [],
+      }),
+    }).then(normalizeMemory),
+
+  update: (
+    projectId: number,
+    memId: number,
+    data: { title?: string; body?: string; content?: string; type?: string; source?: string; tags?: string[]; metadata?: Record<string, unknown> }
+  ) =>
+    request<any>(`/api/projects/${projectId}/memories/${memId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        title: data.title,
+        content: data.content ?? data.body,
+        type: data.type,
+        source: data.source,
+        tags: data.tags,
+        metadata: data.metadata,
+      }),
+    }).then(normalizeMemory),
 
   delete: (projectId: number, memoryId: number) =>
     request<void>(`/api/projects/${projectId}/memories/${memoryId}`, {
@@ -147,14 +220,34 @@ export interface RecallResult {
   items: RecallItem[];
 }
 
+function normalizeRecallResult(raw: any): RecallResult {
+  return {
+    project_id: raw.project_id,
+    query: raw.query,
+    memory_pack_text: raw.memory_pack_text,
+    items: Array.isArray(raw.items) ? raw.items.map((item: any) => ({
+      ...normalizeMemory(item),
+      rank_score: item.rank_score ?? null,
+    })) : [],
+  };
+}
+
 export const recall = {
   query: (projectId: number, q: string) =>
-    request<RecallResult>(`/api/projects/${projectId}/recall?query=${encodeURIComponent(q)}`),
+    request<any>(`/api/projects/${projectId}/recall?query=${encodeURIComponent(q)}`).then(normalizeRecallResult),
 
   search: (projectId: number, q: string) =>
-    request<{ project_id: number; query: string; total: number; items: RecallItem[] }>(
+    request<any>(
       `/api/projects/${projectId}/search?query=${encodeURIComponent(q)}`
-    ),
+    ).then((raw) => ({
+      project_id: raw.project_id,
+      query: raw.query,
+      total: raw.total,
+      items: Array.isArray(raw.items) ? raw.items.map((item: any) => ({
+        ...normalizeMemory(item),
+        rank_score: item.rank_score ?? null,
+      })) : [],
+    })),
 };
 
 // ── Inbox ─────────────────────────────────────────────────────
@@ -183,10 +276,10 @@ export const inbox = {
     request<InboxList>(`/api/projects/${projectId}/inbox`),
 
   approve: (itemId: number, edits?: { suggested_type?: string; suggested_title?: string; suggested_content?: string }) =>
-    request<Memory>(`/api/inbox/${itemId}/approve`, {
+    request<any>(`/api/inbox/${itemId}/approve`, {
       method: 'POST',
       body: JSON.stringify(edits ?? {}),
-    }),
+    }).then(normalizeMemory),
 
   reject: (itemId: number) =>
     request<InboxItem>(`/api/inbox/${itemId}/reject`, { method: 'POST' }),
@@ -288,15 +381,37 @@ export const orgs = {
       body: JSON.stringify(data),
     }),
 
-  auditLogs: (orgId: number) =>
-    request<AuditLog[]>(`/api/orgs/${orgId}/audit-logs`),
+  updateMembership: (orgId: number, membershipId: number, data: { role: string }) =>
+    request<OrgMember>(`/api/orgs/${orgId}/memberships/${membershipId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+
+  removeMembership: (orgId: number, membershipId: number) =>
+    request<void>(`/api/orgs/${orgId}/memberships/${membershipId}`, {
+      method: 'DELETE',
+    }),
+
+  auditLogs: (orgId: number, params?: { limit?: number; offset?: number }) => {
+    const query = new URLSearchParams();
+    if (params?.limit != null) query.set('limit', String(params.limit));
+    if (params?.offset != null) query.set('offset', String(params.offset));
+    const suffix = query.toString() ? `?${query}` : '';
+    return request<AuditLog[]>(`/api/orgs/${orgId}/audit-logs${suffix}`);
+  },
 };
 
 // ── Usage (per-user) ──────────────────────────────────────────
 export interface UsageLimits {
+  daily_memories?: number;
+  daily_recall_queries?: number;
+  daily_projects?: number;
   memories_per_day: number;
   recalls_per_day: number;
   projects_per_day: number;
+  weekly_memories?: number;
+  weekly_recall_queries?: number;
+  weekly_projects?: number;
   memories_per_week: number;
   recalls_per_week: number;
   projects_per_week: number;
@@ -367,6 +482,8 @@ export interface AdminRecallLog {
   ranked_memory_ids: number[];
   weights: Record<string, number>;
   score_details: Record<string, unknown>;
+  served_by?: string | null;
+  duration_ms?: number | null;
   created_at: string;
 }
 
@@ -397,6 +514,7 @@ export interface CagCacheStats {
 
 export const admin = {
   users: () => request<AdminUser[]>('/api/admin/users'),
+  listUsers: () => request<AdminUser[]>('/api/admin/users'),
   userStats: (userId: number) => request<AdminUserStats>(`/api/admin/users/${userId}/stats`),
   loginEvents: (userId: number) => request<LoginEvent[]>(`/api/admin/users/${userId}/login-events`),
   disableUser: (userId: number) => request<void>(`/api/admin/users/${userId}/disable`, { method: 'POST' }),
@@ -413,6 +531,7 @@ export const admin = {
   orgs: () => request<Org[]>('/api/admin/orgs'),
 
   invites: () => request<AdminInvite[]>('/api/admin/invites'),
+  listInvites: () => request<AdminInvite[]>('/api/admin/invites'),
   createInvite: (email: string, notes?: string) =>
     request<AdminInvite>('/api/admin/invites', {
       method: 'POST',
@@ -425,9 +544,17 @@ export const admin = {
 
   usage: () => request<AdminUsageRow[]>('/api/admin/usage'),
 
-  recallLogs: () => request<AdminRecallLog[]>('/api/admin/recall/logs'),
+  recallLogs: (limit?: number, offset?: number, projectId?: number) => {
+    const query = new URLSearchParams();
+    if (limit != null) query.set('limit', String(limit));
+    if (offset != null) query.set('offset', String(offset));
+    if (projectId != null) query.set('project_id', String(projectId));
+    const suffix = query.toString() ? `?${query}` : '';
+    return request<AdminRecallLog[]>(`/api/admin/recall/logs${suffix}`);
+  },
 
   cagCacheStats: () => request<CagCacheStats>('/api/admin/cag/cache-stats'),
+  cagStats: () => request<CagCacheStats>('/api/admin/cag/cache-stats'),
   cagEvaporate: () => request<CagCacheStats>('/api/admin/cag/evaporate', { method: 'POST' }),
 };
 

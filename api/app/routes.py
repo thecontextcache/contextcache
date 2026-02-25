@@ -61,15 +61,18 @@ from .schemas import (
     MeOrgOut,
     MembershipCreate,
     MembershipOut,
+    MembershipUpdate,
     OrgCreate,
     OrgOut,
     OrgUpdate,
     ProjectCreate,
     ProjectOut,
+    ProjectUpdate,
     RecallItemOut,
     RecallOut,
     RoleType,
     SearchOut,
+    MemoryUpdate,
     UsageLimitsOut,
     UsageOut,
 )
@@ -669,10 +672,111 @@ async def list_memberships(
     ]
 
 
+@router.patch("/orgs/{org_id}/memberships/{membership_id}", response_model=MembershipOut)
+async def update_membership(
+    org_id: int,
+    membership_id: int,
+    payload: MembershipUpdate,
+    db: AsyncSession = Depends(get_db),
+    ctx: RequestContext = Depends(get_actor_context),
+) -> MembershipOut:
+    ensure_org_access(ctx, org_id)
+    require_role(ctx, "owner")
+    await get_org_or_404(db, org_id)
+
+    membership = (
+        await db.execute(
+            select(Membership)
+            .where(Membership.org_id == org_id, Membership.id == membership_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if membership is None:
+        raise HTTPException(status_code=404, detail="Membership not found")
+
+    if membership.user_id == ctx.actor_user_id and payload.role != "owner":
+        raise HTTPException(status_code=409, detail="Cannot change your own role from owner")
+
+    membership.role = payload.role
+    user = (
+        await db.execute(select(User).where(User.id == membership.user_id).limit(1))
+    ).scalar_one()
+
+    await write_audit(
+        db,
+        ctx=ctx,
+        org_id=org_id,
+        action="membership.update",
+        entity_type="membership",
+        entity_id=membership.id,
+        metadata={"email": user.email, "role": membership.role},
+    )
+    await db.commit()
+    await db.refresh(membership)
+    return MembershipOut(
+        id=membership.id,
+        org_id=membership.org_id,
+        user_id=membership.user_id,
+        email=user.email,
+        display_name=user.display_name,
+        role=membership.role,
+        created_at=membership.created_at,
+    )
+
+
+@router.delete("/orgs/{org_id}/memberships/{membership_id}", status_code=204)
+async def delete_membership(
+    org_id: int,
+    membership_id: int,
+    db: AsyncSession = Depends(get_db),
+    ctx: RequestContext = Depends(get_actor_context),
+) -> None:
+    ensure_org_access(ctx, org_id)
+    require_role(ctx, "owner")
+    await get_org_or_404(db, org_id)
+
+    membership = (
+        await db.execute(
+            select(Membership)
+            .where(Membership.org_id == org_id, Membership.id == membership_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if membership is None:
+        raise HTTPException(status_code=404, detail="Membership not found")
+
+    if membership.role == "owner":
+        owner_count = (
+            await db.execute(
+                select(func.count(Membership.id))
+                .where(Membership.org_id == org_id, Membership.role == "owner")
+            )
+        ).scalar_one()
+        if owner_count <= 1:
+            raise HTTPException(status_code=409, detail="Cannot remove the last owner")
+
+    user = (
+        await db.execute(select(User).where(User.id == membership.user_id).limit(1))
+    ).scalar_one()
+
+    await write_audit(
+        db,
+        ctx=ctx,
+        org_id=org_id,
+        action="membership.delete",
+        entity_type="membership",
+        entity_id=membership.id,
+        metadata={"email": user.email, "role": membership.role},
+    )
+    await db.delete(membership)
+    await db.commit()
+
+
 @router.get("/orgs/{org_id}/audit-logs", response_model=List[AuditLogOut])
 async def list_audit_logs(
     org_id: int,
     limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
     ctx: RequestContext = Depends(get_actor_context),
 ) -> List[AuditLogOut]:
@@ -680,14 +784,16 @@ async def list_audit_logs(
     require_role(ctx, "owner")
     await get_org_or_404(db, org_id)
 
-    logs = (
+    rows = (
         await db.execute(
-            select(AuditLog)
+            select(AuditLog, User.email)
+            .outerjoin(User, User.id == AuditLog.actor_user_id)
             .where(AuditLog.org_id == org_id)
             .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+            .offset(offset)
             .limit(limit)
         )
-    ).scalars().all()
+    ).all()
     return [
         AuditLogOut(
             id=log.id,
@@ -697,10 +803,10 @@ async def list_audit_logs(
             action=log.action,
             entity_type=log.entity_type,
             entity_id=log.entity_id,
-            metadata=log.metadata_json,
+            metadata={**(log.metadata_json or {}), **({"actor_email": email} if email else {})},
             created_at=log.created_at,
         )
-        for log in logs
+        for log, email in rows
     ]
 
 
@@ -914,6 +1020,82 @@ async def list_projects(
     if ctx.org_id is None:
         raise HTTPException(status_code=400, detail="X-Org-Id required")
     return await list_org_projects(org_id=ctx.org_id, db=db, ctx=ctx)
+
+
+@router.get("/projects/{project_id}", response_model=ProjectOut)
+async def get_project(
+    project_id: int,
+    db: AsyncSession = Depends(get_db),
+    ctx: RequestContext = Depends(get_actor_context),
+) -> ProjectOut:
+    require_role(ctx, "viewer")
+    project = await get_project_or_404(db, project_id, ctx)
+    return ProjectOut(
+        id=project.id,
+        org_id=project.org_id,
+        created_by_user_id=project.created_by_user_id,
+        name=project.name,
+        created_at=project.created_at,
+        updated_at=project.updated_at,
+    )
+
+
+@router.patch("/projects/{project_id}", response_model=ProjectOut)
+async def update_project(
+    project_id: int,
+    payload: ProjectUpdate,
+    db: AsyncSession = Depends(get_db),
+    ctx: RequestContext = Depends(get_actor_context),
+) -> ProjectOut:
+    require_role(ctx, "member")
+    project = await get_project_or_404(db, project_id, ctx)
+
+    if payload.name is not None:
+        name = payload.name.strip()
+        if not name:
+            raise HTTPException(status_code=422, detail="Project name cannot be empty")
+        project.name = name
+
+    await write_audit(
+        db,
+        ctx=ctx,
+        org_id=project.org_id,
+        action="project.update",
+        entity_type="project",
+        entity_id=project.id,
+        metadata={"name": project.name},
+    )
+    await db.commit()
+    await db.refresh(project)
+    return ProjectOut(
+        id=project.id,
+        org_id=project.org_id,
+        created_by_user_id=project.created_by_user_id,
+        name=project.name,
+        created_at=project.created_at,
+        updated_at=project.updated_at,
+    )
+
+
+@router.delete("/projects/{project_id}", status_code=204)
+async def delete_project(
+    project_id: int,
+    db: AsyncSession = Depends(get_db),
+    ctx: RequestContext = Depends(get_actor_context),
+) -> None:
+    require_role(ctx, "member")
+    project = await get_project_or_404(db, project_id, ctx)
+    await write_audit(
+        db,
+        ctx=ctx,
+        org_id=project.org_id,
+        action="project.delete",
+        entity_type="project",
+        entity_id=project.id,
+        metadata={"name": project.name},
+    )
+    await db.delete(project)
+    await db.commit()
 
 
 def _content_hash(content: str) -> str:
@@ -1323,6 +1505,129 @@ async def list_memories(
     ).scalars().all()
     tag_map = await _load_tag_names(db, [m.id for m in items])
     return [_memory_to_out(m, tag_map.get(m.id, [])) for m in items]
+
+
+@router.get("/projects/{project_id}/memories/{memory_id}", response_model=MemoryOut)
+async def get_memory(
+    project_id: int,
+    memory_id: int,
+    db: AsyncSession = Depends(get_db),
+    ctx: RequestContext = Depends(get_actor_context),
+) -> MemoryOut:
+    require_role(ctx, "viewer")
+    project = await get_project_or_404(db, project_id, ctx)
+    memory = (
+        await db.execute(
+            select(Memory)
+            .where(Memory.project_id == project.id, Memory.id == memory_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if memory is None:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    tag_map = await _load_tag_names(db, [memory.id])
+    return _memory_to_out(memory, tag_map.get(memory.id, []))
+
+
+@router.patch("/projects/{project_id}/memories/{memory_id}", response_model=MemoryOut)
+async def update_memory(
+    project_id: int,
+    memory_id: int,
+    payload: MemoryUpdate,
+    db: AsyncSession = Depends(get_db),
+    ctx: RequestContext = Depends(get_actor_context),
+) -> MemoryOut:
+    require_role(ctx, "member")
+    project = await get_project_or_404(db, project_id, ctx)
+    memory = (
+        await db.execute(
+            select(Memory)
+            .where(Memory.project_id == project.id, Memory.id == memory_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if memory is None:
+        raise HTTPException(status_code=404, detail="Memory not found")
+
+    if payload.type is not None:
+        memory.type = payload.type
+    if payload.source is not None:
+        memory.source = payload.source
+    if payload.title is not None:
+        memory.title = payload.title
+    if payload.content is not None:
+        clean_content = payload.content.strip()
+        if not clean_content:
+            raise HTTPException(status_code=422, detail="content must not be empty")
+        memory.content = clean_content
+    if payload.metadata is not None:
+        memory.metadata_json = payload.metadata
+
+    if payload.title is not None or payload.content is not None:
+        embedding_text = " ".join(
+            part for part in [memory.title or "", memory.content or ""] if part
+        ).strip()
+        embedding = compute_embedding(embedding_text)
+        memory.search_vector = embedding
+        memory.embedding_vector = embedding
+        memory.hilbert_index = compute_hilbert_index(embedding)
+        memory.content_hash = _content_hash(memory.content)
+
+    if payload.tags is not None:
+        existing_links = (
+            await db.execute(select(MemoryTag).where(MemoryTag.memory_id == memory.id))
+        ).scalars().all()
+        for link in existing_links:
+            await db.delete(link)
+        tags = await _upsert_tags(db, project.id, payload.tags)
+        for tag in tags:
+            db.add(MemoryTag(memory_id=memory.id, tag_id=tag.id))
+
+    await write_audit(
+        db,
+        ctx=ctx,
+        org_id=project.org_id,
+        action="memory.update",
+        entity_type="memory",
+        entity_id=memory.id,
+        metadata={"type": memory.type, "source": memory.source},
+    )
+    await db.commit()
+    await db.refresh(memory)
+    tag_map = await _load_tag_names(db, [memory.id])
+    return _memory_to_out(memory, tag_map.get(memory.id, []))
+
+
+@router.delete("/projects/{project_id}/memories/{memory_id}", status_code=204)
+async def delete_memory(
+    project_id: int,
+    memory_id: int,
+    db: AsyncSession = Depends(get_db),
+    ctx: RequestContext = Depends(get_actor_context),
+) -> None:
+    require_role(ctx, "member")
+    project = await get_project_or_404(db, project_id, ctx)
+    memory = (
+        await db.execute(
+            select(Memory)
+            .where(Memory.project_id == project.id, Memory.id == memory_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if memory is None:
+        raise HTTPException(status_code=404, detail="Memory not found")
+
+    await write_audit(
+        db,
+        ctx=ctx,
+        org_id=project.org_id,
+        action="memory.delete",
+        entity_type="memory",
+        entity_id=memory.id,
+        metadata={"type": memory.type, "source": memory.source},
+    )
+    await db.delete(memory)
+    await db.commit()
 
 
 @router.get("/projects/{project_id}/search", response_model=SearchOut)

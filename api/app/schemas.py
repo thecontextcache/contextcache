@@ -4,7 +4,23 @@ from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
-MemoryType = Literal["decision", "finding", "definition", "note", "link", "todo", "chat", "doc", "code", "file", "web", "event"]
+MemoryType = Literal[
+    "decision",
+    "finding",
+    "definition",
+    "note",
+    "link",
+    "todo",
+    "chat",
+    "doc",
+    "code",
+    "file",
+    "web",
+    "event",
+    "snippet",
+    "issue",
+    "context",
+]
 MemorySource = Literal["manual", "chatgpt", "claude", "cursor", "codex", "api", "extension"]
 RoleType = Literal["owner", "admin", "member", "viewer"]
 WaitlistStatus = Literal["pending", "approved", "rejected"]
@@ -18,6 +34,10 @@ InboxItemStatus = Literal["pending", "approved", "rejected", "merged"]
 
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
+
+
+class ProjectUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 class ProjectOut(BaseModel):
@@ -51,6 +71,15 @@ class MemoryCreate(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     # Comma-separated or pre-split tag names — max 20 tags, each max 100 chars
     tags: List[str] = Field(default_factory=list)
+
+
+class MemoryUpdate(BaseModel):
+    type: MemoryType | None = None
+    source: MemorySource | None = None
+    title: Optional[str] = Field(default=None, max_length=500)
+    content: str | None = None
+    metadata: Dict[str, Any] | None = None
+    tags: List[str] | None = None
 
 
 class MemoryCaptureIn(MemoryCreate):
@@ -164,6 +193,10 @@ class MembershipOut(BaseModel):
     display_name: str | None = None
     role: RoleType
     created_at: datetime
+
+
+class MembershipUpdate(BaseModel):
+    role: RoleType
 
 
 # ---------------------------------------------------------------------------

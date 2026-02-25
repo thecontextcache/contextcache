@@ -2,12 +2,11 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { projects, memories, type Project, type Memory, ApiError } from '@/lib/api';
-import { ORG_ID_KEY } from '@/lib/constants';
 import { useToast } from '@/components/toast';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
-import { RefreshCw, Brain, Sparkles, X as XIcon } from 'lucide-react';
+import { RefreshCw, Brain, Sparkles, X as XIcon, Pause, Play, Info } from 'lucide-react';
 
 /* ── Types ─────────────────────────────────────────────────── */
 interface GraphNode {
@@ -81,11 +80,36 @@ export function BrainContent() {
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [stats, setStats] = useState({ projects: 0, memories: 0 });
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [paused, setPaused] = useState(false);
+  const [activeTypes, setActiveTypes] = useState<Set<string>>(
+    new Set(Object.keys(TYPE_COLORS).filter((t) => t !== 'project'))
+  );
+  const pausedRef = useRef(false);
+  const activeTypesRef = useRef<Set<string>>(new Set(Object.keys(TYPE_COLORS).filter((t) => t !== 'project')));
 
   // Keep ref in sync with state for the render loop
   useEffect(() => {
     selectedIdRef.current = selectedNode?.id ?? null;
   }, [selectedNode]);
+
+  useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
+
+  useEffect(() => {
+    activeTypesRef.current = activeTypes;
+  }, [activeTypes]);
+
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setPaused(true);
+    }
+  }, []);
+
+  function isNodeVisible(node: GraphNode): boolean {
+    if (node.type === 'project') return true;
+    return activeTypesRef.current.has(node.type);
+  }
 
   /* ── Data fetch ────────────────────────────────────────── */
   const loadData = useCallback(async () => {
@@ -341,7 +365,9 @@ export function BrainContent() {
     timeRef.current = performance.now();
     const time = timeRef.current;
 
-    simulate();
+    if (!pausedRef.current) {
+      simulate();
+    }
 
     // 1. Clear with bg color
     ctx.fillStyle = BG_COLOR;
@@ -357,7 +383,7 @@ export function BrainContent() {
     for (const edge of edges) {
       const a = nodeMap.get(edge.source);
       const b = nodeMap.get(edge.target);
-      if (!a || !b) continue;
+      if (!a || !b || !isNodeVisible(a) || !isNodeVisible(b)) continue;
       const edgeOpacity = Math.min(a.opacity, b.opacity);
       const isHighlighted = hovered && (hovered.id === a.id || hovered.id === b.id);
 
@@ -384,6 +410,7 @@ export function BrainContent() {
     // 3. Draw nodes
     ctx.save();
     for (const node of nodes) {
+      if (!isNodeVisible(node)) continue;
       const color = TYPE_COLORS[node.type] || '#94ADC8';
       const isHovered = hovered?.id === node.id;
       const isSelected = selId === node.id;
@@ -443,7 +470,7 @@ export function BrainContent() {
     ctx.restore();
 
     // 5. Tooltip
-    if (hovered && hovered.label) {
+    if (hovered && hovered.label && isNodeVisible(hovered)) {
       const padding = 10;
       const text = `${hovered.type}: ${hovered.label}`;
       ctx.font = '11px "Space Grotesk", sans-serif';
@@ -476,6 +503,7 @@ export function BrainContent() {
     const my = clientY - rect.top;
     for (let i = nodesRef.current.length - 1; i >= 0; i--) {
       const n = nodesRef.current[i];
+      if (!isNodeVisible(n)) continue;
       const dx = mx - n.x;
       const dy = my - n.y;
       if (dx * dx + dy * dy < (n.radius + 6) * (n.radius + 6)) return n;
@@ -581,6 +609,14 @@ export function BrainContent() {
           <Button
             size="sm"
             variant="ghost"
+            onClick={() => setPaused((v) => !v)}
+            title={paused ? 'Resume animation' : 'Pause animation'}
+          >
+            {paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
             onClick={() => loadData()}
             disabled={loading}
           >
@@ -591,13 +627,45 @@ export function BrainContent() {
 
       {/* Legend */}
       {!isEmpty && (
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          {Object.entries(TYPE_COLORS).map(([type, color]) => (
-            <div key={type} className="flex items-center gap-1.5">
-              <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
-              <span className="text-[10px] text-muted capitalize">{type}</span>
-            </div>
-          ))}
+        <div className="mb-4 space-y-3">
+          <div className="flex flex-wrap items-center gap-3">
+            {Object.entries(TYPE_COLORS).map(([type, color]) => (
+              <div key={type} className="flex items-center gap-1.5">
+                <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
+                <span className="text-[10px] text-muted capitalize">{type}</span>
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {Object.keys(TYPE_COLORS).filter((type) => type !== 'project').map((type) => {
+              const active = activeTypes.has(type);
+              return (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() =>
+                    setActiveTypes((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(type)) next.delete(type);
+                      else next.add(type);
+                      return next;
+                    })
+                  }
+                  className={`rounded-full border px-2 py-1 text-[10px] capitalize transition-colors ${
+                    active
+                      ? 'border-brand/40 bg-brand/10 text-brand'
+                      : 'border-line bg-bg-2 text-muted hover:text-ink-2'
+                  }`}
+                >
+                  {type}
+                </button>
+              );
+            })}
+            <span className="inline-flex items-center gap-1 text-[10px] text-muted">
+              <Info className="h-3 w-3" />
+              Drag to reposition, hover to inspect, click for details
+            </span>
+          </div>
         </div>
       )}
 
@@ -670,9 +738,9 @@ export function BrainContent() {
             <p className="mb-2 text-xs text-ink-2">{selectedNode.data.description}</p>
           )}
 
-          {selectedNode.data && 'body' in selectedNode.data && (
+          {selectedNode.data && ('body' in selectedNode.data || 'content' in selectedNode.data) && (
             <p className="mb-3 text-xs text-ink-2 line-clamp-4">
-              {(selectedNode.data as Memory).body.slice(0, 200)}
+              {((selectedNode.data as Memory).body || (selectedNode.data as Memory).content || '').slice(0, 200)}
             </p>
           )}
 

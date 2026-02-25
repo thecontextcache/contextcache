@@ -33,6 +33,14 @@ export function UsageContent() {
     return Math.min(100, Math.round((used / limit) * 100));
   }
 
+  function barColor(percent: number, kind: 'brand' | 'violet' | 'ok') {
+    if (percent > 80) return 'bg-err';
+    if (percent > 60) return 'bg-warn';
+    if (kind === 'violet') return 'bg-violet';
+    if (kind === 'ok') return 'bg-ok';
+    return 'bg-brand';
+  }
+
   if (loading) {
     return (
       <div className="animate-fade-in">
@@ -57,46 +65,58 @@ export function UsageContent() {
   }
 
   const { limits } = data;
+  const dailyMemoriesLimit = limits.daily_memories ?? limits.memories_per_day ?? 0;
+  const dailyRecallLimit = limits.daily_recall_queries ?? limits.recalls_per_day ?? 0;
+  const dailyProjectsLimit = limits.daily_projects ?? limits.projects_per_day ?? 0;
+  const weeklyMemoriesLimit = limits.weekly_memories ?? limits.memories_per_week ?? 0;
+  const weeklyRecallLimit = limits.weekly_recall_queries ?? limits.recalls_per_week ?? 0;
+  const weeklyProjectsLimit = limits.weekly_projects ?? limits.projects_per_week ?? 0;
 
   const dailyMetrics = [
     {
       label: 'Memories created today',
       icon: Brain,
       used: data.memories_created,
-      limit: limits.memories_per_day,
+      limit: dailyMemoriesLimit,
+      color: 'brand' as const,
     },
     {
-      label: 'Recall queries today',
+      label: 'Recall Queries',
       icon: Search,
       used: data.recall_queries,
-      limit: limits.recalls_per_day,
+      limit: dailyRecallLimit,
+      color: 'violet' as const,
     },
     {
-      label: 'Projects created today',
+      label: 'Projects Created',
       icon: FolderOpen,
       used: data.projects_created,
-      limit: limits.projects_per_day,
+      limit: dailyProjectsLimit,
+      color: 'ok' as const,
     },
   ];
 
   const weeklyMetrics = [
     {
-      label: 'Weekly memories',
+      label: 'Memories Created',
       icon: Brain,
       used: data.weekly_memories_created,
-      limit: limits.memories_per_week,
+      limit: weeklyMemoriesLimit,
+      color: 'brand' as const,
     },
     {
-      label: 'Weekly recalls',
+      label: 'Recall Queries',
       icon: Search,
       used: data.weekly_recall_queries,
-      limit: limits.recalls_per_week,
+      limit: weeklyRecallLimit,
+      color: 'violet' as const,
     },
     {
-      label: 'Weekly projects',
+      label: 'Projects Created',
       icon: FolderOpen,
       used: data.weekly_projects_created,
-      limit: limits.projects_per_week,
+      limit: weeklyProjectsLimit,
+      color: 'ok' as const,
     },
   ];
 
@@ -110,7 +130,7 @@ export function UsageContent() {
       </div>
 
       {/* Daily */}
-      <h2 className="mb-3 text-lg font-semibold">Today</h2>
+      <h2 className="mb-3 text-lg font-semibold">Daily usage</h2>
       <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {dailyMetrics.map((m) => {
           const Icon = m.icon;
@@ -129,9 +149,7 @@ export function UsageContent() {
               </div>
               <div className="mt-2 h-2 overflow-hidden rounded-full bg-bg-2">
                 <div
-                  className={`h-full rounded-full transition-all ${
-                    percent >= 90 ? 'bg-err' : percent >= 70 ? 'bg-warn' : 'bg-brand'
-                  }`}
+                  className={`h-full rounded-full transition-all ${barColor(percent, m.color)}`}
                   style={{ width: `${percent}%` }}
                 />
               </div>
@@ -141,7 +159,7 @@ export function UsageContent() {
       </div>
 
       {/* Weekly */}
-      <h2 className="mb-3 text-lg font-semibold">This week</h2>
+      <h2 className="mb-3 text-lg font-semibold">Weekly summary</h2>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {weeklyMetrics.map((m) => {
           const Icon = m.icon;
@@ -149,7 +167,7 @@ export function UsageContent() {
           return (
             <Card key={m.label}>
               <div className="mb-3 flex items-center gap-2">
-                <Icon className="h-5 w-5 text-violet" />
+                <Icon className="h-5 w-5 text-ink-2" />
                 <p className="text-sm font-medium text-ink">{m.label}</p>
               </div>
               <div className="flex items-baseline gap-2">
@@ -160,9 +178,7 @@ export function UsageContent() {
               </div>
               <div className="mt-2 h-2 overflow-hidden rounded-full bg-bg-2">
                 <div
-                  className={`h-full rounded-full transition-all ${
-                    percent >= 90 ? 'bg-err' : percent >= 70 ? 'bg-warn' : 'bg-violet'
-                  }`}
+                  className={`h-full rounded-full transition-all ${barColor(percent, m.color)}`}
                   style={{ width: `${percent}%` }}
                 />
               </div>
@@ -170,6 +186,11 @@ export function UsageContent() {
           );
         })}
       </div>
+
+      <Card className="mt-6">
+        <p className="text-sm text-ink-2">Usage tips</p>
+        <p className="mt-1 text-xs text-muted">Usage resets daily at midnight UTC.</p>
+      </Card>
     </div>
   );
 }

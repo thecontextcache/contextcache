@@ -203,7 +203,7 @@ export function AdminContent() {
     { key: 'waitlist', label: 'Waitlist', icon: Clock },
     { key: 'usage', label: 'Usage', icon: BarChart3 },
     { key: 'recall', label: 'Recall Logs', icon: Search },
-    { key: 'system', label: 'System', icon: Server },
+    { key: 'system', label: 'CAG Cache', icon: Server },
   ];
 
   return (
@@ -257,6 +257,7 @@ export function AdminContent() {
                     <th className="px-4 py-3 font-medium text-ink-2">Role</th>
                     <th className="px-4 py-3 font-medium text-ink-2">Status</th>
                     <th className="px-4 py-3 font-medium text-ink-2">Created</th>
+                    <th className="px-4 py-3 font-medium text-ink-2">Last Login</th>
                     <th className="px-4 py-3 font-medium text-ink-2">Actions</th>
                   </tr>
                 </thead>
@@ -295,6 +296,9 @@ export function AdminContent() {
                         </td>
                         <td className="px-4 py-3 text-muted">
                           {new Date(u.created_at).toLocaleDateString()}
+                        </td>
+                        <td className="px-4 py-3 text-muted">
+                          {u.last_login_at ? new Date(u.last_login_at).toLocaleString() : '—'}
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex gap-1">
@@ -351,7 +355,7 @@ export function AdminContent() {
                       </tr>
                       {expandedUser === u.id && (
                         <tr key={`${u.id}-detail`} className="border-b border-line bg-bg-2/50">
-                          <td colSpan={7} className="px-8 py-4">
+                          <td colSpan={8} className="px-8 py-4">
                             <div className="grid gap-4 sm:grid-cols-2">
                               {userStats && (
                                 <div>
@@ -370,7 +374,7 @@ export function AdminContent() {
                                   <p className="text-sm text-muted">No login events</p>
                                 ) : (
                                   <ul className="space-y-1 text-sm text-ink-2">
-                                    {loginEvents.slice(0, 5).map((ev, i) => (
+                                    {loginEvents.slice(0, 10).map((ev, i) => (
                                       <li key={i}>
                                         {String(ev.ip || '?')} — {ev.created_at ? new Date(String(ev.created_at)).toLocaleString() : '?'}
                                       </li>
@@ -385,7 +389,7 @@ export function AdminContent() {
                     </>
                   ))}
                   {users.length === 0 && (
-                    <tr><td colSpan={7} className="px-4 py-8 text-center text-muted">No users</td></tr>
+                    <tr><td colSpan={8} className="px-4 py-8 text-center text-muted">No users</td></tr>
                   )}
                 </tbody>
               </table>
@@ -546,6 +550,8 @@ export function AdminContent() {
                     <th className="px-4 py-3 font-medium text-ink-2">ID</th>
                     <th className="px-4 py-3 font-medium text-ink-2">Query</th>
                     <th className="px-4 py-3 font-medium text-ink-2">Strategy</th>
+                    <th className="px-4 py-3 font-medium text-ink-2">Served By</th>
+                    <th className="px-4 py-3 font-medium text-ink-2">Duration</th>
                     <th className="px-4 py-3 font-medium text-ink-2">Project</th>
                     <th className="px-4 py-3 font-medium text-ink-2">Results</th>
                     <th className="px-4 py-3 font-medium text-ink-2">Date</th>
@@ -559,6 +565,19 @@ export function AdminContent() {
                       <td className="px-4 py-3">
                         <Badge variant="muted">{log.strategy}</Badge>
                       </td>
+                      <td className="px-4 py-3 text-muted">
+                        {(log.served_by as string | undefined)
+                          || (log.score_details?.served_by as string | undefined)
+                          || '—'}
+                      </td>
+                      <td className="px-4 py-3 text-muted">
+                        {(() => {
+                          const raw = (log.duration_ms as number | undefined)
+                            ?? (log.score_details?.total_duration_ms as number | undefined)
+                            ?? (log.score_details?.duration_ms as number | undefined);
+                          return raw != null ? `${raw} ms` : '—';
+                        })()}
+                      </td>
                       <td className="px-4 py-3 text-muted">#{log.project_id}</td>
                       <td className="px-4 py-3 text-muted">{log.ranked_memory_ids.length}</td>
                       <td className="px-4 py-3 text-muted">
@@ -567,7 +586,7 @@ export function AdminContent() {
                     </tr>
                   ))}
                   {recallLogs.length === 0 && (
-                    <tr><td colSpan={6} className="px-4 py-8 text-center text-muted">No recall logs</td></tr>
+                    <tr><td colSpan={8} className="px-4 py-8 text-center text-muted">No recall logs</td></tr>
                   )}
                 </tbody>
               </table>
