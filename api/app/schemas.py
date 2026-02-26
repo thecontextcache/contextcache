@@ -162,6 +162,29 @@ class ApiKeyCreatedOut(ApiKeyOut):
     api_key: str
 
 
+class ApiKeyAccessRequestCreate(BaseModel):
+    reason: str | None = Field(default=None, max_length=2000)
+
+
+class ApiKeyAccessRequestReview(BaseModel):
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class ApiKeyAccessRequestOut(BaseModel):
+    id: int
+    org_id: int
+    requester_user_id: int
+    requester_email: str
+    requester_display_name: str | None = None
+    status: Literal["pending", "approved", "rejected"]
+    reason: str | None = None
+    review_note: str | None = None
+    created_at: datetime
+    reviewed_at: datetime | None = None
+    reviewed_by_user_id: int | None = None
+    reviewed_by_email: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Memberships
 # ---------------------------------------------------------------------------

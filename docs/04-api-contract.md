@@ -184,6 +184,10 @@ Daily + weekly limits are configured via environment variables (`DAILY_MAX_*`, `
 - `POST /orgs/{org_id}/api-keys` — create org API key (requires org `admin`/`owner`; global session admin allowed)
 - `GET /orgs/{org_id}/api-keys` — list org API keys (requires org `admin`/`owner`; global session admin allowed)
 - `POST /orgs/{org_id}/api-keys/{key_id}/revoke` — revoke key (requires org `admin`/`owner`; global session admin allowed)
+- `POST /orgs/{org_id}/api-key-access-requests` — request API-key access (non-admin org members/viewers)
+- `GET /orgs/{org_id}/api-key-access-requests` — list access requests (org admin/owner sees all; requester sees own; global session admin sees all)
+- `POST /orgs/{org_id}/api-key-access-requests/{request_id}/approve` — approve request and promote requester to org `admin`
+- `POST /orgs/{org_id}/api-key-access-requests/{request_id}/reject` — reject request
 - `POST /projects`
 - `GET /projects`
 - `POST /projects/{project_id}/memories`
@@ -197,6 +201,12 @@ Daily + weekly limits are configured via environment variables (`DAILY_MAX_*`, `
 
 Global admin API-key view:
 - `GET /admin/api-keys` — list API keys across all orgs (`org_id` filter optional; session admin only)
+
+Access-request audit trail:
+- Creation, approval, and rejection write rows into `audit_logs` with actions:
+  - `api_key_access_request.create`
+  - `api_key_access_request.approve`
+  - `api_key_access_request.reject`
 
 ## Recall response
 

@@ -217,6 +217,26 @@ class ApiKey(Base):
     use_count: Mapped[int] = mapped_column(default=0, server_default="0", nullable=False)
 
 
+class ApiKeyAccessRequest(Base):
+    __tablename__ = "api_key_access_requests"
+    __table_args__ = (
+        Index("ix_api_key_access_requests_org_status_created", "org_id", "status", "created_at"),
+        Index("ix_api_key_access_requests_requester_status_created", "requester_user_id", "status", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    requester_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'pending'"), index=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewed_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 

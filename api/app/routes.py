@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import desc, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from .analyzer.algorithm import (
     HybridRecallConfig,
@@ -26,6 +27,7 @@ from .db import AsyncSessionLocal, generate_api_key, get_db, hash_api_key
 from .billing import emit_usage_event
 from .models import (
     ApiKey,
+    ApiKeyAccessRequest,
     AuditLog,
     AuthUser,
     Membership,
@@ -54,6 +56,9 @@ from .rate_limit import (
 )
 from .schemas import (
     ApiKeyCreate,
+    ApiKeyAccessRequestCreate,
+    ApiKeyAccessRequestOut,
+    ApiKeyAccessRequestReview,
     ApiKeyCreatedOut,
     ApiKeyOut,
     AuditLogOut,
@@ -166,6 +171,27 @@ def _enforce_org_api_key_access(ctx: RequestContext, org_id: int, *, super_admin
         return
     ensure_org_access(ctx, org_id)
     require_role(ctx, "admin")
+
+
+def _api_key_access_request_out(
+    req: ApiKeyAccessRequest,
+    requester: User,
+    reviewer: User | None,
+) -> ApiKeyAccessRequestOut:
+    return ApiKeyAccessRequestOut(
+        id=req.id,
+        org_id=req.org_id,
+        requester_user_id=req.requester_user_id,
+        requester_email=requester.email,
+        requester_display_name=requester.display_name,
+        status=req.status,  # type: ignore[arg-type]
+        reason=req.reason,
+        review_note=req.review_note,
+        created_at=req.created_at,
+        reviewed_at=req.reviewed_at,
+        reviewed_by_user_id=req.reviewed_by_user_id,
+        reviewed_by_email=reviewer.email if reviewer else None,
+    )
 
 
 async def _get_plan(db: AsyncSession, code: str) -> PlanCatalog | None:
@@ -1120,6 +1146,219 @@ async def revoke_org_api_key(
         last_used_at=key.last_used_at,
         use_count=key.use_count,
     )
+
+
+@router.post("/orgs/{org_id}/api-key-access-requests", response_model=ApiKeyAccessRequestOut, status_code=201)
+async def create_api_key_access_request(
+    org_id: int,
+    payload: ApiKeyAccessRequestCreate,
+    db: AsyncSession = Depends(get_db),
+    ctx: RequestContext = Depends(get_actor_context),
+) -> ApiKeyAccessRequestOut:
+    ensure_org_access(ctx, org_id)
+    require_role(ctx, "viewer")
+    await get_org_or_404(db, org_id)
+    if ctx.actor_user_id is None:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if ctx.role in ("admin", "owner"):
+        raise HTTPException(status_code=409, detail="You already have API key access")
+
+    existing = (
+        await db.execute(
+            select(ApiKeyAccessRequest)
+            .where(
+                ApiKeyAccessRequest.org_id == org_id,
+                ApiKeyAccessRequest.requester_user_id == ctx.actor_user_id,
+                ApiKeyAccessRequest.status == "pending",
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        requester = (
+            await db.execute(select(User).where(User.id == existing.requester_user_id).limit(1))
+        ).scalar_one()
+        return _api_key_access_request_out(existing, requester, None)
+
+    req = ApiKeyAccessRequest(
+        org_id=org_id,
+        requester_user_id=ctx.actor_user_id,
+        status="pending",
+        reason=payload.reason,
+    )
+    db.add(req)
+    await db.flush()
+    await write_audit(
+        db,
+        ctx=ctx,
+        org_id=org_id,
+        action="api_key_access_request.create",
+        entity_type="api_key_access_request",
+        entity_id=req.id,
+        metadata={"requester_user_id": ctx.actor_user_id, "reason": payload.reason},
+    )
+    await db.commit()
+    await db.refresh(req)
+    requester = (
+        await db.execute(select(User).where(User.id == req.requester_user_id).limit(1))
+    ).scalar_one()
+    return _api_key_access_request_out(req, requester, None)
+
+
+@router.get("/orgs/{org_id}/api-key-access-requests", response_model=List[ApiKeyAccessRequestOut])
+async def list_api_key_access_requests(
+    org_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    ctx: RequestContext = Depends(get_actor_context),
+) -> List[ApiKeyAccessRequestOut]:
+    super_admin = _is_super_admin(request)
+    if not super_admin:
+        ensure_org_access(ctx, org_id)
+        require_role(ctx, "viewer")
+        if ctx.actor_user_id is None:
+            raise HTTPException(status_code=403, detail="Forbidden")
+    await get_org_or_404(db, org_id)
+
+    reviewer = aliased(User)
+    stmt = (
+        select(ApiKeyAccessRequest, User, reviewer)
+        .join(User, User.id == ApiKeyAccessRequest.requester_user_id)
+        .outerjoin(reviewer, reviewer.id == ApiKeyAccessRequest.reviewed_by_user_id)
+        .where(ApiKeyAccessRequest.org_id == org_id)
+    )
+    if not super_admin and ctx.role not in ("admin", "owner"):
+        stmt = stmt.where(ApiKeyAccessRequest.requester_user_id == ctx.actor_user_id)
+    rows = (
+        await db.execute(stmt.order_by(ApiKeyAccessRequest.created_at.desc(), ApiKeyAccessRequest.id.desc()))
+    ).all()
+    return [_api_key_access_request_out(req, requester, reviewed_by) for req, requester, reviewed_by in rows]
+
+
+@router.post(
+    "/orgs/{org_id}/api-key-access-requests/{request_id}/approve",
+    response_model=ApiKeyAccessRequestOut,
+)
+async def approve_api_key_access_request(
+    org_id: int,
+    request_id: int,
+    payload: ApiKeyAccessRequestReview,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    ctx: RequestContext = Depends(get_actor_context),
+) -> ApiKeyAccessRequestOut:
+    _enforce_org_api_key_access(ctx, org_id, super_admin=_is_super_admin(request))
+    await get_org_or_404(db, org_id)
+
+    req = (
+        await db.execute(
+            select(ApiKeyAccessRequest)
+            .where(ApiKeyAccessRequest.org_id == org_id, ApiKeyAccessRequest.id == request_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if req is None:
+        raise HTTPException(status_code=404, detail="API key access request not found")
+    if req.status != "pending":
+        raise HTTPException(status_code=409, detail="Request already reviewed")
+
+    membership = (
+        await db.execute(
+            select(Membership)
+            .where(Membership.org_id == org_id, Membership.user_id == req.requester_user_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if membership is None:
+        raise HTTPException(status_code=409, detail="Requester is no longer a member of this org")
+
+    old_role = membership.role
+    if ROLE_RANK.get(membership.role, 0) < ROLE_RANK["admin"]:
+        membership.role = "admin"
+
+    req.status = "approved"
+    req.review_note = payload.note
+    req.reviewed_at = datetime.now(timezone.utc)
+    req.reviewed_by_user_id = ctx.actor_user_id
+
+    await write_audit(
+        db,
+        ctx=ctx,
+        org_id=org_id,
+        action="api_key_access_request.approve",
+        entity_type="api_key_access_request",
+        entity_id=req.id,
+        metadata={
+            "requester_user_id": req.requester_user_id,
+            "old_role": old_role,
+            "new_role": membership.role,
+            "note": payload.note,
+        },
+    )
+    await db.commit()
+    await db.refresh(req)
+    requester = (
+        await db.execute(select(User).where(User.id == req.requester_user_id).limit(1))
+    ).scalar_one()
+    reviewed_by = None
+    if req.reviewed_by_user_id is not None:
+        reviewed_by = (
+            await db.execute(select(User).where(User.id == req.reviewed_by_user_id).limit(1))
+        ).scalar_one_or_none()
+    return _api_key_access_request_out(req, requester, reviewed_by)
+
+
+@router.post(
+    "/orgs/{org_id}/api-key-access-requests/{request_id}/reject",
+    response_model=ApiKeyAccessRequestOut,
+)
+async def reject_api_key_access_request(
+    org_id: int,
+    request_id: int,
+    payload: ApiKeyAccessRequestReview,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    ctx: RequestContext = Depends(get_actor_context),
+) -> ApiKeyAccessRequestOut:
+    _enforce_org_api_key_access(ctx, org_id, super_admin=_is_super_admin(request))
+    await get_org_or_404(db, org_id)
+
+    req = (
+        await db.execute(
+            select(ApiKeyAccessRequest)
+            .where(ApiKeyAccessRequest.org_id == org_id, ApiKeyAccessRequest.id == request_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if req is None:
+        raise HTTPException(status_code=404, detail="API key access request not found")
+    if req.status != "pending":
+        raise HTTPException(status_code=409, detail="Request already reviewed")
+
+    req.status = "rejected"
+    req.review_note = payload.note
+    req.reviewed_at = datetime.now(timezone.utc)
+    req.reviewed_by_user_id = ctx.actor_user_id
+    await write_audit(
+        db,
+        ctx=ctx,
+        org_id=org_id,
+        action="api_key_access_request.reject",
+        entity_type="api_key_access_request",
+        entity_id=req.id,
+        metadata={"requester_user_id": req.requester_user_id, "note": payload.note},
+    )
+    await db.commit()
+    await db.refresh(req)
+    requester = (
+        await db.execute(select(User).where(User.id == req.requester_user_id).limit(1))
+    ).scalar_one()
+    reviewed_by = None
+    if req.reviewed_by_user_id is not None:
+        reviewed_by = (
+            await db.execute(select(User).where(User.id == req.reviewed_by_user_id).limit(1))
+        ).scalar_one_or_none()
+    return _api_key_access_request_out(req, requester, reviewed_by)
 
 
 @router.get("/admin/api-keys", response_model=List[ApiKeyOut])
