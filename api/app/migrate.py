@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import os
 from pathlib import Path
+import sys
 
-from alembic import command
-from alembic.config import Config
 from sqlalchemy import text
 
 from .db import engine
@@ -13,6 +13,29 @@ from .db import engine
 BASELINE_REVISION = os.getenv("ALEMBIC_BASELINE_REVISION", "20260212_0001").strip() or "20260212_0001"
 DB_WAIT_MAX_ATTEMPTS = int(os.getenv("DB_WAIT_MAX_ATTEMPTS", "30"))
 DB_WAIT_SECONDS = float(os.getenv("DB_WAIT_SECONDS", "2"))
+
+
+def _import_real_alembic() -> tuple[object, type]:
+    """Import installed Alembic package even when local /app/alembic exists."""
+    app_root = Path(__file__).resolve().parents[1]
+    original_sys_path = list(sys.path)
+    try:
+        # Remove project roots that can shadow `alembic` with /app/alembic directory.
+        filtered: list[str] = []
+        for entry in original_sys_path:
+            probe = Path(entry or ".").resolve()
+            if probe == app_root:
+                continue
+            filtered.append(entry)
+        sys.path = filtered
+        command_mod = importlib.import_module("alembic.command")
+        config_mod = importlib.import_module("alembic.config")
+        return command_mod, config_mod.Config
+    finally:
+        sys.path = original_sys_path
+
+
+command, Config = _import_real_alembic()
 
 
 def _alembic_config() -> Config:
