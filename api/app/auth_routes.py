@@ -145,14 +145,17 @@ async def _ensure_member_for_email(
             org = Organization(name="Demo Org")
             db.add(org)
             await db.flush()
+        role_for_new_membership = desired_role
     else:
         local = (email.split("@")[0] or "user").strip()
         pretty = local.replace(".", " ").replace("_", " ").replace("-", " ").strip().title() or "User"
         org = Organization(name=f"{pretty} Org")
         db.add(org)
         await db.flush()
+        # Personal org bootstrap: user must be able to self-manage API keys/settings.
+        role_for_new_membership = "owner"
 
-    membership = Membership(org_id=org.id, user_id=user.id, role=desired_role)
+    membership = Membership(org_id=org.id, user_id=user.id, role=role_for_new_membership)
     db.add(membership)
     await db.flush()
     return user.id, org.id, membership.role
