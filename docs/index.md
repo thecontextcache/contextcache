@@ -9,6 +9,7 @@ ContextCache is an invite-only alpha for team memory recall.
 - [API Contract](04-api-contract.md)
 - [Dev Workflow](05-dev-workflow.md)
 - [Security](07-security.md)
+- [FK-Safe BIGINT Migration](16-fk-safe-bigint-migration.md)
 - [Legal](legal.md)
 
 ## Current product shape
