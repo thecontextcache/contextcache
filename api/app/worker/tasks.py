@@ -485,322 +485,42 @@ def contextualize_memory_with_ollama(self, memory_id: int) -> dict:
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
-# LLM Refinery — Gemini 1.5 Flash extraction
+# LLM Refinery — delegated to private engine
 # ---------------------------------------------------------------------------
 
-_GEMINI_SYSTEM_PROMPT = """You are an expert Data Engineer for a project memory tool.
-
-Analyze the input text. Extract distinct, high-value insights.
-
-Classify them as: DECISION, FINDING, TODO, CODE, or NOTE.
-
-Strictly output valid JSON (a list of objects) with exactly these keys:
-  type            - one of: decision, finding, todo, code, note  (lowercase)
-  title           - short, descriptive title (max 80 characters)
-  content         - the full extracted insight (concise but complete)
-  confidence_score - float 0.0–1.0 reflecting how clearly this was stated
-
-Rules:
-- Output ONLY the JSON array. No markdown fences, no commentary, no keys outside the schema.
-- Each item must contain exactly one insight — do not combine multiple points.
-- Ignore greetings, thanks, and conversational filler.
-- If nothing meaningful is found, return an empty array: []
-"""
+_REFINERY_MAX_INPUT_CHARS = int(os.getenv("REFINERY_MAX_INPUT_CHARS", "12000"))
 
 
-def _gemini_fallback(text: str, reason: str) -> list[dict]:
-    """Return a raw Note card so captured data is never silently lost."""
+def _basic_refinery_fallback(payload: dict, reason: str) -> list[dict]:
+    """Public fallback: preserve data without exposing proprietary extraction logic."""
+    raw_text = str(payload or "").strip()
+    if len(raw_text) > _REFINERY_MAX_INPUT_CHARS:
+        raw_text = raw_text[:_REFINERY_MAX_INPUT_CHARS]
+    if not raw_text:
+        return []
     return [
         {
             "type": "note",
-            "title": "Raw capture (extraction failed)",
-            "content": f"[Gemini extraction failed: {reason}]\n\n{text[:2000]}",
+            "title": "Captured note",
+            "content": f"[Refinery fallback: {reason}]\n\n{raw_text[:2000]}",
             "confidence_score": 0.4,
         }
     ]
 
 
-_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-_GEMINI_FALLBACK_MODELS = [
-    m.strip() for m in os.getenv(
-        "GEMINI_FALLBACK_MODELS",
-        "gemini-2.0-flash,gemini-2.0-flash-lite,gemini-1.5-flash",
-    ).split(",") if m.strip()
-]
-if _GEMINI_MODEL not in _GEMINI_FALLBACK_MODELS:
-    _GEMINI_FALLBACK_MODELS.insert(0, _GEMINI_MODEL)
-_REFINERY_MAX_INPUT_CHARS = int(os.getenv("REFINERY_MAX_INPUT_CHARS", "12000"))
-
-
-def _extract_first_json_block(raw: str) -> str:
-    """Best-effort extractor for the first top-level JSON object/array in text."""
-    text = raw.strip()
-    if not text:
-        return text
-    if text.startswith("```"):
-        text = text.split("\n", 1)[-1]
-        text = text.rsplit("```", 1)[0].strip()
-    # Fast path
-    if text and text[0] in "[{":
-        return text
-
-    start = -1
-    open_char = ""
-    close_char = ""
-    for idx, ch in enumerate(text):
-        if ch in "[{":
-            start = idx
-            open_char = ch
-            close_char = "]" if ch == "[" else "}"
-            break
-    if start < 0:
-        return text
-
-    depth = 0
-    in_string = False
-    escaped = False
-    for idx in range(start, len(text)):
-        ch = text[idx]
-        if in_string:
-            if escaped:
-                escaped = False
-                continue
-            if ch == "\\":
-                escaped = True
-                continue
-            if ch == '"':
-                in_string = False
-            continue
-        if ch == '"':
-            in_string = True
-            continue
-        if ch == open_char:
-            depth += 1
-        elif ch == close_char:
-            depth -= 1
-            if depth == 0:
-                return text[start : idx + 1]
-    return text
-
-
-def _payload_to_text(payload: dict) -> tuple[str, str]:
-    """Normalize diverse ingest payloads into plain text + source."""
-    if not isinstance(payload, dict):
-        return (str(payload or ""), "unknown")
-
-    source = str(payload.get("source", "unknown"))
-    title = str(payload.get("title", "")).strip()
-    url = str(payload.get("url", "")).strip()
-
-    conversation = payload.get("conversation")
-    conversation_text = ""
-    if isinstance(conversation, list):
-        turns: list[str] = []
-        for turn in conversation:
-            if not isinstance(turn, dict):
-                continue
-            role = str(turn.get("role", "unknown")).upper()
-            content = str(turn.get("content", "")).strip()
-            if content:
-                turns.append(f"{role}: {content}")
-        if turns:
-            conversation_text = "\n\n".join(turns)
-
-    base_text = (
-        str(payload.get("text", "")).strip()
-        or str(payload.get("content", "")).strip()
-        or str(payload.get("body", "")).strip()
-        or conversation_text
-        or str(payload)
-    )
-
-    prefix: list[str] = []
-    if title:
-        prefix.append(f"Title: {title}")
-    if url:
-        prefix.append(f"URL: {url}")
-
-    if prefix:
-        return ("\n".join(prefix) + "\n\n" + base_text, source)
-    return (base_text, source)
-
-
-def _heuristic_extract_from_text(text: str) -> list[dict]:
-    """Local fallback extraction to avoid raw-loss cards when model calls fail."""
-    body = text.strip()
-    if not body:
-        return []
-
-    # Keep output tight and deterministic so tests are stable.
-    preview = body[:1600]
-    lower = preview.lower()
-    item_type = "note"
-    if "todo" in lower or "next step" in lower or "action item" in lower:
-        item_type = "todo"
-    elif "decide" in lower or "decision" in lower:
-        item_type = "decision"
-    elif "found" in lower or "finding" in lower or "result" in lower:
-        item_type = "finding"
-    elif "```" in preview or "def " in lower or "class " in lower:
-        item_type = "code"
-
-    title = preview.splitlines()[0].strip()
-    if not title:
-        title = "Captured insight"
-    title = title[:80]
-
-    return [
-        {
-            "type": item_type,
-            "title": title,
-            "content": preview,
-            "confidence_score": 0.6,
-        }
-    ]
-
-
 def refine_content_with_llm(payload: dict) -> list[dict]:
-    """Extract structured memory drafts from a raw capture payload via Gemini.
-
-    Uses the ``google-genai`` SDK (google-genai>=1.0).  Model is configurable
-    via the GEMINI_MODEL env var (default: gemini-2.0-flash).
-
-    Reads GOOGLE_API_KEY from the environment.  Falls back to a raw Note card
-    if the API call fails or returns unparseable JSON — captured data is never
-    silently discarded.
-
-    Return schema (list of dicts):
-        type             str   decision | finding | todo | code | note
-        title            str   short headline
-        content          str   full extracted insight
-        confidence_score float 0.0–1.0
-    """
-    import json
-
-    text, source = _payload_to_text(payload)
-
-    text = text.strip()
-    if not text:
-        logger.warning("[refinery] empty payload — skipping Gemini call")
-        return []
-    if len(text) > _REFINERY_MAX_INPUT_CHARS:
-        text = text[:_REFINERY_MAX_INPUT_CHARS]
-
-    api_key = os.environ.get("GOOGLE_API_KEY", "").strip()
-    # Docker Compose env_file does NOT strip quotes — handle both cases
-    if len(api_key) >= 2 and api_key[0] == api_key[-1] and api_key[0] in ('"', "'"):
-        api_key = api_key[1:-1].strip()
-    if not api_key:
-        logger.error("[refinery] GOOGLE_API_KEY not set — falling back to raw note")
-        return _gemini_fallback(text, "GOOGLE_API_KEY not configured")
-
+    """Delegate extraction/classification internals to private engine package."""
     try:
-        from google import genai  # noqa: PLC0415
-        from google.genai import types  # noqa: PLC0415
-    except ImportError:
-        logger.error("[refinery] google-genai not installed — run: uv add google-genai")
-        return _gemini_fallback(text, "google-genai package not installed")
+        from contextcache_engine.refinery import refine_content_with_llm as _private_refine  # type: ignore[import-untyped]
 
-    client = genai.Client(api_key=api_key)
-    user_prompt = f"Source: {source}\n\n---\n\n{text}"
-    raw_json = ""
-    last_error: str | None = None
-
-    for model_name in _GEMINI_FALLBACK_MODELS:
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=user_prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=_GEMINI_SYSTEM_PROMPT,
-                    temperature=0.2,
-                    max_output_tokens=2048,
-                    response_mime_type="application/json",
-                ),
-            )
-
-            response_text = (getattr(response, "text", None) or "").strip()
-            if not response_text and getattr(response, "candidates", None):
-                parts: list[str] = []
-                for cand in (response.candidates or []):
-                    content = getattr(cand, "content", None)
-                    for part in getattr(content, "parts", []) or []:
-                        maybe_text = getattr(part, "text", None)
-                        if maybe_text:
-                            parts.append(maybe_text)
-                response_text = "\n".join(parts).strip()
-
-            raw_json = _extract_first_json_block(response_text)
-            parsed = json.loads(raw_json)
-            if isinstance(parsed, list):
-                drafts = parsed
-            elif isinstance(parsed, dict):
-                maybe_list = (
-                    parsed.get("items")
-                    or parsed.get("drafts")
-                    or parsed.get("memories")
-                    or parsed.get("results")
-                )
-                if isinstance(maybe_list, list):
-                    drafts = maybe_list
-                else:
-                    raise ValueError("JSON object did not contain an item list")
-            else:
-                raise ValueError(f"Expected JSON list/object, got {type(parsed).__name__}")
-
-            valid_types = {"decision", "finding", "todo", "code", "note"}
-            cleaned: list[dict] = []
-            for item in drafts:
-                if not isinstance(item, dict):
-                    continue
-                item_type = str(item.get("type", "note")).lower().strip()
-                if item_type not in valid_types:
-                    item_type = "note"
-                content = str(item.get("content", "")).strip()
-                if not content:
-                    continue
-                cleaned.append(
-                    {
-                        "type": item_type,
-                        "title": str(item.get("title", ""))[:500].strip() or content[:80],
-                        "content": content,
-                        "confidence_score": max(
-                            0.0, min(1.0, float(item.get("confidence_score", 0.75)))
-                        ),
-                    }
-                )
-
-            if cleaned:
-                logger.info(
-                    "[refinery] Gemini extracted %d item(s) from %d chars via model=%s",
-                    len(cleaned),
-                    len(text),
-                    model_name,
-                )
-                return cleaned
-            logger.warning(
-                "[refinery] Gemini returned no valid items via model=%s; applying local heuristic fallback",
-                model_name,
-            )
-            heuristic = _heuristic_extract_from_text(text)
-            if heuristic:
-                return heuristic
-            return _gemini_fallback(text, f"{model_name}: no usable extraction items")
-        except Exception as exc:  # noqa: BLE001
-            last_error = f"{model_name}: {exc}"
-            logger.warning("[refinery] model=%s failed: %s", model_name, exc)
-            continue
-
-    logger.error(
-        "[refinery] all Gemini models failed; last_error=%s raw=%.300s",
-        last_error,
-        raw_json,
-    )
-    heuristic = _heuristic_extract_from_text(text)
-    if heuristic:
-        logger.info("[refinery] using local heuristic extraction fallback")
-        return heuristic
-    return _gemini_fallback(text, last_error or "all configured models failed")
+        result = _private_refine(payload)
+        if isinstance(result, list):
+            return result
+        logger.warning("[refinery] private engine returned non-list result; using fallback")
+        return _basic_refinery_fallback(payload, "invalid private result")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[refinery] private extraction unavailable: %s", exc)
+        return _basic_refinery_fallback(payload, "private extraction unavailable")
 
 
 # ---------------------------------------------------------------------------
