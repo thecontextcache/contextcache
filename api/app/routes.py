@@ -161,6 +161,13 @@ def _is_super_admin(request: Request) -> bool:
     return bool(getattr(request.state, "auth_is_admin", False))
 
 
+def _enforce_org_api_key_access(ctx: RequestContext, org_id: int, *, super_admin: bool) -> None:
+    if super_admin:
+        return
+    ensure_org_access(ctx, org_id)
+    require_role(ctx, "admin")
+
+
 async def _get_plan(db: AsyncSession, code: str) -> PlanCatalog | None:
     return (
         await db.execute(
@@ -1004,10 +1011,10 @@ async def create_org_api_key(
     db: AsyncSession = Depends(get_db),
     ctx: RequestContext = Depends(get_actor_context),
 ) -> ApiKeyCreatedOut:
-    ensure_org_access(ctx, org_id)
-    require_role(ctx, "admin")
+    super_admin = _is_super_admin(request)
+    _enforce_org_api_key_access(ctx, org_id, super_admin=super_admin)
     await get_org_or_404(db, org_id)
-    await _enforce_org_api_key_limit(db, org_id=org_id, super_admin=_is_super_admin(request))
+    await _enforce_org_api_key_limit(db, org_id=org_id, super_admin=super_admin)
 
     plaintext = generate_api_key()
     prefix = plaintext[:8]
@@ -1044,11 +1051,11 @@ async def create_org_api_key(
 @router.get("/orgs/{org_id}/api-keys", response_model=List[ApiKeyOut])
 async def list_org_api_keys(
     org_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     ctx: RequestContext = Depends(get_actor_context),
 ) -> List[ApiKeyOut]:
-    ensure_org_access(ctx, org_id)
-    require_role(ctx, "admin")
+    _enforce_org_api_key_access(ctx, org_id, super_admin=_is_super_admin(request))
     await get_org_or_404(db, org_id)
 
     keys = (
@@ -1075,11 +1082,11 @@ async def list_org_api_keys(
 async def revoke_org_api_key(
     org_id: int,
     key_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     ctx: RequestContext = Depends(get_actor_context),
 ) -> ApiKeyOut:
-    ensure_org_access(ctx, org_id)
-    require_role(ctx, "admin")
+    _enforce_org_api_key_access(ctx, org_id, super_admin=_is_super_admin(request))
     await get_org_or_404(db, org_id)
 
     key = (
@@ -1113,6 +1120,36 @@ async def revoke_org_api_key(
         last_used_at=key.last_used_at,
         use_count=key.use_count,
     )
+
+
+@router.get("/admin/api-keys", response_model=List[ApiKeyOut])
+async def list_all_api_keys_admin(
+    request: Request,
+    org_id: int | None = Query(default=None, ge=1),
+    db: AsyncSession = Depends(get_db),
+) -> List[ApiKeyOut]:
+    if not _is_super_admin(request):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    stmt = select(ApiKey)
+    if org_id is not None:
+        stmt = stmt.where(ApiKey.org_id == org_id)
+    keys = (
+        await db.execute(stmt.order_by(ApiKey.created_at.desc(), ApiKey.id.desc()))
+    ).scalars().all()
+    return [
+        ApiKeyOut(
+            id=k.id,
+            org_id=k.org_id,
+            name=k.name,
+            prefix=k.prefix,
+            created_at=k.created_at,
+            revoked_at=k.revoked_at,
+            last_used_at=k.last_used_at,
+            use_count=k.use_count,
+        )
+        for k in keys
+    ]
 
 
 # Legacy endpoints kept for compatibility; all are org-scoped by request context.

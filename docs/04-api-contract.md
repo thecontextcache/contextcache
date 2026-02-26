@@ -181,6 +181,9 @@ Daily + weekly limits are configured via environment variables (`DAILY_MAX_*`, `
 - `DELETE /orgs/{org_id}` — delete organisation, blocked if projects exist (requires `owner`; returns 409 if projects remain)
 - `POST /orgs/{org_id}/projects`
 - `GET /orgs/{org_id}/projects`
+- `POST /orgs/{org_id}/api-keys` — create org API key (requires org `admin`/`owner`; global session admin allowed)
+- `GET /orgs/{org_id}/api-keys` — list org API keys (requires org `admin`/`owner`; global session admin allowed)
+- `POST /orgs/{org_id}/api-keys/{key_id}/revoke` — revoke key (requires org `admin`/`owner`; global session admin allowed)
 - `POST /projects`
 - `GET /projects`
 - `POST /projects/{project_id}/memories`
@@ -191,6 +194,9 @@ Daily + weekly limits are configured via environment variables (`DAILY_MAX_*`, `
 - `GET /projects/{project_id}/recall?query=...&limit=10`
 - `GET /health/worker`
 - `GET /health/redis`
+
+Global admin API-key view:
+- `GET /admin/api-keys` — list API keys across all orgs (`org_id` filter optional; session admin only)
 
 ## Recall response
 
