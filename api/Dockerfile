@@ -23,6 +23,7 @@ RUN if [ -n "$ENGINE_TOKEN" ]; then \
       git config --global url."https://${ENGINE_TOKEN}@github.com/".insteadOf "git+ssh://git@github.com/"; \
     fi && \
     uv sync --no-dev && \
+    /app/.venv/bin/python -c "import sqlalchemy, alembic, celery" && \
     git config --global --unset-all url."https://${ENGINE_TOKEN}@github.com/".insteadOf 2>/dev/null || true
 
 FROM runtime-deps AS runtime
@@ -33,7 +34,7 @@ COPY alembic.ini /app/alembic.ini
 COPY scripts /app/scripts
 
 EXPOSE 8000
-CMD ["sh", "-c", "if [ \"${RUN_MIGRATIONS:-1}\" = \"1\" ]; then uv run --no-sync python -m app.migrate; fi && uv run --no-sync uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "if [ \"${RUN_MIGRATIONS:-1}\" = \"1\" ]; then /app/.venv/bin/python -m app.migrate; fi && /app/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000"]
 
 FROM dev-deps AS dev
 COPY app /app/app
