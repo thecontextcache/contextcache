@@ -8,6 +8,10 @@ import json
 # ── Configuration ────────────────────────────────────────────────────────────
 APP_ENV = os.getenv("APP_ENV", "dev").strip().lower()
 APP_PUBLIC_BASE_URL = os.getenv("APP_PUBLIC_BASE_URL", "http://localhost:3000").rstrip("/")
+EMAIL_USER_AGENT = os.getenv(
+    "EMAIL_USER_AGENT",
+    f"contextcache-api/1.0 (+https://thecontextcache.com; env={APP_ENV or 'unknown'})",
+).strip()
 
 # Allow returning debug_link in non-dev when SES/Resend is broken (temp recovery)
 MAGIC_LINK_ALLOW_LOG_FALLBACK = (
@@ -68,6 +72,8 @@ def _send_via_resend(email: str, subject: str, body: str) -> None:
         headers={
             "Authorization": f"Bearer {RESEND_API_KEY}",
             "Content-Type": "application/json",
+            "User-Agent": EMAIL_USER_AGENT,
+            "X-Entity-Ref-ID": f"contextcache-{APP_ENV or 'env'}",
         },
         method="POST",
     )
