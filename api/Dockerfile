@@ -13,19 +13,21 @@ COPY pyproject.toml uv.lock /app/
 
 FROM base AS dev-deps
 # Install all deps (including dev/test)
-RUN uv sync --system
+RUN uv sync
 
 FROM base AS runtime-deps
 # Install runtime deps only — use HTTPS + token for private engine repo
 ARG ENGINE_TOKEN=""
-RUN if [ -n "$ENGINE_TOKEN" ]; then \
+RUN set -eux; \
+    if [ -n "$ENGINE_TOKEN" ]; then \
       git config --global url."https://${ENGINE_TOKEN}@github.com/".insteadOf "ssh://git@github.com/"; \
       git config --global url."https://${ENGINE_TOKEN}@github.com/".insteadOf "git+ssh://git@github.com/"; \
-    fi && \
-    uv sync --system --no-dev && \
-    python -c "import sqlalchemy, alembic, celery" && \
-    git config --global --unset-all url."https://${ENGINE_TOKEN}@github.com/".insteadOf 2>/dev/null; \
-    true
+    fi; \
+    uv sync --no-dev; \
+    /app/.venv/bin/python -c "import sqlalchemy, alembic, celery"; \
+    if [ -n "$ENGINE_TOKEN" ]; then \
+      git config --global --unset-all url."https://${ENGINE_TOKEN}@github.com/".insteadOf 2>/dev/null || true; \
+    fi
 
 FROM runtime-deps AS runtime
 # Copy the application code
@@ -35,7 +37,7 @@ COPY alembic.ini /app/alembic.ini
 COPY scripts /app/scripts
 
 EXPOSE 8000
-CMD ["sh", "-c", "if [ \"${RUN_MIGRATIONS:-1}\" = \"1\" ]; then python -m app.migrate; fi && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "if [ \"${RUN_MIGRATIONS:-1}\" = \"1\" ]; then uv run --no-sync python -m app.migrate; fi && uv run --no-sync uvicorn app.main:app --host 0.0.0.0 --port 8000"]
 
 FROM dev-deps AS dev
 COPY app /app/app
