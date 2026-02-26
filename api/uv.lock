@@ -687,8 +687,9 @@ dev = [
 [[package]]
 name = "contextcache-engine"
 version = "1.0.0"
-source = { git = "ssh://git@github.com/thecontextcache/contextcache-engine.git#17f2682c6fddb96b38faaf982d973b508692fedd" }
+source = { git = "ssh://git@github.com/thecontextcache/contextcache-engine.git#0554dcc7cc07d2947990dcdf4aba2f18ac38ce90" }
 dependencies = [
+    { name = "google-genai" },
     { name = "hilbertcurve" },
     { name = "pgvector" },
     { name = "sqlalchemy" },
