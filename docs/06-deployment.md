@@ -85,18 +85,9 @@ HEDGE_MIN_DELAY_MS=25
 HEDGE_USE_P95_CACHE=true
 HEDGE_P95_CACHE_TTL_SECONDS=900
 
-# Hilbert prefilter for vector candidate narrowing
-HILBERT_ENABLED=false
-HILBERT_BITS=12
-HILBERT_RADIUS=500000
-HILBERT_MIN_ROWS=500
-HILBERT_WIDEN_MULT=2.0
-HILBERT_PREFILTER_CANDIDATES=5000
+# Retrieval/cache controls
+ANALYZER_MODE=local
 CAG_CACHE_MAX_ITEMS=512
-CAG_PHEROMONE_BASE=1.0
-CAG_PHEROMONE_HIT_BOOST=0.15
-CAG_PHEROMONE_EVAPORATION=0.95
-CAG_EVAPORATION_INTERVAL_SECONDS=600
 CAG_KV_STUB_ENABLED=true
 ```
 
@@ -141,14 +132,14 @@ docker compose --profile worker up -d worker beat
 ### Hedged recall tuning
 
 Recall uses speculative execution between:
-- CAG (cache/golden-knowledge lookup)
-- RAG (hybrid FTS + vector retrieval)
+- cache checks
+- project retrieval
 
 Behavior:
 - CAG starts first.
 - If CAG is still running after hedge delay, RAG starts.
 - First completed result wins; the slower task is canceled.
-- In `CAG_MODE=local`, hedging is bypassed and CAG runs synchronously before RAG fallback.
+- In `CAG_MODE=local`, hedging is bypassed and cache lookup runs synchronously before retrieval fallback.
 
 Config:
 - `HEDGE_DELAY_MS`: base hedge delay in milliseconds.
@@ -164,22 +155,15 @@ Worker job:
 Recommendation:
 - Start with `HEDGE_DELAY_MS=120`, then tune using observed `recall_timings` in production.
 
-### CAG pheromone cache behavior
+### CAG cache behavior
 
-CAG now maintains in-memory cache metadata for each golden-knowledge chunk:
+CAG maintains in-memory cache metadata for golden-knowledge chunks.
 
-- `pheromone_level` (reinforced on cache hits)
-- `last_accessed_at` (LRU signal)
+- cache capacity controls
+- cache hit-rate tracking
+- periodic maintenance
 
-Eviction policy:
-- Lowest pheromone first
-- LRU tiebreaker when pheromone is equal
-
-Evaporation:
-- API process runs an async evaporation loop every `CAG_EVAPORATION_INTERVAL_SECONDS` (default 600s).
-- Each pass multiplies pheromone by `CAG_PHEROMONE_EVAPORATION` (default `0.95`).
-
-Admin controls:
+Admin endpoints:
 - `GET /admin/cag/cache-stats`
 - `POST /admin/cag/evaporate`
 
@@ -525,15 +509,10 @@ batch recall, scheduled cleanup).
 | `worker` | same as `api` | Celery worker process |
 | `beat` | same as `api` | Celery Beat scheduler (periodic tasks) |
 
-### Database image requirement (pgvector)
+### Database image requirement
 
-Hybrid recall uses native pgvector columns, so Postgres must include the `vector` extension.
-
-Use:
-
-- `pgvector/pgvector:pg16` (recommended)
-
-If you run plain `postgres:16`, API startup can fail during migrations when `CREATE EXTENSION vector` runs.
+Use a Postgres image compatible with your active migrations.
+If migrations include optional retrieval extensions, ensure the selected image supports them.
 
 ### Enable worker mode
 
@@ -655,63 +634,16 @@ unreachable from outside the host.
 
 ---
 
-## Embedding pipeline + hybrid recall
+## Recall pipeline (public view)
 
 Current behavior:
 
-- Every new memory stores embeddings in:
-  - `memories.embedding_vector` (pgvector, 1536 dims)
-  - `memories.search_vector` (JSON fallback/debug payload)
-- `compute_memory_embedding` (Celery) updates both `memories` and `memory_embeddings`.
-- Embeddings use:
-  - `EMBEDDING_PROVIDER=openai` when `OPENAI_API_KEY` is configured
-  - deterministic local fallback when provider/network is unavailable
-- Recall uses hybrid ranking:
-  - FTS (`websearch_to_tsquery` + `ts_rank_cd`)
-  - vector cosine similarity over `embedding_vector`
-  - recency boost
+- New memories are indexed for search.
+- Optional background tasks can enrich retrieval metadata.
+- Ranking/scoring internals are implemented in a private engine package.
 
-Tune with:
+Operational tuning:
 
-```env
-FTS_WEIGHT=0.65
-VECTOR_WEIGHT=0.25
-RECENCY_WEIGHT=0.10
-RECALL_VECTOR_MIN_SCORE=0.20
-RECALL_VECTOR_CANDIDATES=200
-EMBEDDING_PROVIDER=local
-# OPENAI_API_KEY=...
-```
-
-### Current pgvector schema
-
-Applied via Alembic:
-
-- `CREATE EXTENSION IF NOT EXISTS vector`
-- `memories.embedding_vector vector(1536)`
-- IVFFLAT index: `ix_memories_embedding_vector_ivfflat`
-
-Scaling guidance (single-host beta):
-
-- 10-15 users: `worker --concurrency=2` is enough
-- 50+ active users: raise worker concurrency and `RECALL_VECTOR_CANDIDATES`
-- keep one `beat` instance only
-
-### Hilbert 1D Pre-Filtering (Phase 3.2 Optimization)
-
-When scaling past millions of rows, vector searches (`<=>` operator) become memory/CPU bottlenecked.
-Enable the **Hilbert Curve Pre-Filter** to prune the DB via a B-Tree lookup (O(1)) prior to vector evaluation.
-
-To enable:
-1. Ensure the `hilbertcurve` pip package is installed (`uv add hilbertcurve` inside `api/`).
-2. Set `HILBERT_ENABLED=true` in `.env`.
-3. Stop the API container during the backfill (if safe), or run concurrently.
-4. Execute the backfill script to generate indices for existing rows:
-   ```bash
-   docker compose exec api uv run python -m scripts.backfill_hilbert --batch-size 1000
-   ```
-5. Restart the containers to pick up the ENV change.
-
-Tuning constraints:
-- `HILBERT_RADIUS` defines the initial integer window bounding box.
-- `HILBERT_MIN_ROWS` defines the minimum number of target rows retrieved before we widen the radius using `HILBERT_WIDEN_MULT`.
+- Keep worker/beat enabled for background indexing tasks in higher-traffic environments.
+- Tune latency with the hedge settings documented above.
+- Keep one `beat` instance only.

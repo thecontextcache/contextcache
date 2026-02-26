@@ -16,7 +16,7 @@
 
 ### Core Product
 - Org-scoped projects and memory cards
-- PostgreSQL FTS recall (`websearch_to_tsquery` + `ts_rank_cd`)
+- Recall endpoint with stable public contract
 - Memory pack output grouped by type
 - Server-only analyzer module (`analyzer/core.py` — never shipped to browser)
 - Tags and metadata on memory cards
@@ -40,15 +40,9 @@
 - `/me/usage` endpoint
 
 ### Retrieval
-- Hybrid recall in production path:
-  - FTS (`websearch_to_tsquery` + `ts_rank_cd`)
-  - Hilbert prefilter (`memories.hilbert_index`) before vector search
-  - pgvector cosine similarity (`memories.embedding_vector`)
-  - recency boost
-- Weight tuning via `FTS_WEIGHT`, `VECTOR_WEIGHT`, `RECENCY_WEIGHT`
-- Deterministic local embedding fallback when external providers are unavailable
-- CAG pheromone-guided cache reinforcement + evaporation + LRU tiebreak eviction
-- KV-cache prep stub path for future compressive memory integration
+- Proprietary private-engine retrieval path in production
+- Public API response shape remains stable across engine updates
+- Operational tuning remains env-driven without publishing internals
 
 ### UX
 - Next.js 15 App Router with React 19, TypeScript strict mode, Tailwind CSS v4
@@ -148,8 +142,8 @@
 
 | Decision | Status | Notes |
 |----------|--------|-------|
-| Vector DB (pgvector vs Pinecone) | Deferred | pgvector preferred — no extra infra |
+| Retrieval backend shape | Deferred | kept private; public API contract is stable |
 | Message queue (Redis vs Kafka) | Redis chosen | Kafka overkill for alpha |
 | Auth (magic link vs OAuth) | Magic link only | OAuth added post-alpha |
-| Embeddings model | Deferred | sentence-transformers or OpenAI ada-002 |
+| Embeddings model | Deferred | evaluated internally |
 | Kubernetes | Deferred | Docker Compose + Cloudflare sufficient for alpha |

@@ -34,15 +34,14 @@ Unique: `(org_id, user_id)`.
 - `project_id` (FK -> projects)
 - `type`
 - `content`
-- `search_vector` (`jsonb`, deterministic/local embedding fallback payload)
-- `embedding_vector` (`vector(1536)`, pgvector cosine search)
-- `hilbert_index` (`bigint`, locality-preserving prefilter key)
+- `search_vector` (`jsonb`, internal retrieval metadata)
+- `embedding_vector` (internal optional vector storage)
+- `hilbert_index` (internal optional prefilter key; implementation detail)
 - `search_tsv` (`tsvector`)
 - `created_at`
 
 FTS index: `GIN(search_tsv)`.
-Vector index: `ivfflat(embedding_vector vector_cosine_ops)`.
-Prefilter index: `BTREE(project_id, hilbert_index)`.
+Additional retrieval indexes are managed by migrations and may vary by environment.
 
 ### `api_keys`
 - `id` (PK)

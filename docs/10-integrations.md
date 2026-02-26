@@ -110,19 +110,13 @@ def handle_slack_message(text: str, project_id: int, api_key: str, org_id: int) 
 - For public beta scale, this API is enough for IDE plugins, bots, and scripts.
 - Future hardening: signed webhooks, per-integration keys, and Redis-backed global rate limits.
 
-## CAG + RAG retrieval flow
+## Retrieval flow
 
-Recall uses a two-stage decision:
+Recall uses a private retrieval engine with a stable public API contract.
 
-1. **CAG pre-check**: query is matched against a static golden-knowledge cache (docs + built-ins) preloaded in memory.
-   - CAG scoring uses in-memory embedding similarity (`CAG_EMBEDDING_MODEL_NAME`).
-   - Default provider is deterministic hash embeddings for speed/stability; optional sentence-transformers can be enabled.
-2. **RAG fallback**: if CAG confidence is low, run hybrid retrieval over project memories:
-   - PostgreSQL FTS (`websearch_to_tsquery`)
-   - Hilbert prefilter (`hilbert_index` range) + pgvector cosine similarity
-   - recency boost
-
-This means global/product answers can return instantly, while project-specific queries still use memory retrieval.
+- Fast-path cache checks may serve known answers immediately.
+- Project-scoped retrieval is used when cache confidence is low.
+- Response shape remains unchanged regardless of internal strategy updates.
 
 ### CAG environment
 
@@ -131,21 +125,10 @@ CAG_ENABLED=true
 CAG_MODE=local
 CAG_MAX_TOKENS=180000
 CAG_MATCH_THRESHOLD=0.58
-CAG_EMBEDDING_MODEL_NAME=all-MiniLM-L6-v2
-CAG_EMBEDDING_PROVIDER=hash
-CAG_EMBEDDING_DIMS=384
 CAG_CACHE_MAX_ITEMS=512
-CAG_PHEROMONE_HIT_BOOST=0.15
-CAG_PHEROMONE_EVAPORATION=0.95
-CAG_EVAPORATION_INTERVAL_SECONDS=600
 CAG_KV_STUB_ENABLED=true
 CAG_SOURCE_FILES=docs/00-overview.md,docs/01-mvp-scope.md,docs/04-api-contract.md,docs/legal.md
 ```
-
-Phase 3 cache behavior:
-- CAG entries reinforce `pheromone_level` on hits.
-- A background evaporation loop decays pheromone every 10 minutes.
-- Eviction removes the lowest pheromone entries, then least-recently-accessed ties.
 
 ## CocoIndex ingestion baseline
 

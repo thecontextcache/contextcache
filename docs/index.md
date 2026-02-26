@@ -17,5 +17,5 @@ ContextCache is an invite-only alpha for team memory recall.
 - Admin invite controls for alpha access
 - API key auth retained for programmatic access
 - Org-scoped projects/memories with RBAC and audit logs
-- Hybrid recall: CAG pre-check + FTS + pgvector + Hilbert prefilter + recency
-- Pheromone-guided CAG cache eviction with periodic evaporation
+- Proprietary recall engine (private package) with stable public API contracts
+- Operational cache and retrieval controls exposed via admin endpoints

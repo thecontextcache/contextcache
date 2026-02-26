@@ -178,10 +178,8 @@ export default function LegalPage() {
             <h3 className="text-base font-semibold text-ink">1. Proprietary Software</h3>
             <p>
               This software, including all source code, object code, algorithms, data structures,
-              scoring systems, recall logic, memory card formats, API protocols, embedding
-              pipelines, neural graph algorithms, cache-augmented generation systems, pheromone
-              eviction logic, space-filling curve implementations, and all associated
-              documentation (collectively, the &quot;Software&quot;), is the exclusive
+              scoring systems, recall logic, memory card formats, API protocols, and all
+              associated documentation (collectively, the &quot;Software&quot;), is the exclusive
               proprietary property of TheContextCache.
             </p>
 
@@ -219,11 +217,9 @@ export default function LegalPage() {
 
             <h3 className="text-base font-semibold text-ink">4. Trade Secrets</h3>
             <p>
-              The scoring algorithms, recall weighting systems, memory pack formats, Hilbert
-              indexing strategy, CAG (Cache-Augmented Generation) pheromone system, SSQA
-              (Stochastic Simulated Quantum Annealing) reranking logic, Lyapunov load
-              balancing formulae, and all internal processing logic constitute trade secrets
-              of TheContextCache. Unauthorised disclosure or use of these trade secrets will
+              The internal retrieval, ranking, and optimization systems, along with all
+              implementation details and processing logic, constitute trade secrets of
+              TheContextCache. Unauthorised disclosure or use of these trade secrets will
               be prosecuted to the fullest extent of applicable law.
             </p>
 

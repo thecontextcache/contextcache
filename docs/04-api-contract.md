@@ -123,7 +123,7 @@ Response for `GET /admin/users/{id}/stats`:
 | `GET`  | `/admin/usage` | Usage summary across all users |
 | `GET`  | `/admin/recall/logs` | Last recall decision logs (`limit`, `offset`, `project_id`) |
 | `GET`  | `/admin/cag/cache-stats` | CAG cache metrics (status, size, hit rate, capacity) |
-| `POST` | `/admin/cag/evaporate` | Trigger immediate pheromone evaporation pass |
+| `POST` | `/admin/cag/evaporate` | Trigger immediate cache maintenance pass |
 | `GET`  | `/admin/system/llm-health` | LLM extraction readiness (worker flag, Gemini key presence, SDK install status, model) |
 | `GET`  | `/me/usage` | Current user's today usage + configured limits |
 
@@ -210,18 +210,10 @@ Daily + weekly limits are configured via environment variables (`DAILY_MAX_*`, `
 }
 ```
 
-- Recall ranking uses hybrid scoring:
-  - Internal ranking/scoring is implemented in a private proprietary engine.
-  - Public response shape, auth behavior, and endpoint contract are unchanged.
-- Recall execution uses **request hedging**:
-  - Local CAG mode (`CAG_MODE=local`): run CAG synchronously first, then immediate RAG fallback on miss.
-  - Remote CAG mode: CAG starts first, and RAG starts speculatively after hedge delay.
-  - Hedge delay uses cached org-local p95 (written by worker task) when `HEDGE_USE_P95_CACHE=true`.
-  - If no cached p95 is available, hedge delay falls back to static `HEDGE_DELAY_MS`.
-- First completed backend response is returned; slower task is canceled.
+- Recall ranking is implemented in a private proprietary engine.
+- Public response shape, auth behavior, and endpoint contract are unchanged.
 - Strategy and score details are written to `recall_logs` and visible via admin endpoint.
-- Latency telemetry is written to `recall_timings` (`served_by`, `cag_duration_ms`, `rag_duration_ms`, `total_duration_ms`, `hedge_delay_ms`).
-- Hedging envs: `HEDGE_DELAY_MS`, `HEDGE_MIN_DELAY_MS`, `HEDGE_USE_P95_CACHE`, `HEDGE_P95_CACHE_TTL_SECONDS`.
+- Latency telemetry is written to `recall_timings` for operations tuning.
 - Rows returned from hybrid scoring include `rank_score` (float).
 - Recency fallback rows use `rank_score: null`.
 - CAG short-circuit responses return `items: []` and keep the same `memory_pack_text` format.

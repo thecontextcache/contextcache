@@ -156,8 +156,8 @@ Returns inbox items for a project, newest first. Defaults to `status=pending`.
 Approves a pending draft and promotes it to a full Memory.
 
 **CRITICAL:** Promotion runs the complete memory-creation pipeline:
-- `compute_embedding()` → `embedding_vector` (pgvector)
-- `compute_hilbert_index()` → `hilbert_index` (B-tree prefilter)
+- retrieval metadata enrichment (internal)
+- private-engine indexing hooks (internal)
 - `content_hash` for deduplication
 - FTS `search_tsv` updated via existing DB trigger
 - Usage counters incremented

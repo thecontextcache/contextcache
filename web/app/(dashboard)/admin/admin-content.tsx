@@ -721,7 +721,7 @@ export function AdminContent() {
                     </div>
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                       <div>
-                        <p className="text-xs uppercase tracking-wider text-muted">Avg pheromone</p>
+                        <p className="text-xs uppercase tracking-wider text-muted">Avg cache weight</p>
                         <p className="mt-1 font-semibold text-ink">{cagStats.avg_pheromone.toFixed(4)}</p>
                       </div>
                       <div>

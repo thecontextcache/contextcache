@@ -13,3 +13,5 @@ web/.next/
 # Extension build output
 extension/dist/
 contextcache-extension/dist/
+# MkDocs generated output
+site/

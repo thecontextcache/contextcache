@@ -125,10 +125,9 @@ sequenceDiagram
 
 ### 5. Backend module layout (`api/app/`)
 
-- `analyzer/algorithm.py`: single source of truth for scoring/ranking logic
-  (FTS/vector/recency weighting, normalization, embedding helpers, Hilbert prefilter mapping).
-- `analyzer/core.py`: compatibility shim; delegates to `algorithm.py`.
-- `analyzer/cag.py`: cache-augmented generation preload + lookup, pheromone reinforcement/evaporation, KV-cache prep stub.
+- `analyzer/algorithm.py`: public shim delegating to the private `contextcache-engine` package.
+- `analyzer/core.py`: compatibility shim for analyzer imports.
+- `analyzer/cag.py`: public shim exposing cache interfaces implemented in the private engine.
 - `auth_routes.py`: magic-link/session/admin auth endpoints.
 - `routes.py`: API orchestration and IO; calls analyzer functions for ranking.
 - `ingestion/`: incremental ingestion scaffolding (`cocoindex_flow.py`, `pipeline.py`).
@@ -162,11 +161,8 @@ User                    API                     Postgres
   │                      │                         │
   │  GET /recall?query=  │                         │
   │─────────────────────▶│                         │
-  │                      │  CAG pre-check (golden docs)  │
-  │                      │  + pheromone cache metadata   │
-  │                      │  if miss: hybrid query        │
-  │                      │  FTS + Hilbert prefilter +    │
-  │                      │  pgvector + recency           │
+  │                      │  private recall engine         │
+  │                      │  scoring/ranking (internal)    │
   │                      │────────────────────────▶│
   │                      │                         │
   │                      │  Return matching rows   │
@@ -220,4 +216,4 @@ Phase 2+ may add:
 - external auth providers (OIDC/SSO)
 - multi-region deployment patterns
 
-Beta currently runs hybrid retrieval, Redis-backed limits, and optional worker jobs.
+Beta currently runs a private retrieval engine, Redis-backed limits, and optional worker jobs.
