@@ -102,6 +102,7 @@ _ROLE_RANK = {"viewer": 1, "member": 2, "admin": 3, "owner": 4}
 async def _ensure_member_for_email(
     db: AsyncSession,
     email: str,
+    auth_user_id: int | None = None,
     is_admin: bool = False,
 ) -> tuple[int | None, int | None, str | None]:
     """Create/fetch the domain User + Membership for a verified auth user.
@@ -112,13 +113,21 @@ async def _ensure_member_for_email(
     Legacy behavior can be enabled with AUTO_JOIN_SHARED_DEMO_ORG=true, which
     attaches users to the shared "Demo Org" (not recommended for production).
     """
-    user = (
-        await db.execute(select(User).where(func.lower(User.email) == email.lower()).limit(1))
-    ).scalar_one_or_none()
+    user = None
+    if auth_user_id is not None:
+        user = (
+            await db.execute(select(User).where(User.auth_user_id == auth_user_id).limit(1))
+        ).scalar_one_or_none()
     if user is None:
-        user = User(email=email.lower(), display_name=email.split("@")[0])
+        user = (
+            await db.execute(select(User).where(func.lower(User.email) == email.lower()).limit(1))
+        ).scalar_one_or_none()
+    if user is None:
+        user = User(email=email.lower(), display_name=email.split("@")[0], auth_user_id=auth_user_id)
         db.add(user)
         await db.flush()
+    elif auth_user_id is not None and user.auth_user_id is None:
+        user.auth_user_id = auth_user_id
 
     desired_role = "owner" if is_admin else "member"
 
@@ -330,7 +339,12 @@ async def verify_link(
 
     magic.consumed_at = now
 
-    domain_user_id, org_id, role = await _ensure_member_for_email(db, email, is_admin=auth_user.is_admin)
+    domain_user_id, org_id, role = await _ensure_member_for_email(
+        db,
+        email,
+        auth_user_id=auth_user.id,
+        is_admin=auth_user.is_admin,
+    )
 
     raw_session = os.urandom(32).hex()
     session_hash = hash_token(raw_session)

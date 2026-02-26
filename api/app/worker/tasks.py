@@ -22,6 +22,10 @@ DATABASE_URL   = os.getenv(
     "DATABASE_URL",
     "postgresql+asyncpg://contextcache:change-me@db:5432/contextcache",
 )
+AUDIT_LOG_RETENTION_DAYS = int(os.getenv("AUDIT_LOG_RETENTION_DAYS", "180"))
+RECALL_LOG_RETENTION_DAYS = int(os.getenv("RECALL_LOG_RETENTION_DAYS", "180"))
+RECALL_TIMING_RETENTION_DAYS = int(os.getenv("RECALL_TIMING_RETENTION_DAYS", "180"))
+USAGE_EVENT_RETENTION_DAYS = int(os.getenv("USAGE_EVENT_RETENTION_DAYS", "180"))
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +231,68 @@ def cleanup_old_waitlist_entries(self, retain_days: int = 90) -> dict:
 
     deleted = asyncio.run(_run_in_db(_cleanup))
     logger.info("[worker] cleanup_old_waitlist_entries deleted=%s rows", deleted)
+    return {"status": "ok", "deleted": deleted}
+
+
+# ---------------------------------------------------------------------------
+# Task: cleanup_old_activity_logs
+# ---------------------------------------------------------------------------
+
+@celery_app.task(
+    name="contextcache.cleanup_old_activity_logs",
+    bind=True,
+    max_retries=2,
+)
+def cleanup_old_activity_logs(
+    self,
+    audit_retain_days: int = AUDIT_LOG_RETENTION_DAYS,
+    recall_retain_days: int = RECALL_LOG_RETENTION_DAYS,
+    timing_retain_days: int = RECALL_TIMING_RETENTION_DAYS,
+    usage_retain_days: int = USAGE_EVENT_RETENTION_DAYS,
+) -> dict:
+    """Delete old rows from high-growth event tables."""
+    skipped = _skip_if_disabled("cleanup_old_activity_logs")
+    if skipped is not None:
+        return skipped
+    logger.info(
+        "[worker] cleanup_old_activity_logs started audit=%s recall=%s timing=%s usage=%s",
+        audit_retain_days,
+        recall_retain_days,
+        timing_retain_days,
+        usage_retain_days,
+    )
+
+    from sqlalchemy import delete as sa_delete
+    from app.models import AuditLog, RecallLog, RecallTiming, UsageEvent
+
+    async def _cleanup(session):
+        now = datetime.now(timezone.utc)
+        audit_cutoff = now - timedelta(days=audit_retain_days)
+        recall_cutoff = now - timedelta(days=recall_retain_days)
+        timing_cutoff = now - timedelta(days=timing_retain_days)
+        usage_cutoff = now - timedelta(days=usage_retain_days)
+
+        deleted_audit = (
+            await session.execute(sa_delete(AuditLog).where(AuditLog.created_at < audit_cutoff))
+        ).rowcount or 0
+        deleted_recall = (
+            await session.execute(sa_delete(RecallLog).where(RecallLog.created_at < recall_cutoff))
+        ).rowcount or 0
+        deleted_timing = (
+            await session.execute(sa_delete(RecallTiming).where(RecallTiming.created_at < timing_cutoff))
+        ).rowcount or 0
+        deleted_usage = (
+            await session.execute(sa_delete(UsageEvent).where(UsageEvent.created_at < usage_cutoff))
+        ).rowcount or 0
+        return {
+            "audit_logs": deleted_audit,
+            "recall_logs": deleted_recall,
+            "recall_timings": deleted_timing,
+            "usage_events": deleted_usage,
+        }
+
+    deleted = asyncio.run(_run_in_db(_cleanup))
+    logger.info("[worker] cleanup_old_activity_logs deleted=%s", deleted)
     return {"status": "ok", "deleted": deleted}
 
 

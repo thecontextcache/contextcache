@@ -79,6 +79,11 @@ celery_app.conf.update(
             "schedule": 86400,
             "kwargs": {"retain_days": 90},
         },
+        # Keep high-growth activity tables bounded.
+        "cleanup-old-activity-logs": {
+            "task": "contextcache.cleanup_old_activity_logs",
+            "schedule": 86400,
+        },
         "cleanup-expired-sessions": {
             "task": "contextcache.cleanup_expired_sessions",
             "schedule": 86400,

@@ -547,10 +547,17 @@ async def get_my_orgs(
         if auth_user is None:
             return []
         domain_user = (
-            await db.execute(
-                select(User).where(func.lower(User.email) == auth_user.email.lower()).limit(1)
-            )
+            await db.execute(select(User).where(User.auth_user_id == auth_user.id).limit(1))
         ).scalar_one_or_none()
+        if domain_user is None:
+            domain_user = (
+                await db.execute(
+                    select(User).where(func.lower(User.email) == auth_user.email.lower()).limit(1)
+                )
+            ).scalar_one_or_none()
+            if domain_user is not None and domain_user.auth_user_id is None:
+                domain_user.auth_user_id = auth_user.id
+                await db.flush()
         if domain_user is None:
             return []
         rows = (

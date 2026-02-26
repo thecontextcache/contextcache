@@ -195,10 +195,16 @@ async def _resolve_session_auth(
     auth_session.last_seen_at = now_utc()
 
     domain_user = (
-        await session.execute(
-            select(User).where(func.lower(User.email) == auth_user.email.lower()).limit(1)
-        )
+        await session.execute(select(User).where(User.auth_user_id == auth_user.id).limit(1))
     ).scalar_one_or_none()
+    if domain_user is None:
+        domain_user = (
+            await session.execute(
+                select(User).where(func.lower(User.email) == auth_user.email.lower()).limit(1)
+            )
+        ).scalar_one_or_none()
+        if domain_user is not None and domain_user.auth_user_id is None:
+            domain_user.auth_user_id = auth_user.id
 
     resolved_org_id = None
     resolved_role = None
