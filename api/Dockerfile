@@ -16,6 +16,9 @@ FROM base AS runtime-deps
 # Install runtime deps only
 RUN uv sync --no-dev
 
+# Pull private engine package
+RUN --mount=type=ssh uv add "contextcache-engine @ git+ssh://git@github.com/thecontextcache/contextcache-engine.git"
+
 FROM runtime-deps AS runtime
 # Copy the application code
 COPY app /app/app
