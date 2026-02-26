@@ -24,7 +24,8 @@ RUN if [ -n "$ENGINE_TOKEN" ]; then \
     fi && \
     uv sync --system --no-dev && \
     python -c "import sqlalchemy, alembic, celery" && \
-    git config --global --unset-all url."https://${ENGINE_TOKEN}@github.com/".insteadOf 2>/dev/null || true
+    git config --global --unset-all url."https://${ENGINE_TOKEN}@github.com/".insteadOf 2>/dev/null; \
+    true
 
 FROM runtime-deps AS runtime
 # Copy the application code
