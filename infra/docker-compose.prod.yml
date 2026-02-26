@@ -17,13 +17,16 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-contextcache}
     volumes:
       - prod-db-data:/var/lib/postgresql/data
+    ports:
+      # Localhost-only bind for SSH tunnel / DB admin tools (not public internet)
+      - "127.0.0.1:${POSTGRES_LOCAL_PORT:-55432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-contextcache} -d ${POSTGRES_DB:-contextcache}"]
       interval: 5s
       timeout: 5s
       retries: 20
       start_period: 5s
-    # DB port is intentionally NOT exposed — only reachable inside Docker network
+    # Bound to loopback only; reachable via SSH tunnel from trusted operators.
 
   redis:
     image: redis:7-alpine

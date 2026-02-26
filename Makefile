@@ -7,7 +7,7 @@
 PROD_COMPOSE := --env-file .env -f infra/docker-compose.prod.yml
 DEV_COMPOSE  := --env-file .env -f docker-compose.yml
 
-.PHONY: help dev dev-down dev-logs prod-deploy prod-up prod-down prod-logs
+.PHONY: help dev dev-down dev-logs prod-deploy prod-deploy-hard prod-up prod-down prod-logs prod-db-logs prod-status
 
 help:               ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -25,7 +25,14 @@ dev-logs:           ## Tail local dev logs
 
 # ── Production ────────────────────────────────────────────────────────────────
 
-prod-deploy:        ## Full clean-slate prod rebuild + deploy (use every push)
+prod-deploy:        ## Low-downtime deploy: build first, recreate app services only
+	@echo "🔨  Building updated images..."
+	docker compose $(PROD_COMPOSE) build api worker beat web docs
+	@echo "🚀  Recreating app services (db/redis stay up)..."
+	docker compose $(PROD_COMPOSE) up -d --no-deps api worker beat web docs
+	@echo "✅  Done — low-downtime deploy complete."
+
+prod-deploy-hard:   ## Full clean-slate rebuild (includes downtime)
 	@echo "⏬  Stopping running containers..."
 	docker compose $(PROD_COMPOSE) down --remove-orphans
 	@echo "🧹  Pruning build cache..."
@@ -35,7 +42,7 @@ prod-deploy:        ## Full clean-slate prod rebuild + deploy (use every push)
 	docker compose $(PROD_COMPOSE) build --no-cache
 	@echo "🚀  Starting production stack..."
 	docker compose $(PROD_COMPOSE) up -d
-	@echo "✅  Done — production is live."
+	@echo "✅  Done — full clean-slate deploy is live."
 
 prod-up:            ## Start prod stack with existing images (fast, no rebuild)
 	docker compose $(PROD_COMPOSE) up -d
@@ -48,3 +55,9 @@ prod-logs:          ## Tail prod logs
 
 prod-api-logs:      ## Tail API logs only
 	docker compose $(PROD_COMPOSE) logs -f api
+
+prod-db-logs:       ## Tail DB logs only
+	docker compose $(PROD_COMPOSE) logs -f db
+
+prod-status:        ## Show prod container status
+	docker compose $(PROD_COMPOSE) ps

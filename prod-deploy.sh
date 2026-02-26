@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# ContextCache: Strict Production Deployment Script
-# Use this on your remote server to ensure a clean rollout.
+# ContextCache: Production deploy script (low downtime by default)
 # ==============================================================================
 
 set -e
@@ -9,21 +8,22 @@ set -e
 echo "⏬  Pulling the latest code from GitHub..."
 git pull origin main || echo "⚠️ Could not pull from Git, assuming local files are up to date."
 
-echo "🧹  Stopping all running infra containers..."
-docker compose -f infra/docker-compose.prod.yml down --remove-orphans || true
+if [[ "${1:-}" == "--hard" ]]; then
+  echo "⏬  Hard deploy: stopping stack..."
+  docker compose --env-file .env -f infra/docker-compose.prod.yml down --remove-orphans || true
+  echo "🧹  Pruning Docker cache..."
+  docker system prune -f
+  docker builder prune -f
+  echo "🔨  Rebuilding images (no cache)..."
+  docker compose --env-file .env -f infra/docker-compose.prod.yml build --no-cache
+  echo "🚀  Starting production stack..."
+  docker compose --env-file .env -f infra/docker-compose.prod.yml up -d
+  echo "✅  Hard deployment successful."
+  exit 0
+fi
 
-# Also destroy any lingering root compose instances 
-docker compose -f docker-compose.yml down --remove-orphans || true
-
-echo "🗑️  Clearing Docker build caches for a clean rebuild..."
-docker system prune -f
-docker builder prune -fa
-
-echo "🔨  Rebuilding production images from scratch (no cache)..."
-docker compose -f infra/docker-compose.prod.yml build --no-cache
-
-echo "🚀  Starting the live Cloudflare Tunnel stack (Next.js, FastAPI, Workers)..."
-docker compose -f infra/docker-compose.prod.yml up -d
-
-echo "✅  Deployment successful."
-echo "    -> Make sure Cloudflare Tunnel maps to localhost:3000 correctly."
+echo "🔨  Building updated images..."
+docker compose --env-file .env -f infra/docker-compose.prod.yml build api worker beat web docs
+echo "🚀  Recreating app services only (db/redis stay up)..."
+docker compose --env-file .env -f infra/docker-compose.prod.yml up -d --no-deps api worker beat web docs
+echo "✅  Low-downtime deployment successful."

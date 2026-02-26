@@ -106,6 +106,18 @@ docker compose up -d web
 # then purge Cloudflare cache and hard-refresh browser
 ```
 
+Low-downtime deploy on server:
+
+```bash
+make prod-deploy
+```
+
+Hard clean-slate deploy (includes downtime):
+
+```bash
+make prod-deploy-hard
+```
+
 ---
 
 ## Tests
