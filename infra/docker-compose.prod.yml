@@ -87,7 +87,7 @@ services:
       args:
         ENGINE_TOKEN: ${ENGINE_TOKEN:-}
     restart: always
-    command: /app/.venv/bin/python -m celery -A app.worker.celery_app worker --loglevel=info --concurrency=2
+    command: python -m celery -A app.worker.celery_app worker --loglevel=info --concurrency=2
     env_file:
       - ../.env
     environment:
@@ -114,7 +114,7 @@ services:
       args:
         ENGINE_TOKEN: ${ENGINE_TOKEN:-}
     restart: always
-    command: /app/.venv/bin/python -m celery -A app.worker.celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule
+    command: python -m celery -A app.worker.celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule
     env_file:
       - ../.env
     environment:
