@@ -126,12 +126,9 @@ Prefilter index: `BTREE(project_id, hilbert_index)`.
 
 ## Recall behavior
 
-Primary retrieval uses hybrid ranking:
-- `websearch_to_tsquery('english', query)`
-- FTS filter/rank: `search_tsv @@ tsquery`, `ts_rank_cd(search_tsv, tsquery)`
-- vector kNN: `ORDER BY embedding_vector <=> query_vector ASC`
-- Hilbert prefilter: `hilbert_index BETWEEN low AND high` before vector kNN
-- CAG pre-check: in-memory static corpus with semantic match
-- tie-break: `created_at desc`
+Recall uses a proprietary ranking pipeline in the private engine package.
+The public API contract remains stable, but internal scoring, prefiltering,
+and cache heuristics are intentionally not documented in the public repo.
 
-Fallback: latest memories when hybrid candidates are empty.
+Fallback behavior:
+- If no relevant candidates are found, recall returns recent memories.
