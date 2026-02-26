@@ -103,6 +103,7 @@ Non-admin returns `403`.
 | `POST` | `/admin/users/{id}/grant-admin` | Grant admin role |
 | `POST` | `/admin/users/{id}/revoke-admin` | Remove admin role |
 | `POST` | `/admin/users/{id}/set-unlimited?unlimited=true\|false` | Toggle daily usage limit bypass |
+| `POST` | `/admin/users/{id}/set-plan?plan_code=free\|pro\|team\|super` | Set user subscription plan |
 | `GET`  | `/admin/users/{id}/stats` | Per-user usage stats (total memories, today counters) |
 | `GET`  | `/admin/users/{id}/login-events` | Last 10 login IP records |
 
@@ -121,6 +122,7 @@ Response for `GET /admin/users/{id}/stats`:
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET`  | `/admin/usage` | Usage summary across all users |
+| `POST` | `/admin/orgs/{org_id}/set-plan?plan_code=free\|pro\|team\|super` | Set org subscription plan |
 | `GET`  | `/admin/recall/logs` | Last recall decision logs (`limit`, `offset`, `project_id`) |
 | `GET`  | `/admin/cag/cache-stats` | CAG cache metrics (status, size, hit rate, capacity) |
 | `POST` | `/admin/cag/evaporate` | Trigger immediate cache maintenance pass |
@@ -218,6 +220,16 @@ Daily + weekly limits are configured via environment variables (`DAILY_MAX_*`, `
 - Recency fallback rows use `rank_score: null`.
 - CAG short-circuit responses return `items: []` and keep the same `memory_pack_text` format.
 - `memory_pack_text` remains grouped and paste-ready.
+
+## Plan limits (phase 1)
+
+- User plan limits are enforced for organization creation.
+- Org plan limits are enforced for active API key creation.
+- Global session admins (`auth_users.is_admin=true`) bypass plan limits.
+- Plan data is stored in:
+  - `plan_catalog`
+  - `user_subscriptions`
+  - `org_subscriptions`
 
 ## Integration capture endpoint
 

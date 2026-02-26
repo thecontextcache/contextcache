@@ -36,6 +36,9 @@ from .models import (
     RecallLog,
     RecallTiming,
     Tag,
+    PlanCatalog,
+    UserSubscription,
+    OrgSubscription,
     UsageCounter,
     UsageEvent,
     UsagePeriod,
@@ -103,6 +106,8 @@ HEDGE_USE_P95_CACHE = (
 router = APIRouter()
 
 ROLE_RANK: dict[str, int] = {"viewer": 1, "member": 2, "admin": 3, "owner": 4}
+DEFAULT_PLAN_CODE = "free"
+SUPER_PLAN_CODE = "super"
 
 
 @dataclass(frozen=True)
@@ -150,6 +155,113 @@ def ensure_org_access(ctx: RequestContext, org_id: int) -> None:
         raise HTTPException(status_code=400, detail="X-Org-Id required")
     if ctx.org_id != org_id:
         raise HTTPException(status_code=403, detail="Forbidden")
+
+
+def _is_super_admin(request: Request) -> bool:
+    return bool(getattr(request.state, "auth_is_admin", False))
+
+
+async def _get_plan(db: AsyncSession, code: str) -> PlanCatalog | None:
+    return (
+        await db.execute(
+            select(PlanCatalog).where(PlanCatalog.code == code, PlanCatalog.is_active.is_(True)).limit(1)
+        )
+    ).scalar_one_or_none()
+
+
+async def _get_user_plan_code(db: AsyncSession, auth_user_id: int | None, *, super_admin: bool) -> str:
+    if super_admin:
+        return SUPER_PLAN_CODE
+    if auth_user_id is None:
+        return DEFAULT_PLAN_CODE
+    sub = (
+        await db.execute(
+            select(UserSubscription.plan_code)
+            .where(
+                UserSubscription.auth_user_id == auth_user_id,
+                UserSubscription.status == "active",
+                UserSubscription.ended_at.is_(None),
+            )
+            .order_by(UserSubscription.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return (sub or DEFAULT_PLAN_CODE).strip().lower()
+
+
+async def _get_org_plan_code(db: AsyncSession, org_id: int) -> str:
+    sub = (
+        await db.execute(
+            select(OrgSubscription.plan_code)
+            .where(
+                OrgSubscription.org_id == org_id,
+                OrgSubscription.status == "active",
+                OrgSubscription.ended_at.is_(None),
+            )
+            .order_by(OrgSubscription.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return (sub or DEFAULT_PLAN_CODE).strip().lower()
+
+
+async def _ensure_org_subscription(db: AsyncSession, org_id: int, plan_code: str = DEFAULT_PLAN_CODE) -> None:
+    existing = (
+        await db.execute(select(OrgSubscription.id).where(OrgSubscription.org_id == org_id).limit(1))
+    ).scalar_one_or_none()
+    if existing is None:
+        db.add(OrgSubscription(org_id=org_id, plan_code=plan_code))
+
+
+async def _enforce_org_creation_limit(
+    db: AsyncSession,
+    *,
+    actor_user_id: int | None,
+    auth_user_id: int | None,
+    super_admin: bool,
+) -> str:
+    plan_code = await _get_user_plan_code(db, auth_user_id, super_admin=super_admin)
+    if super_admin:
+        return plan_code
+    plan = await _get_plan(db, plan_code)
+    if plan is None or plan.max_orgs is None or plan.max_orgs <= 0 or actor_user_id is None:
+        return plan_code
+    org_count = (
+        await db.execute(select(func.count(Membership.id)).where(Membership.user_id == actor_user_id))
+    ).scalar_one()
+    if org_count >= plan.max_orgs:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Plan limit reached: max {plan.max_orgs} organizations for '{plan_code}' plan.",
+        )
+    return plan_code
+
+
+async def _enforce_org_api_key_limit(
+    db: AsyncSession,
+    *,
+    org_id: int,
+    super_admin: bool,
+) -> None:
+    if super_admin:
+        return
+    plan_code = await _get_org_plan_code(db, org_id)
+    plan = await _get_plan(db, plan_code)
+    if plan is None or plan.max_active_api_keys is None or plan.max_active_api_keys <= 0:
+        return
+    active_keys = (
+        await db.execute(
+            select(func.count(ApiKey.id)).where(ApiKey.org_id == org_id, ApiKey.revoked_at.is_(None))
+        )
+    ).scalar_one()
+    if active_keys >= plan.max_active_api_keys:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Plan limit reached: max {plan.max_active_api_keys} active API keys "
+                f"for org on '{plan_code}' plan."
+            ),
+        )
 
 
 async def write_audit(
@@ -474,16 +586,23 @@ async def create_org(
     allowed, detail = check_write_limits(client_ip, account_key)
     if not allowed:
         raise HTTPException(status_code=429, detail=detail)
-    org_count = (await db.execute(select(func.count(Organization.id)))).scalar_one()
-    if org_count > 0:
-        require_role(ctx, "admin")
+    # Any authenticated user can create their own org; they become owner.
+    if ctx.actor_user_id is None and not ctx.bootstrap_mode:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    plan_code = await _enforce_org_creation_limit(
+        db,
+        actor_user_id=ctx.actor_user_id,
+        auth_user_id=getattr(request.state, "auth_user_id", None),
+        super_admin=_is_super_admin(request),
+    )
 
     org = Organization(name=payload.name)
     db.add(org)
     await db.flush()
+    await _ensure_org_subscription(db, org.id, plan_code=plan_code)
 
     bootstrap_actor_user_id = ctx.actor_user_id
-    if org_count == 0 and bootstrap_actor_user_id is None:
+    if bootstrap_actor_user_id is None:
         bootstrap_email = (ctx.actor_email or "bootstrap@local").strip().lower()
         bootstrap_user = (
             await db.execute(select(User).where(func.lower(User.email) == bootstrap_email).limit(1))
@@ -881,12 +1000,14 @@ async def list_org_projects(
 async def create_org_api_key(
     org_id: int,
     payload: ApiKeyCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     ctx: RequestContext = Depends(get_actor_context),
 ) -> ApiKeyCreatedOut:
     ensure_org_access(ctx, org_id)
     require_role(ctx, "admin")
     await get_org_or_404(db, org_id)
+    await _enforce_org_api_key_limit(db, org_id=org_id, super_admin=_is_super_admin(request))
 
     plaintext = generate_api_key()
     prefix = plaintext[:8]

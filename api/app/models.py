@@ -353,6 +353,59 @@ class AuthInvite(Base):
 
 
 # ---------------------------------------------------------------------------
+# Plan catalog + subscriptions
+# ---------------------------------------------------------------------------
+
+class PlanCatalog(Base):
+    __tablename__ = "plan_catalog"
+
+    code: Mapped[str] = mapped_column(String(20), primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    # <=0 or NULL means effectively unlimited
+    max_orgs: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_active_api_keys: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    hourly_request_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    weekly_request_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    monthly_request_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class UserSubscription(Base):
+    __tablename__ = "user_subscriptions"
+    __table_args__ = (
+        UniqueConstraint("auth_user_id", name="uq_user_subscriptions_auth_user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    auth_user_id: Mapped[int] = mapped_column(
+        ForeignKey("auth_users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    plan_code: Mapped[str] = mapped_column(ForeignKey("plan_catalog.code"), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'active'"))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class OrgSubscription(Base):
+    __tablename__ = "org_subscriptions"
+    __table_args__ = (
+        UniqueConstraint("org_id", name="uq_org_subscriptions_org_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    plan_code: Mapped[str] = mapped_column(ForeignKey("plan_catalog.code"), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'active'"))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# ---------------------------------------------------------------------------
 # Login event tracking (last 10 per user, retention enforced at insert time)
 # ---------------------------------------------------------------------------
 

@@ -31,6 +31,9 @@ from .models import (
     Membership,
     Organization,
     RecallLog,
+    PlanCatalog,
+    UserSubscription,
+    OrgSubscription,
     UsageEvent,
     User,
     Waitlist,
@@ -706,6 +709,88 @@ async def set_unlimited(
     user.is_unlimited = unlimited
     await db.commit()
     return {"status": "ok", "is_unlimited": unlimited}
+
+
+@router.post("/admin/users/{user_id}/set-plan")
+async def set_user_plan(
+    user_id: int,
+    request: Request,
+    plan_code: str = Query(..., min_length=3, max_length=20),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_admin_auth(request)
+    code = plan_code.strip().lower()
+
+    user = (await db.execute(select(AuthUser).where(AuthUser.id == user_id).limit(1))).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    plan = (
+        await db.execute(select(PlanCatalog).where(PlanCatalog.code == code, PlanCatalog.is_active.is_(True)).limit(1))
+    ).scalar_one_or_none()
+    if plan is None:
+        raise HTTPException(status_code=400, detail=f"Unknown plan '{code}'")
+
+    sub = (
+        await db.execute(
+            select(UserSubscription)
+            .where(
+                UserSubscription.auth_user_id == user_id,
+                UserSubscription.status == "active",
+                UserSubscription.ended_at.is_(None),
+            )
+            .order_by(UserSubscription.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if sub is None:
+        sub = UserSubscription(auth_user_id=user_id, plan_code=code, status="active")
+        db.add(sub)
+    else:
+        sub.plan_code = code
+    await db.commit()
+    return {"status": "ok", "user_id": user_id, "plan_code": code}
+
+
+@router.post("/admin/orgs/{org_id}/set-plan")
+async def set_org_plan(
+    org_id: int,
+    request: Request,
+    plan_code: str = Query(..., min_length=3, max_length=20),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_admin_auth(request)
+    code = plan_code.strip().lower()
+
+    org = (await db.execute(select(Organization).where(Organization.id == org_id).limit(1))).scalar_one_or_none()
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    plan = (
+        await db.execute(select(PlanCatalog).where(PlanCatalog.code == code, PlanCatalog.is_active.is_(True)).limit(1))
+    ).scalar_one_or_none()
+    if plan is None:
+        raise HTTPException(status_code=400, detail=f"Unknown plan '{code}'")
+
+    sub = (
+        await db.execute(
+            select(OrgSubscription)
+            .where(
+                OrgSubscription.org_id == org_id,
+                OrgSubscription.status == "active",
+                OrgSubscription.ended_at.is_(None),
+            )
+            .order_by(OrgSubscription.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if sub is None:
+        sub = OrgSubscription(org_id=org_id, plan_code=code, status="active")
+        db.add(sub)
+    else:
+        sub.plan_code = code
+    await db.commit()
+    return {"status": "ok", "org_id": org_id, "plan_code": code}
 
 
 @router.get("/admin/users/{user_id}/stats", response_model=AdminUserStatsOut)
