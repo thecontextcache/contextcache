@@ -63,6 +63,9 @@ MAGIC_LINK_ALLOW_LOG_FALLBACK = (
     os.getenv("MAGIC_LINK_ALLOW_LOG_FALLBACK", "false").strip().lower() == "true"
 )
 INVITE_TTL_DAYS = int(os.getenv("INVITE_TTL_DAYS", "7"))
+AUTO_JOIN_SHARED_DEMO_ORG = (
+    os.getenv("AUTO_JOIN_SHARED_DEMO_ORG", "false").strip().lower() == "true"
+)
 
 # Extract the base domain for cross-subdomain cookie scoping
 # Removed domain-scoping logic because it breaks heavily when hosted behind 
@@ -100,17 +103,12 @@ async def _ensure_member_for_email(
 ) -> tuple[int | None, int | None, str | None]:
     """Create/fetch the domain User + Membership for a verified auth user.
 
-    is_admin=True → org role becomes "owner" (and existing lower roles are upgraded).
-    is_admin=False → org role is "member" (never downgraded if already higher).
-    """
-    org = (
-        await db.execute(select(Organization).where(Organization.name == "Demo Org").order_by(Organization.id.asc()).limit(1))
-    ).scalar_one_or_none()
-    if org is None:
-        org = Organization(name="Demo Org")
-        db.add(org)
-        await db.flush()
+    Default behavior (secure): each user gets a personal org on first login.
+    Existing memberships are reused; role is upgraded if needed.
 
+    Legacy behavior can be enabled with AUTO_JOIN_SHARED_DEMO_ORG=true, which
+    attaches users to the shared "Demo Org" (not recommended for production).
+    """
     user = (
         await db.execute(select(User).where(func.lower(User.email) == email.lower()).limit(1))
     ).scalar_one_or_none()
@@ -121,19 +119,42 @@ async def _ensure_member_for_email(
 
     desired_role = "owner" if is_admin else "member"
 
-    membership = (
+    # Reuse existing membership if present.
+    existing = (
         await db.execute(
-            select(Membership).where(Membership.org_id == org.id, Membership.user_id == user.id).limit(1)
+            select(Membership, Organization)
+            .join(Organization, Membership.org_id == Organization.id)
+            .where(Membership.user_id == user.id)
+            .order_by(Membership.created_at.asc(), Membership.id.asc())
+            .limit(1)
         )
-    ).scalar_one_or_none()
-    if membership is None:
-        membership = Membership(org_id=org.id, user_id=user.id, role=desired_role)
-        db.add(membership)
-        await db.flush()
-    elif _ROLE_RANK.get(desired_role, 0) > _ROLE_RANK.get(membership.role, 0):
-        # Upgrade role when the user deserves higher access (e.g. admin flag set after initial signup).
-        membership.role = desired_role
+    ).first()
+    if existing is not None:
+        membership, org = existing
+        if _ROLE_RANK.get(desired_role, 0) > _ROLE_RANK.get(membership.role, 0):
+            membership.role = desired_role
+        return user.id, org.id, membership.role
 
+    if AUTO_JOIN_SHARED_DEMO_ORG:
+        org = (
+            await db.execute(
+                select(Organization).where(Organization.name == "Demo Org").order_by(Organization.id.asc()).limit(1)
+            )
+        ).scalar_one_or_none()
+        if org is None:
+            org = Organization(name="Demo Org")
+            db.add(org)
+            await db.flush()
+    else:
+        local = (email.split("@")[0] or "user").strip()
+        pretty = local.replace(".", " ").replace("_", " ").replace("-", " ").strip().title() or "User"
+        org = Organization(name=f"{pretty} Org")
+        db.add(org)
+        await db.flush()
+
+    membership = Membership(org_id=org.id, user_id=user.id, role=desired_role)
+    db.add(membership)
+    await db.flush()
     return user.id, org.id, membership.role
 
 
