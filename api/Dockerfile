@@ -18,14 +18,17 @@ RUN uv sync
 FROM base AS runtime-deps
 # Install runtime deps only — use HTTPS + token for private engine repo
 ARG ENGINE_TOKEN=""
-RUN set -eux; \
+RUN set -eu; \
     if [ -n "$ENGINE_TOKEN" ]; then \
+      git config --global url."https://${ENGINE_TOKEN}@github.com/thecontextcache/contextcache-engine.git".insteadOf "ssh://git@github.com/thecontextcache/contextcache-engine.git"; \
       git config --global url."https://${ENGINE_TOKEN}@github.com/".insteadOf "ssh://git@github.com/"; \
       git config --global url."https://${ENGINE_TOKEN}@github.com/".insteadOf "git+ssh://git@github.com/"; \
+      git config --global url."https://${ENGINE_TOKEN}@github.com/".insteadOf "git@github.com:"; \
     fi; \
     uv sync --no-dev; \
     /app/.venv/bin/python -c "import sqlalchemy, alembic, celery"; \
     if [ -n "$ENGINE_TOKEN" ]; then \
+      git config --global --unset-all url."https://${ENGINE_TOKEN}@github.com/thecontextcache/contextcache-engine.git".insteadOf 2>/dev/null || true; \
       git config --global --unset-all url."https://${ENGINE_TOKEN}@github.com/".insteadOf 2>/dev/null || true; \
     fi
 
