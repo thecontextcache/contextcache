@@ -626,7 +626,7 @@ def process_raw_capture_task(self, capture_id: int) -> dict:
     max_retries=3,
     default_retry_delay=60,
 )
-def compute_memory_embedding(self, memory_id: int, model: str = "text-embedding-3-small") -> dict:
+def compute_memory_embedding(self, memory_id: int, model: str = "") -> dict:
     """Compute and store an embedding vector for a single memory.
 
     This is a PLACEHOLDER.  When pgvector + an embedding provider are ready:
@@ -646,7 +646,7 @@ def compute_memory_embedding(self, memory_id: int, model: str = "text-embedding-
     if skipped is not None:
         return skipped
 
-    logger.info("[worker] compute_memory_embedding started memory_id=%s model=%s", memory_id, model)
+    logger.info("[worker] compute_memory_embedding started memory_id=%s model=%s", memory_id, model or "<auto>")
 
     from app.analyzer.core import compute_embedding
     from app.analyzer.algorithm import compute_hilbert_index
@@ -661,9 +661,18 @@ def compute_memory_embedding(self, memory_id: int, model: str = "text-embedding-
             part for part in [mem.title or "", mem.content or ""] if part
         ).strip()
         provider = os.getenv("EMBEDDING_PROVIDER", "local").strip().lower()
+        effective_model = (model or "").strip()
         if provider == "ollama":
-            model = os.getenv("OLLAMA_EMBED_MODEL", model).strip() or model
-        vector = compute_embedding(text, model=model)
+            # Prefer explicit embed model, then generic ollama model, then a safe default.
+            effective_model = (
+                os.getenv("OLLAMA_EMBED_MODEL")
+                or os.getenv("OLLAMA_MODEL")
+                or effective_model
+                or "nomic-embed-text"
+            ).strip()
+        else:
+            effective_model = effective_model or os.getenv("EMBEDDING_MODEL", "text-embedding-3-small").strip()
+        vector = compute_embedding(text, model=effective_model)
         mem.search_vector = vector
         mem.embedding_vector = vector
         mem.hilbert_index = compute_hilbert_index(vector)
@@ -674,8 +683,8 @@ def compute_memory_embedding(self, memory_id: int, model: str = "text-embedding-
                 select(MemoryEmbedding).where(MemoryEmbedding.memory_id == memory_id).limit(1)
             )
         ).scalar_one_or_none() or MemoryEmbedding(memory_id=memory_id)
-        row.model = model
-        row.model_name = model
+        row.model = effective_model
+        row.model_name = effective_model
         row.model_version = os.getenv("EMBEDDING_MODEL_VERSION", "v1").strip() or "v1"
         row.confidence = 1.0
         row.dims = len(vector)

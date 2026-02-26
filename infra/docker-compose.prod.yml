@@ -3,6 +3,9 @@
 #
 # Required environment variables (set in .env or shell):
 #   POSTGRES_PASSWORD, JWT_SECRET, CORS_ORIGINS, APP_PUBLIC_BASE_URL
+# Optional AI embedding variables (for --profile ai):
+#   EMBEDDING_PROVIDER=ollama, OLLAMA_BASE_URL=http://ollama:11434
+#   OLLAMA_EMBED_MODEL=nomic-embed-text
 
 services:
   db:
@@ -130,6 +133,13 @@ services:
       redis:
         condition: service_healthy
 
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ai"]
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+
   docs:
     build:
       context: ../
@@ -142,3 +152,4 @@ services:
 volumes:
   prod-db-data:
   prod-redis-data:
+  ollama_data:

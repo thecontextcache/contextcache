@@ -1,5 +1,9 @@
+-- Wave 3B: cut over auth_users/users chain from *_bigint shadow columns
+-- to canonical column names.
+
 BEGIN;
 
+-- 0) Drop child FKs referencing users/auth_users first
 ALTER TABLE users DROP CONSTRAINT IF EXISTS fk_users_auth_user_id;
 ALTER TABLE users DROP CONSTRAINT IF EXISTS fk_users_auth_user_id_bigint;
 
@@ -50,6 +54,7 @@ ALTER TABLE user_subscriptions DROP CONSTRAINT IF EXISTS fk_user_subscriptions_a
 ALTER TABLE waitlist DROP CONSTRAINT IF EXISTS waitlist_reviewed_by_admin_id_fkey;
 ALTER TABLE waitlist DROP CONSTRAINT IF EXISTS fk_waitlist_reviewed_by_admin_id_bigint;
 
+-- 1) Rotate auth_users PK to bigint canonical
 ALTER TABLE auth_users DROP CONSTRAINT IF EXISTS auth_users_pkey;
 ALTER TABLE auth_users ALTER COLUMN id_bigint SET NOT NULL;
 ALTER TABLE auth_users ALTER COLUMN id_bigint SET DEFAULT nextval('auth_users_id_seq'::regclass);
@@ -59,6 +64,7 @@ ALTER TABLE auth_users ADD CONSTRAINT auth_users_pkey PRIMARY KEY (id);
 DROP INDEX IF EXISTS uq_auth_users_id_bigint;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_auth_users_id ON auth_users(id);
 
+-- 2) Rotate users PK to bigint canonical
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_pkey;
 ALTER TABLE users ALTER COLUMN id_bigint SET NOT NULL;
 ALTER TABLE users ALTER COLUMN id_bigint SET DEFAULT nextval('users_id_seq'::regclass);
@@ -68,6 +74,7 @@ ALTER TABLE users ADD CONSTRAINT users_pkey PRIMARY KEY (id);
 DROP INDEX IF EXISTS uq_users_id_bigint;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_users_id ON users(id);
 
+-- 3) Swap users.auth_user_id to bigint canonical
 DROP INDEX IF EXISTS uq_users_auth_user_id;
 DROP INDEX IF EXISTS ix_users_auth_user_id_bigint;
 ALTER TABLE users RENAME COLUMN auth_user_id TO auth_user_id_int4;
@@ -75,6 +82,7 @@ ALTER TABLE users RENAME COLUMN auth_user_id_bigint TO auth_user_id;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_users_auth_user_id ON users(auth_user_id) WHERE auth_user_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS ix_users_auth_user_id ON users(auth_user_id);
 
+-- 4) Swap and reconnect users child FKs
 ALTER TABLE memberships RENAME COLUMN user_id TO user_id_int4;
 ALTER TABLE memberships RENAME COLUMN user_id_bigint TO user_id;
 ALTER TABLE memberships ADD CONSTRAINT memberships_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
@@ -106,6 +114,7 @@ ALTER TABLE api_key_access_requests RENAME COLUMN reviewed_by_user_id_bigint TO 
 ALTER TABLE api_key_access_requests ADD CONSTRAINT api_key_access_requests_requester_user_id_fkey FOREIGN KEY (requester_user_id) REFERENCES users(id) ON DELETE CASCADE;
 ALTER TABLE api_key_access_requests ADD CONSTRAINT api_key_access_requests_reviewed_by_user_id_fkey FOREIGN KEY (reviewed_by_user_id) REFERENCES users(id) ON DELETE SET NULL;
 
+-- 5) Swap and reconnect auth_users child FKs
 ALTER TABLE auth_sessions RENAME COLUMN user_id TO user_id_int4;
 ALTER TABLE auth_sessions RENAME COLUMN user_id_bigint TO user_id;
 ALTER TABLE auth_sessions ADD CONSTRAINT auth_sessions_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth_users(id) ON DELETE CASCADE;
