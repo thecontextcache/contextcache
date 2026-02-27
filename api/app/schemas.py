@@ -122,6 +122,52 @@ class SearchOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Brain batch actions
+# ---------------------------------------------------------------------------
+
+BatchActionType = Literal[
+    "add_tag",
+    "remove_tag",
+    "change_type",
+    "pin",
+    "unpin",
+    "export",
+    "open_in_recall",
+]
+
+
+class BrainBatchAction(BaseModel):
+    type: BatchActionType
+    targetIds: List[str] = Field(default_factory=list)
+    tagId: str | None = None
+    newType: str | None = None
+    exportFormat: Literal["json", "csv"] | None = None
+
+
+class BrainBatchRequest(BaseModel):
+    actionId: str = Field(min_length=1, max_length=64)
+    action: BrainBatchAction
+
+
+class BrainBatchResultItem(BaseModel):
+    id: str
+    success: bool
+    errorCode: str | None = None
+    errorMessage: str | None = None
+
+
+class BrainBatchOut(BaseModel):
+    actionId: str
+    type: BatchActionType
+    results: List[BrainBatchResultItem]
+    total: int
+    succeeded: int
+    failed: int
+    exported: List[Dict[str, Any]] = Field(default_factory=list)
+    selected_memory_ids: List[int] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
 # Orgs
 # ---------------------------------------------------------------------------
 

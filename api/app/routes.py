@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import json
 import os
 from dataclasses import dataclass
 from datetime import date as _today_date
@@ -12,6 +13,7 @@ from typing import Any, List
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import desc, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -45,6 +47,7 @@ from .models import (
     UsageEvent,
     UsagePeriod,
     User,
+    BatchActionRun,
 )
 from .recall import build_memory_pack
 from .rate_limit import (
@@ -83,6 +86,9 @@ from .schemas import (
     MemoryUpdate,
     UsageLimitsOut,
     UsageOut,
+    BrainBatchRequest,
+    BrainBatchOut,
+    BrainBatchResultItem,
 )
 
 # ── Daily usage limits (env-configurable, 0 = no limit) ─────────────────────
@@ -1581,6 +1587,44 @@ def _extract_client_ip(request: Request) -> str:
     return request.headers.get("cf-connecting-ip", "").strip() or (request.client.host if request.client else "unknown")
 
 
+def _batch_request_hash(payload: BrainBatchRequest) -> str:
+    canonical = payload.model_dump(mode="json")
+    serialized = json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(serialized).hexdigest()
+
+
+def _extract_memory_id(target_id: str) -> int | None:
+    raw = target_id.strip()
+    if raw.startswith("mem-"):
+        raw = raw[4:]
+    if not raw.isdigit():
+        return None
+    return int(raw)
+
+
+async def _resolve_project_tag(
+    db: AsyncSession,
+    *,
+    project_id: int,
+    tag_spec: str | None,
+) -> Tag | None:
+    if tag_spec is None:
+        return None
+    clean = tag_spec.strip()
+    if not clean:
+        return None
+
+    if clean.isdigit():
+        return (
+            await db.execute(
+                select(Tag).where(Tag.id == int(clean), Tag.project_id == project_id).limit(1)
+            )
+        ).scalar_one_or_none()
+
+    tags = await _upsert_tags(db, project_id, [clean])
+    return tags[0] if tags else None
+
+
 def _check_integration_signature(request: Request, body_bytes: bytes) -> None:
     secret = os.getenv("INTEGRATION_SIGNING_SECRET", "").strip()
     if not secret:
@@ -2032,6 +2076,246 @@ async def delete_memory(
     )
     await db.delete(memory)
     await db.commit()
+
+
+@router.post("/brain/batch", response_model=BrainBatchOut)
+async def brain_batch(
+    payload: BrainBatchRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    ctx: RequestContext = Depends(get_actor_context),
+) -> BrainBatchOut:
+    if ctx.org_id is None:
+        raise HTTPException(status_code=400, detail="X-Org-Id required")
+    require_role(ctx, "member")
+
+    idempotency_key = request.headers.get("Idempotency-Key", "").strip() or payload.actionId
+    if not idempotency_key:
+        raise HTTPException(status_code=400, detail="Idempotency key required")
+    request_hash = _batch_request_hash(payload)
+
+    existing = (
+        await db.execute(
+            select(BatchActionRun)
+            .where(BatchActionRun.org_id == ctx.org_id, BatchActionRun.idempotency_key == idempotency_key)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        if existing.request_hash != request_hash:
+            raise HTTPException(status_code=409, detail="Idempotency key reused with different payload")
+        return BrainBatchOut(**(existing.response_json or {}))
+
+    target_ids = payload.action.targetIds
+    results: list[BrainBatchResultItem] = []
+    extracted: list[tuple[str, int]] = []
+    for tid in target_ids:
+        mid = _extract_memory_id(tid)
+        if mid is None:
+            results.append(
+                BrainBatchResultItem(
+                    id=tid,
+                    success=False,
+                    errorCode="INVALID_ID",
+                    errorMessage="Target ID must be numeric or mem-<id>",
+                )
+            )
+        else:
+            extracted.append((tid, mid))
+
+    memory_ids = sorted({mid for _, mid in extracted})
+    memory_by_id: dict[int, Memory] = {}
+    if memory_ids:
+        rows = (
+            await db.execute(
+                select(Memory)
+                .join(Project, Project.id == Memory.project_id)
+                .where(Project.org_id == ctx.org_id, Memory.id.in_(memory_ids))
+            )
+        ).scalars().all()
+        memory_by_id = {m.id: m for m in rows}
+
+    action_type = payload.action.type
+    mutating_actions = {"add_tag", "remove_tag", "change_type", "pin", "unpin"}
+    tag_cache: dict[int, Tag | None] = {}
+    exported: list[dict[str, Any]] = []
+    selected_memory_ids: list[int] = []
+
+    for raw_id, mem_id in extracted:
+        memory = memory_by_id.get(mem_id)
+        if memory is None:
+            results.append(
+                BrainBatchResultItem(
+                    id=raw_id,
+                    success=False,
+                    errorCode="NOT_FOUND",
+                    errorMessage="Memory not found in current org scope",
+                )
+            )
+            continue
+
+        if action_type == "add_tag":
+            tag = tag_cache.get(memory.project_id)
+            if tag is None and memory.project_id not in tag_cache:
+                tag = await _resolve_project_tag(db, project_id=memory.project_id, tag_spec=payload.action.tagId)
+                tag_cache[memory.project_id] = tag
+            if tag is None:
+                results.append(
+                    BrainBatchResultItem(
+                        id=raw_id,
+                        success=False,
+                        errorCode="INVALID_TAG",
+                        errorMessage="Tag is missing or invalid for this project",
+                    )
+                )
+                continue
+            existing_link = (
+                await db.execute(
+                    select(MemoryTag)
+                    .where(MemoryTag.memory_id == memory.id, MemoryTag.tag_id == tag.id)
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if existing_link is None:
+                db.add(MemoryTag(memory_id=memory.id, tag_id=tag.id))
+            results.append(BrainBatchResultItem(id=raw_id, success=True))
+            continue
+
+        if action_type == "remove_tag":
+            tag = tag_cache.get(memory.project_id)
+            if tag is None and memory.project_id not in tag_cache:
+                tag = await _resolve_project_tag(db, project_id=memory.project_id, tag_spec=payload.action.tagId)
+                tag_cache[memory.project_id] = tag
+            if tag is None:
+                results.append(
+                    BrainBatchResultItem(
+                        id=raw_id,
+                        success=False,
+                        errorCode="TAG_NOT_FOUND",
+                        errorMessage="Tag does not exist in this project",
+                    )
+                )
+                continue
+            links = (
+                await db.execute(
+                    select(MemoryTag).where(MemoryTag.memory_id == memory.id, MemoryTag.tag_id == tag.id)
+                )
+            ).scalars().all()
+            for link in links:
+                await db.delete(link)
+            results.append(BrainBatchResultItem(id=raw_id, success=True))
+            continue
+
+        if action_type == "change_type":
+            new_type = (payload.action.newType or "").strip().lower()
+            if not new_type:
+                results.append(
+                    BrainBatchResultItem(
+                        id=raw_id,
+                        success=False,
+                        errorCode="INVALID_TYPE",
+                        errorMessage="newType is required",
+                    )
+                )
+                continue
+            memory.type = new_type
+            results.append(BrainBatchResultItem(id=raw_id, success=True))
+            continue
+
+        if action_type in {"pin", "unpin"}:
+            meta = dict(memory.metadata_json or {})
+            meta["pinned"] = action_type == "pin"
+            memory.metadata_json = meta
+            results.append(BrainBatchResultItem(id=raw_id, success=True))
+            continue
+
+        if action_type == "export":
+            exported.append(
+                {
+                    "id": memory.id,
+                    "project_id": memory.project_id,
+                    "type": memory.type,
+                    "title": memory.title or "",
+                    "content": memory.content,
+                    "created_at": memory.created_at.isoformat() if memory.created_at else None,
+                }
+            )
+            results.append(BrainBatchResultItem(id=raw_id, success=True))
+            continue
+
+        if action_type == "open_in_recall":
+            selected_memory_ids.append(memory.id)
+            results.append(BrainBatchResultItem(id=raw_id, success=True))
+            continue
+
+        results.append(
+            BrainBatchResultItem(
+                id=raw_id,
+                success=False,
+                errorCode="UNSUPPORTED_ACTION",
+                errorMessage=f"Unsupported action: {action_type}",
+            )
+        )
+
+    succeeded = sum(1 for r in results if r.success)
+    response = BrainBatchOut(
+        actionId=payload.actionId,
+        type=action_type,
+        results=results,
+        total=len(target_ids),
+        succeeded=succeeded,
+        failed=len(results) - succeeded,
+        exported=exported,
+        selected_memory_ids=selected_memory_ids,
+    )
+
+    if action_type in mutating_actions:
+        await write_audit(
+            db,
+            ctx=ctx,
+            org_id=ctx.org_id,
+            action="brain.batch",
+            entity_type="memory",
+            entity_id=0,
+            metadata={
+                "action_type": action_type,
+                "target_total": len(target_ids),
+                "succeeded": succeeded,
+                "failed": len(results) - succeeded,
+            },
+        )
+
+    db.add(
+        BatchActionRun(
+            org_id=ctx.org_id,
+            actor_user_id=ctx.actor_user_id,
+            action_id=payload.actionId,
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
+            action_type=action_type,
+            status="completed",
+            response_json=response.model_dump(mode="json"),
+        )
+    )
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        existing_retry = (
+            await db.execute(
+                select(BatchActionRun)
+                .where(BatchActionRun.org_id == ctx.org_id, BatchActionRun.idempotency_key == idempotency_key)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if existing_retry is None:
+            raise
+        if existing_retry.request_hash != request_hash:
+            raise HTTPException(status_code=409, detail="Idempotency key reused with different payload")
+        return BrainBatchOut(**(existing_retry.response_json or {}))
+
+    return response
 
 
 @router.get("/projects/{project_id}/search", response_model=SearchOut)

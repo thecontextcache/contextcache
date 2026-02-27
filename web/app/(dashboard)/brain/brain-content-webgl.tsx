@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { projects, memories, type Project, type Memory, ApiError } from '@/lib/api';
+import { projects, memories, brain, type Project, type Memory, ApiError } from '@/lib/api';
 import { useToast } from '@/components/toast';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -679,12 +679,64 @@ export function BrainContentWebGL() {
     }
     setBatchBusy(true);
     try {
-      if (action === 'pin' || action === 'unpin') {
+      let actionType: 'add_tag' | 'remove_tag' | 'change_type' | 'pin' | 'unpin' | 'export' | 'open_in_recall' = 'pin';
+      let tagId: string | undefined;
+      let newType: string | undefined;
+      let exportFormat: 'json' | 'csv' | undefined;
+
+      if (action === 'add_tag' || action === 'remove_tag') {
+        const tag = window.prompt(action === 'add_tag' ? 'Tag to add:' : 'Tag to remove:');
+        if (!tag) return;
+        actionType = action;
+        tagId = tag;
+      } else if (action === 'change_type') {
+        const nextType = window.prompt('New type (decision|finding|snippet|note|issue|context|code|todo):');
+        const normalized = normalizeNodeType(nextType);
+        actionType = 'change_type';
+        newType = normalized;
+      } else if (action === 'pin') {
+        actionType = 'pin';
+      } else if (action === 'unpin') {
+        actionType = 'unpin';
+      } else if (action === 'export_json') {
+        actionType = 'export';
+        exportFormat = 'json';
+      } else if (action === 'export_csv') {
+        actionType = 'export';
+        exportFormat = 'csv';
+      } else if (action === 'open_recall') {
+        actionType = 'open_in_recall';
+      }
+
+      const actionId =
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+      const response = await brain.batch(
+        {
+          actionId,
+          action: {
+            type: actionType,
+            targetIds: snapshot,
+            tagId,
+            newType,
+            exportFormat,
+          },
+        },
+        actionId
+      );
+
+      const failed = response.results.filter((r) => !r.success);
+      const succeededIds = new Set(response.results.filter((r) => r.success).map((r) => r.id));
+
+      if (actionType === 'pin' || actionType === 'unpin') {
         const next = new Set(pinnedNodeIds);
         for (const id of snapshot) {
+          if (!succeededIds.has(id)) continue;
           const node = nodesRef.current.find((n) => n.id === id);
           if (!node) continue;
-          if (action === 'pin') {
+          if (actionType === 'pin') {
             next.add(id);
             postToWorker({ type: 'PIN_NODE', id, x: node.x, y: node.y });
           } else {
@@ -693,89 +745,68 @@ export function BrainContentWebGL() {
           }
         }
         setPinnedNodeIds(next);
-        toast('ok', `${action === 'pin' ? 'Pinned' : 'Unpinned'} ${snapshot.length} node(s)`);
-        return;
       }
 
-      if (action === 'add_tag' || action === 'remove_tag') {
-        const tag = window.prompt(action === 'add_tag' ? 'Tag to add:' : 'Tag to remove:');
-        if (!tag) return;
+      if (actionType === 'change_type' && newType) {
         for (const id of snapshot) {
-          const node = nodesRef.current.find((n) => n.id === id);
-          if (!node || node.type === 'project' || !node.data || !('tags' in node.data)) continue;
-          const mem = node.data as Memory;
-          const tags = new Set(mem.tags ?? []);
-          if (action === 'add_tag') tags.add(tag);
-          else tags.delete(tag);
-          mem.tags = Array.from(tags);
-        }
-        setSelectedNode((prev) => (prev ? { ...prev } : prev));
-        toast('ok', `${action === 'add_tag' ? 'Added' : 'Removed'} tag on ${snapshot.length} node(s)`);
-        return;
-      }
-
-      if (action === 'change_type') {
-        const nextType = window.prompt('New type (decision|finding|snippet|note|issue|context|code|todo):');
-        const normalized = normalizeNodeType(nextType);
-        for (const id of snapshot) {
+          if (!succeededIds.has(id)) continue;
           const node = nodesRef.current.find((n) => n.id === id);
           if (!node || node.type === 'project') continue;
-          node.type = normalized;
+          node.type = normalizeNodeType(newType);
           if (node.data && 'type' in node.data) {
-            (node.data as Memory).type = normalized;
-          }
-          const graph = graphRef.current;
-          if (graph?.hasNode(node.id)) {
-            graph.setNodeAttribute(node.id, 'color', nodeColors[normalized] ?? nodeColors.note);
+            (node.data as Memory).type = node.type;
           }
         }
         rebuildGraph();
         updateVisibility();
-        toast('ok', `Updated type for ${snapshot.length} node(s)`);
-        return;
       }
 
-      if (action === 'export_json') {
-        const rows = snapshot
-          .map((id) => nodesRef.current.find((n) => n.id === id))
-          .filter(Boolean)
-          .map((n) => ({
-            id: n!.id,
-            label: n!.label,
-            type: n!.type,
-            tags: (n!.data && 'tags' in n!.data ? (n!.data as Memory).tags ?? [] : []),
-            created_at: n!.data?.created_at ?? null,
-          }));
-        downloadJson(`contextcache-selection-${Date.now()}.json`, rows);
-        toast('ok', `Exported ${rows.length} node(s)`);
-        return;
+      if ((actionType === 'add_tag' || actionType === 'remove_tag') && tagId) {
+        for (const id of snapshot) {
+          if (!succeededIds.has(id)) continue;
+          const node = nodesRef.current.find((n) => n.id === id);
+          if (!node || node.type === 'project' || !node.data || !('tags' in node.data)) continue;
+          const mem = node.data as Memory;
+          const tags = new Set(mem.tags ?? []);
+          if (actionType === 'add_tag') tags.add(tagId);
+          else tags.delete(tagId);
+          mem.tags = Array.from(tags);
+        }
+        setSelectedNode((prev) => (prev ? { ...prev } : prev));
       }
 
-      if (action === 'export_csv') {
-        const rows = snapshot
-          .map((id) => nodesRef.current.find((n) => n.id === id))
-          .filter(Boolean)
-          .map((n) => ({
-            id: n!.id,
-            label: n!.label,
-            type: n!.type,
-            tags: (n!.data && 'tags' in n!.data ? ((n!.data as Memory).tags ?? []).join('|') : ''),
-            created_at: n!.data?.created_at ?? '',
-          }));
-        downloadCsv(`contextcache-selection-${Date.now()}.csv`, rows);
-        toast('ok', `Exported ${rows.length} node(s)`);
-        return;
+      if (actionType === 'export') {
+        const rows = response.exported ?? [];
+        if (exportFormat === 'csv') {
+          downloadCsv(`contextcache-selection-${Date.now()}.csv`, rows as Array<Record<string, string | number>>);
+        } else {
+          downloadJson(`contextcache-selection-${Date.now()}.json`, rows);
+        }
       }
 
-      if (action === 'open_recall') {
-        const memoryIds = snapshot.map(parseNodeMemoryId).filter((n): n is number => n != null).slice(0, 100);
-        if (memoryIds.length === 0) {
+      if (actionType === 'open_in_recall') {
+        const memoryIds = (response.selected_memory_ids ?? []).slice(0, 100);
+        if (memoryIds.length > 0) {
+          const query = encodeURIComponent(memoryIds.join(','));
+          window.location.assign(`/app?brain_selected=${query}`);
+        } else {
           toast('error', 'No memory nodes selected');
           return;
         }
-        const query = encodeURIComponent(memoryIds.join(','));
-        window.location.assign(`/app?brain_selected=${query}`);
       }
+
+      if (failed.length > 0) {
+        toast('error', `${response.type} partially failed (${failed.length}/${response.total})`);
+      } else {
+        toast('ok', `${response.type} applied to ${response.succeeded} node(s)`);
+      }
+      if (failed.length > 0) {
+        const sample = failed.slice(0, 3).map((f) => `${f.id}:${f.errorCode ?? 'ERROR'}`).join(', ');
+        setPartialLoadWarning(`Batch partial failure: ${sample}${failed.length > 3 ? ' ...' : ''}`);
+      }
+      queueClusteringRun('label-propagation');
+    } catch (err) {
+      toast('error', err instanceof ApiError ? err.message : 'Batch action failed');
     } finally {
       setBatchBusy(false);
     }

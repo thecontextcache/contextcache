@@ -208,6 +208,56 @@ export const memories = {
     }),
 };
 
+// ── Brain batch actions ──────────────────────────────────────
+export type BrainBatchActionType =
+  | 'add_tag'
+  | 'remove_tag'
+  | 'change_type'
+  | 'pin'
+  | 'unpin'
+  | 'export'
+  | 'open_in_recall';
+
+export interface BrainBatchAction {
+  type: BrainBatchActionType;
+  targetIds: string[];
+  tagId?: string;
+  newType?: string;
+  exportFormat?: 'json' | 'csv';
+}
+
+export interface BrainBatchRequest {
+  actionId: string;
+  action: BrainBatchAction;
+}
+
+export interface BrainBatchResultItem {
+  id: string;
+  success: boolean;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+export interface BrainBatchResponse {
+  actionId: string;
+  type: BrainBatchActionType;
+  results: BrainBatchResultItem[];
+  total: number;
+  succeeded: number;
+  failed: number;
+  exported: Array<Record<string, unknown>>;
+  selected_memory_ids: number[];
+}
+
+export const brain = {
+  batch: (payload: BrainBatchRequest, idempotencyKey?: string) =>
+    request<BrainBatchResponse>('/api/brain/batch', {
+      method: 'POST',
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+      body: JSON.stringify(payload),
+    }),
+};
+
 // ── Recall ────────────────────────────────────────────────────
 export interface RecallItem extends Memory {
   rank_score: number | null;

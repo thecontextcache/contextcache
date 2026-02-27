@@ -259,6 +259,31 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class BatchActionRun(Base):
+    __tablename__ = "batch_action_runs"
+    __table_args__ = (
+        UniqueConstraint("org_id", "idempotency_key", name="uq_batch_action_runs_org_idempotency"),
+        UniqueConstraint("org_id", "action_id", name="uq_batch_action_runs_org_action"),
+        Index("ix_batch_action_runs_org_created", "org_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    actor_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    action_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    action_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'completed'"))
+    response_json: Mapped[dict[str, Any]] = mapped_column(
+        "response",
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
 class RecallLog(Base):
     __tablename__ = "recall_logs"
     __table_args__ = (
