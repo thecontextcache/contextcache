@@ -1,7 +1,7 @@
 """add batch_action_runs table for idempotent brain batch mutations
 
 Revision ID: 20260227_0020_batch_action_runs
-Revises: 20260226_0019_scale_foundations
+Revises: 20260226_0019
 Create Date: 2026-02-27 23:15:00.000000
 """
 
@@ -14,7 +14,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = "20260227_0020_batch_action_runs"
-down_revision = "20260226_0019_scale_foundations"
+down_revision = "20260226_0019"
 branch_labels = None
 depends_on = None
 
