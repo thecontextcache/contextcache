@@ -44,6 +44,25 @@ This document turns the Brain Graph research brief into enforceable implementati
 4. Confirm no sustained long tasks `> 50ms`.
 5. Confirm no monotonic heap growth over 10-minute soak.
 
+## Automated Perf Smoke
+
+Run locally from `web/`:
+
+```bash
+npm install
+npx playwright install --with-deps chromium
+NEXT_PUBLIC_BRAIN_RENDERER=webgl npm run build
+NEXT_PUBLIC_BRAIN_RENDERER=webgl npm run start
+# in another terminal
+npm run perf:brain
+```
+
+The perf smoke script opens synthetic 10k/30k mode and validates:
+
+- renderer is available
+- debug API responds
+- fps / p95 frame / load-time are within configured bounds
+
 ## Deploy Controls
 
 - Set one env value only:

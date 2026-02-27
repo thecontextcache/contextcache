@@ -551,6 +551,9 @@ export function BrainContentWebGL() {
         setSearchResults(computeSearchResults(searchQueryRef.current));
       }
     } catch (err) {
+      if (nodesRef.current.length === 0) {
+        setIsEmpty(true);
+      }
       toast('error', err instanceof ApiError ? err.message : 'Failed to load brain data');
     } finally {
       setTelemetry((prev) => ({
@@ -869,7 +872,7 @@ export function BrainContentWebGL() {
       </div>
 
       {!isEmpty && (
-          <div className="mb-3">
+        <div className="mb-3">
           <div className="relative max-w-md">
             <Input
               value={searchQuery}
