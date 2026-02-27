@@ -358,7 +358,7 @@ export function BrainContentWebGL() {
         y: node.y,
         size: Math.max(2, node.radius * 0.35),
         color: nodeColors[node.type] ?? nodeColors.note,
-        type: node.type,
+        nodeType: node.type,
         hidden: !visible,
       });
     }
