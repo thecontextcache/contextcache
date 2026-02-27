@@ -1016,7 +1016,7 @@ export function BrainContentWebGL() {
       {!showMobileListFallback && (
       <div
         className="relative overflow-hidden rounded-lg border border-line"
-        style={{ minHeight: '70vh' }}
+        style={{ height: '70vh' }}
         role="application"
         aria-label="Brain graph of your project knowledge"
         aria-describedby="brain-graph-help"
