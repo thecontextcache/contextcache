@@ -34,6 +34,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "eslint": "^9.38.0",
+    "eslint-config-next": "^15.1.0",
     "eslint-plugin-jsx-a11y": "^6.10.2",
     "postcss": "^8.5.0",
     "tailwindcss": "^4.0.0",

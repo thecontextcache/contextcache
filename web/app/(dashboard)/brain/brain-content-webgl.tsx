@@ -798,7 +798,7 @@ export function BrainContentWebGL() {
       if (failed.length > 0) {
         toast('error', `${response.type} partially failed (${failed.length}/${response.total})`);
       } else {
-        toast('ok', `${response.type} applied to ${response.succeeded} node(s)`);
+        toast('success', `${response.type} applied to ${response.succeeded} node(s)`);
       }
       if (failed.length > 0) {
         const sample = failed.slice(0, 3).map((f) => `${f.id}:${f.errorCode ?? 'ERROR'}`).join(', ');
