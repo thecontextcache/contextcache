@@ -31,9 +31,9 @@ const icons: Record<ToastType, typeof CheckCircle> = {
 };
 
 const styles: Record<ToastType, string> = {
-  success: 'border-ok/30 bg-ok/10 text-ok',
-  error: 'border-err/30 bg-err/10 text-err',
-  info: 'border-brand/30 bg-brand/10 text-brand',
+  success: 'border-ok/30 bg-ok/12 text-ok',
+  error: 'border-err/30 bg-err/12 text-err',
+  info: 'border-brand/30 bg-brand/12 text-brand',
 };
 
 let nextId = 0;
@@ -63,7 +63,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             <div
               key={t.id}
               className={cn(
-                'flex items-center gap-3 rounded-lg border px-4 py-3 shadow-panel animate-fade-in-up',
+                'flex items-center gap-3 rounded-md border px-4 py-3 shadow-panel animate-fade-in-up',
                 styles[t.type]
               )}
             >

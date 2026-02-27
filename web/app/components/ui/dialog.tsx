@@ -39,7 +39,7 @@ export function Dialog({ open, onClose, title, children, className }: DialogProp
     <dialog
       ref={dialogRef}
       className={cn(
-        'rounded-xl border border-line bg-panel p-0 text-ink shadow-panel backdrop:bg-black/60',
+        'rounded-lg border border-line bg-panel p-0 text-ink shadow-panel backdrop:bg-black/45',
         'max-w-lg w-full',
         className
       )}

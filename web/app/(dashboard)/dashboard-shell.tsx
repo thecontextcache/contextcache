@@ -17,6 +17,7 @@ import {
   Menu,
   X,
 } from 'lucide-react';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 const sidebarItems = [
   { href: '/app', label: 'Dashboard', icon: LayoutDashboard },
@@ -63,11 +64,14 @@ export function DashboardShell({ children }: { children: ReactNode }) {
     <div className="flex min-h-screen">
       {/* Mobile sidebar toggle */}
       <button
-        className="fixed left-4 top-4 z-50 rounded-lg border border-line bg-panel p-2 text-ink-2 lg:hidden"
+        className="fixed left-4 top-4 z-50 rounded-md border border-line bg-panel p-2 text-ink-2 lg:hidden"
         onClick={() => setSidebarOpen(!sidebarOpen)}
       >
         {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
       </button>
+      <div className="fixed right-4 top-4 z-50 lg:hidden">
+        <ThemeToggle />
+      </div>
 
       {/* Sidebar overlay */}
       {sidebarOpen && (
@@ -84,10 +88,13 @@ export function DashboardShell({ children }: { children: ReactNode }) {
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
-        <div className="flex h-14 items-center border-b border-line px-6">
-          <Link href="/" className="font-display text-sm font-bold gradient-text">
+        <div className="flex h-14 items-center justify-between border-b border-line px-6">
+          <Link href="/" className="text-sm font-semibold text-brand">
             {APP_NAME}
           </Link>
+          <div className="hidden lg:block">
+            <ThemeToggle />
+          </div>
         </div>
 
         <nav className="flex-1 space-y-1 px-3 py-4">
@@ -102,9 +109,9 @@ export function DashboardShell({ children }: { children: ReactNode }) {
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
+                  'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
                   active
-                    ? 'bg-brand/10 text-brand'
+                    ? 'bg-brand/12 text-brand'
                     : 'text-ink-2 hover:bg-bg/50 hover:text-ink'
                 )}
               >
@@ -121,7 +128,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
           )}
           <button
             onClick={handleLogout}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-ink-2 transition-colors hover:bg-bg/50 hover:text-ink"
+            className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-ink-2 transition-colors hover:bg-bg/50 hover:text-ink"
           >
             <LogOut className="h-4 w-4" />
             Sign out
@@ -137,7 +144,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
         <footer className="mt-auto border-t border-line bg-bg-2/30 px-4 py-5 lg:px-8">
           <div className="mx-auto w-full max-w-[1400px] flex flex-col items-center justify-between gap-3 sm:flex-row">
             <div className="flex items-center gap-3">
-              <Link href="/" className="font-display text-xs font-bold gradient-text">{APP_NAME}</Link>
+              <Link href="/" className="text-xs font-semibold text-brand">{APP_NAME}</Link>
               <span className="text-[11px] text-muted">&copy; 2024&ndash;2026 TheContextCache</span>
             </div>
             <div className="flex flex-wrap items-center gap-3">

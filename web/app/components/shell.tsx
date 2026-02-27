@@ -8,6 +8,7 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Menu, X, Mail, Camera } from 'lucide-react';
 import { ServiceUnavailable } from './service-unavailable';
+import { ThemeToggle } from './theme-toggle';
 
 interface ShellProps {
   children: ReactNode;
@@ -72,10 +73,10 @@ export function Shell({ children }: ShellProps) {
       {hasMounted && healthOk === false && <ServiceUnavailable />}
 
       {!isDashboard && (
-        <header className="glass sticky top-0 z-40 border-b border-line">
+        <header className="sticky top-0 z-40 border-b border-line bg-panel/95 backdrop-blur-sm">
           <nav className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
             <Link href="/" className="flex items-center gap-2">
-              <span className="font-display text-lg font-bold gradient-text">{APP_NAME}</span>
+              <span className="text-lg font-semibold text-brand">{APP_NAME}</span>
             </Link>
 
             {/* Desktop nav */}
@@ -96,18 +97,19 @@ export function Shell({ children }: ShellProps) {
               {isLoggedIn ? (
                 <Link
                   href="/app"
-                  className="rounded-lg bg-gradient-to-r from-brand to-violet px-4 py-2 text-sm font-medium text-white transition-all hover:shadow-glow"
+                  className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand/90"
                 >
                   Dashboard
                 </Link>
               ) : (
                 <Link
                   href="/auth"
-                  className="rounded-lg bg-gradient-to-r from-brand to-violet px-4 py-2 text-sm font-medium text-white transition-all hover:shadow-glow"
+                  className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand/90"
                 >
                   Sign in
                 </Link>
               )}
+              <ThemeToggle />
             </div>
 
             {/* Mobile menu toggle */}
@@ -140,18 +142,21 @@ export function Shell({ children }: ShellProps) {
                   {isLoggedIn ? (
                     <Link
                       href="/app"
-                      className="block rounded-lg bg-gradient-to-r from-brand to-violet px-4 py-2 text-center text-sm font-medium text-white"
+                      className="block rounded-md bg-brand px-4 py-2 text-center text-sm font-medium text-white"
                     >
                       Dashboard
                     </Link>
                   ) : (
                     <Link
                       href="/auth"
-                      className="block rounded-lg bg-gradient-to-r from-brand to-violet px-4 py-2 text-center text-sm font-medium text-white"
+                      className="block rounded-md bg-brand px-4 py-2 text-center text-sm font-medium text-white"
                     >
                       Sign in
                     </Link>
                   )}
+                </div>
+                <div>
+                  <ThemeToggle className="w-full rounded-md border border-line bg-panel px-4 py-2 text-sm text-ink-2 hover:bg-bg-2 hover:text-ink" />
                 </div>
               </div>
             </div>
@@ -167,7 +172,7 @@ export function Shell({ children }: ShellProps) {
             <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
               {/* Column 1 — Brand */}
               <div>
-                <span className="font-display text-lg font-bold gradient-text">{APP_NAME}</span>
+                <span className="text-lg font-semibold text-brand">{APP_NAME}</span>
                 <p className="mt-2 text-sm text-ink-2">Project Brain for AI Teams</p>
                 <p className="mt-4 text-xs text-muted">
                   &copy; 2024&ndash;2026 TheContextCache.<br />

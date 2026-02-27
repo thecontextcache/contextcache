@@ -288,7 +288,7 @@ export function OrgsContent() {
     <div className="animate-fade-in">
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="font-display text-2xl font-bold">Organisation</h1>
+          <h1 className="text-2xl font-semibold">Organisation</h1>
           <p className="mt-1 text-sm text-ink-2">
             Manage your organisations, members, and audit logs.
           </p>
@@ -428,30 +428,30 @@ export function OrgsContent() {
               <p className="text-sm text-ink-2">No members yet.</p>
             </Card>
           ) : (
-            <div className="overflow-x-auto rounded-xl border border-line">
-              <table className="w-full text-sm">
+            <div className="cc-table-wrap">
+              <table className="cc-table">
                 <thead>
-                  <tr className="border-b border-line bg-bg-2 text-left">
-                    <th className="px-4 py-3 font-medium text-ink-2">Email</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Display name</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Role</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Joined</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Actions</th>
+                  <tr className="cc-table-head">
+                    <th className="cc-th">Email</th>
+                    <th className="cc-th">Display name</th>
+                    <th className="cc-th">Role</th>
+                    <th className="cc-th">Joined</th>
+                    <th className="cc-th">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {members.map((m) => (
-                    <tr key={m.id} className="border-b border-line last:border-0">
-                      <td className="px-4 py-3 text-ink">{m.email}</td>
-                      <td className="px-4 py-3 text-ink-2">{m.display_name || '—'}</td>
-                      <td className="px-4 py-3">
+                    <tr key={m.id} className="cc-tr">
+                      <td className="cc-td">{m.email}</td>
+                      <td className="cc-td-muted">{m.display_name || '—'}</td>
+                      <td className="cc-td">
                         <div className="flex items-center gap-2">
                           <Badge variant={roleBadge(m.role)}>{m.role}</Badge>
                           <select
                             value={m.role}
                             disabled={updatingMemberId === m.id || !canManageMembers}
                             onChange={(e) => handleMemberRoleChange(m, e.target.value)}
-                            className="rounded border border-line bg-bg-2 px-2 py-1 text-xs text-ink outline-none focus:border-brand/50"
+                            className="cc-field !w-auto !rounded-md !px-2 !py-1 !text-xs"
                           >
                             <option value="owner">owner</option>
                             <option value="admin">admin</option>
@@ -460,10 +460,10 @@ export function OrgsContent() {
                           </select>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-muted">
+                      <td className="cc-td-muted">
                         {new Date(m.created_at).toLocaleDateString()}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="cc-td">
                         <button
                           title="Remove member"
                           disabled={!canManageMembers}
@@ -497,7 +497,7 @@ export function OrgsContent() {
                 <select
                   value={memberRole}
                   onChange={(e) => setMemberRole(e.target.value)}
-                  className="w-full rounded-lg border border-line bg-bg-2 px-4 py-2.5 text-sm text-ink outline-none focus:border-brand/50"
+                  className="cc-field"
                 >
                   <option value="member">Member</option>
                   <option value="admin">Admin</option>
@@ -528,31 +528,31 @@ export function OrgsContent() {
             </Card>
           ) : (
             <>
-              <div className="overflow-x-auto rounded-xl border border-line">
-                <table className="w-full text-sm">
+              <div className="cc-table-wrap">
+                <table className="cc-table">
                   <thead>
-                    <tr className="border-b border-line bg-bg-2 text-left">
-                      <th className="px-4 py-3 font-medium text-ink-2">Action</th>
-                      <th className="px-4 py-3 font-medium text-ink-2">Entity</th>
-                      <th className="px-4 py-3 font-medium text-ink-2">Actor</th>
-                      <th className="px-4 py-3 font-medium text-ink-2">Time</th>
+                    <tr className="cc-table-head">
+                      <th className="cc-th">Action</th>
+                      <th className="cc-th">Entity</th>
+                      <th className="cc-th">Actor</th>
+                      <th className="cc-th">Time</th>
                     </tr>
                   </thead>
                   <tbody>
                     {auditLogs.map((log) => (
-                      <tr key={log.id} className="border-b border-line last:border-0">
-                        <td className="px-4 py-3">
+                      <tr key={log.id} className="cc-tr">
+                        <td className="cc-td">
                           <Badge variant={actionBadge(log.action)}>{formatAction(log.action)}</Badge>
                         </td>
-                        <td className="px-4 py-3 text-ink-2">
+                        <td className="cc-td-muted">
                           {log.entity_type} #{log.entity_id}
                         </td>
-                        <td className="px-4 py-3 text-muted">
+                        <td className="cc-td-muted">
                           {(log.metadata?.actor_email as string | undefined)
                             || (log.metadata?.email as string | undefined)
                             || (log.actor_user_id ? `User #${log.actor_user_id}` : log.api_key_prefix ? `Key ${log.api_key_prefix}...` : '—')}
                         </td>
-                        <td className="px-4 py-3 text-muted">
+                        <td className="cc-td-muted">
                           <div className="flex items-center gap-1">
                             <Clock3 className="h-3.5 w-3.5" />
                             <span>{timeAgo(log.created_at)} · {new Date(log.created_at).toLocaleString()}</span>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import {
   admin,
   type AdminUser,
@@ -235,7 +235,7 @@ export function AdminContent() {
       <div className="mb-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Shield className="h-6 w-6 text-violet" />
-          <h1 className="font-display text-2xl font-bold">Admin</h1>
+          <h1 className="text-2xl font-semibold">Admin</h1>
         </div>
         <Button size="sm" onClick={() => setShowInvite(true)}>
           <Send className="h-4 w-4" />
@@ -271,24 +271,24 @@ export function AdminContent() {
         <>
           {/* ── Users ─────────────────────────────────── */}
           {tab === 'users' && (
-            <div className="overflow-x-auto rounded-xl border border-line">
-              <table className="w-full text-sm">
+            <div className="cc-table-wrap">
+              <table className="cc-table">
                 <thead>
-                  <tr className="border-b border-line bg-bg-2 text-left">
-                    <th className="px-4 py-3 font-medium text-ink-2" />
-                    <th className="px-4 py-3 font-medium text-ink-2">ID</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Email</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Role</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Status</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Created</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Last Login</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Actions</th>
+                  <tr className="cc-table-head">
+                    <th className="cc-th" />
+                    <th className="cc-th">ID</th>
+                    <th className="cc-th">Email</th>
+                    <th className="cc-th">Role</th>
+                    <th className="cc-th">Status</th>
+                    <th className="cc-th">Created</th>
+                    <th className="cc-th">Last Login</th>
+                    <th className="cc-th">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {users.map((u) => (
-                    <>
-                      <tr key={u.id} className="border-b border-line last:border-0">
+                    <Fragment key={`user-row-${u.id}`}>
+                      <tr className="cc-tr">
                         <td className="px-4 py-3">
                           <button
                             onClick={() => toggleExpandUser(u.id)}
@@ -299,8 +299,8 @@ export function AdminContent() {
                               : <ChevronRight className="h-4 w-4" />}
                           </button>
                         </td>
-                        <td className="px-4 py-3 text-muted">{u.id}</td>
-                        <td className="px-4 py-3 text-ink">{u.email}</td>
+                        <td className="cc-td-muted">{u.id}</td>
+                        <td className="cc-td">{u.email}</td>
                         <td className="px-4 py-3">
                           {u.is_admin ? (
                             <Badge variant="violet">Admin</Badge>
@@ -318,10 +318,10 @@ export function AdminContent() {
                             <Badge variant="ok">Active</Badge>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-muted">
+                        <td className="cc-td-muted">
                           {new Date(u.created_at).toLocaleDateString()}
                         </td>
-                        <td className="px-4 py-3 text-muted">
+                        <td className="cc-td-muted">
                           {u.last_login_at ? new Date(u.last_login_at).toLocaleString() : '—'}
                         </td>
                         <td className="px-4 py-3">
@@ -410,7 +410,7 @@ export function AdminContent() {
                           </td>
                         </tr>
                       )}
-                    </>
+                    </Fragment>
                   ))}
                   {users.length === 0 && (
                     <tr><td colSpan={8} className="px-4 py-8 text-center text-muted">No users</td></tr>
@@ -422,33 +422,33 @@ export function AdminContent() {
 
           {/* ── Invites ───────────────────────────────── */}
           {tab === 'invites' && (
-            <div className="overflow-x-auto rounded-xl border border-line">
-              <table className="w-full text-sm">
+            <div className="cc-table-wrap">
+              <table className="cc-table">
                 <thead>
-                  <tr className="border-b border-line bg-bg-2 text-left">
-                    <th className="px-4 py-3 font-medium text-ink-2">Email</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Status</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Created</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Expires</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Notes</th>
-                    <th className="px-4 py-3 font-medium text-ink-2" />
+                  <tr className="cc-table-head">
+                    <th className="cc-th">Email</th>
+                    <th className="cc-th">Status</th>
+                    <th className="cc-th">Created</th>
+                    <th className="cc-th">Expires</th>
+                    <th className="cc-th">Notes</th>
+                    <th className="cc-th" />
                   </tr>
                 </thead>
                 <tbody>
                   {invites.map((inv) => {
                     const status = inv.revoked_at ? 'revoked' : inv.accepted_at ? 'accepted' : 'pending';
                     return (
-                      <tr key={inv.id} className="border-b border-line last:border-0">
-                        <td className="px-4 py-3 text-ink">{inv.email}</td>
+                      <tr key={inv.id} className="cc-tr">
+                        <td className="cc-td">{inv.email}</td>
                         <td className="px-4 py-3">
                           <Badge variant={status === 'accepted' ? 'ok' : status === 'revoked' ? 'err' : 'warn'}>
                             {status}
                           </Badge>
                         </td>
-                        <td className="px-4 py-3 text-muted">
+                        <td className="cc-td-muted">
                           {new Date(inv.created_at).toLocaleDateString()}
                         </td>
-                        <td className="px-4 py-3 text-muted">
+                        <td className="cc-td-muted">
                           {new Date(inv.expires_at).toLocaleDateString()}
                         </td>
                         <td className="max-w-[200px] truncate px-4 py-3 text-muted">
@@ -478,21 +478,21 @@ export function AdminContent() {
 
           {/* ── Orgs ──────────────────────────────────── */}
           {tab === 'orgs' && (
-            <div className="overflow-x-auto rounded-xl border border-line">
-              <table className="w-full text-sm">
+            <div className="cc-table-wrap">
+              <table className="cc-table">
                 <thead>
-                  <tr className="border-b border-line bg-bg-2 text-left">
-                    <th className="px-4 py-3 font-medium text-ink-2">ID</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Name</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Created</th>
+                  <tr className="cc-table-head">
+                    <th className="cc-th">ID</th>
+                    <th className="cc-th">Name</th>
+                    <th className="cc-th">Created</th>
                   </tr>
                 </thead>
                 <tbody>
                   {orgsList.map((o, i) => (
-                    <tr key={i} className="border-b border-line last:border-0">
-                      <td className="px-4 py-3 text-muted">{String(o.id || i)}</td>
-                      <td className="px-4 py-3 text-ink">{String(o.name || '')}</td>
-                      <td className="px-4 py-3 text-muted">
+                    <tr key={i} className="cc-tr">
+                      <td className="cc-td-muted">{String(o.id || i)}</td>
+                      <td className="cc-td">{String(o.name || '')}</td>
+                      <td className="cc-td-muted">
                         {o.created_at ? new Date(String(o.created_at)).toLocaleDateString() : '—'}
                       </td>
                     </tr>
@@ -507,32 +507,32 @@ export function AdminContent() {
 
           {/* ── Waitlist ──────────────────────────────── */}
           {tab === 'waitlist' && (
-            <div className="overflow-x-auto rounded-xl border border-line">
-              <table className="w-full text-sm">
+            <div className="cc-table-wrap">
+              <table className="cc-table">
                 <thead>
-                  <tr className="border-b border-line bg-bg-2 text-left">
-                    <th className="px-4 py-3 font-medium text-ink-2">Email</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Name</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Company</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Use case</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Status</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Date</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Actions</th>
+                  <tr className="cc-table-head">
+                    <th className="cc-th">Email</th>
+                    <th className="cc-th">Name</th>
+                    <th className="cc-th">Company</th>
+                    <th className="cc-th">Use case</th>
+                    <th className="cc-th">Status</th>
+                    <th className="cc-th">Date</th>
+                    <th className="cc-th">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {waitlistEntries.map((w, i) => (
-                    <tr key={i} className="border-b border-line last:border-0">
-                      <td className="px-4 py-3 text-ink">{w.email}</td>
-                      <td className="px-4 py-3 text-muted">{w.name || '—'}</td>
-                      <td className="px-4 py-3 text-muted">{w.company || '—'}</td>
+                    <tr key={i} className="cc-tr">
+                      <td className="cc-td">{w.email}</td>
+                      <td className="cc-td-muted">{w.name || '—'}</td>
+                      <td className="cc-td-muted">{w.company || '—'}</td>
                       <td className="max-w-[260px] truncate px-4 py-3 text-muted">{w.use_case || '—'}</td>
                       <td className="px-4 py-3">
                         <Badge variant={w.status === 'approved' ? 'ok' : w.status === 'rejected' ? 'err' : 'warn'}>
                           {w.status}
                         </Badge>
                       </td>
-                      <td className="px-4 py-3 text-muted">
+                      <td className="cc-td-muted">
                         {w.created_at ? new Date(w.created_at).toLocaleDateString() : '—'}
                       </td>
                       <td className="px-4 py-3">
@@ -574,20 +574,20 @@ export function AdminContent() {
 
           {/* ── Usage ─────────────────────────────────── */}
           {tab === 'usage' && (
-            <div className="overflow-x-auto rounded-xl border border-line">
-              <table className="w-full text-sm">
+            <div className="cc-table-wrap">
+              <table className="cc-table">
                 <thead>
-                  <tr className="border-b border-line bg-bg-2 text-left">
-                    <th className="px-4 py-3 font-medium text-ink-2">Date</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Event</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Count</th>
+                  <tr className="cc-table-head">
+                    <th className="cc-th">Date</th>
+                    <th className="cc-th">Event</th>
+                    <th className="cc-th">Count</th>
                   </tr>
                 </thead>
                 <tbody>
                   {usageData.map((row, i) => (
-                    <tr key={i} className="border-b border-line last:border-0">
-                      <td className="px-4 py-3 text-muted">{row.date}</td>
-                      <td className="px-4 py-3 text-ink">{row.event_type}</td>
+                    <tr key={i} className="cc-tr">
+                      <td className="cc-td-muted">{row.date}</td>
+                      <td className="cc-td">{row.event_type}</td>
                       <td className="px-4 py-3 font-mono text-ink">{row.count}</td>
                     </tr>
                   ))}
@@ -601,34 +601,34 @@ export function AdminContent() {
 
           {/* ── Recall Logs ───────────────────────────── */}
           {tab === 'recall' && (
-            <div className="overflow-x-auto rounded-xl border border-line">
-              <table className="w-full text-sm">
+            <div className="cc-table-wrap">
+              <table className="cc-table">
                 <thead>
-                  <tr className="border-b border-line bg-bg-2 text-left">
-                    <th className="px-4 py-3 font-medium text-ink-2">ID</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Query</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Strategy</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Served By</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Duration</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Project</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Results</th>
-                    <th className="px-4 py-3 font-medium text-ink-2">Date</th>
+                  <tr className="cc-table-head">
+                    <th className="cc-th">ID</th>
+                    <th className="cc-th">Query</th>
+                    <th className="cc-th">Strategy</th>
+                    <th className="cc-th">Served By</th>
+                    <th className="cc-th">Duration</th>
+                    <th className="cc-th">Project</th>
+                    <th className="cc-th">Results</th>
+                    <th className="cc-th">Date</th>
                   </tr>
                 </thead>
                 <tbody>
                   {recallLogs.map((log) => (
-                    <tr key={log.id} className="border-b border-line last:border-0">
-                      <td className="px-4 py-3 text-muted">{log.id}</td>
+                    <tr key={log.id} className="cc-tr">
+                      <td className="cc-td-muted">{log.id}</td>
                       <td className="max-w-[250px] truncate px-4 py-3 text-ink">{log.query_text}</td>
                       <td className="px-4 py-3">
                         <Badge variant="muted">{log.strategy}</Badge>
                       </td>
-                      <td className="px-4 py-3 text-muted">
+                      <td className="cc-td-muted">
                         {(log.served_by as string | undefined)
                           || (log.score_details?.served_by as string | undefined)
                           || '—'}
                       </td>
-                      <td className="px-4 py-3 text-muted">
+                      <td className="cc-td-muted">
                         {(() => {
                           const raw = (log.duration_ms as number | undefined)
                             ?? (log.score_details?.total_duration_ms as number | undefined)
@@ -636,9 +636,9 @@ export function AdminContent() {
                           return raw != null ? `${raw} ms` : '—';
                         })()}
                       </td>
-                      <td className="px-4 py-3 text-muted">#{log.project_id}</td>
-                      <td className="px-4 py-3 text-muted">{log.ranked_memory_ids.length}</td>
-                      <td className="px-4 py-3 text-muted">
+                      <td className="cc-td-muted">#{log.project_id}</td>
+                      <td className="cc-td-muted">{log.ranked_memory_ids.length}</td>
+                      <td className="cc-td-muted">
                         {new Date(log.created_at).toLocaleString()}
                       </td>
                     </tr>

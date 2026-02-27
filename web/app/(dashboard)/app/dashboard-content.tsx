@@ -404,7 +404,7 @@ export function DashboardContent() {
 
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <h1 className="font-display text-2xl font-bold">{selectedProject.name}</h1>
+            <h1 className="text-2xl font-semibold">{selectedProject.name}</h1>
             {selectedProject.description && (
               <p className="mt-1 text-sm text-ink-2">{selectedProject.description}</p>
             )}
@@ -550,7 +550,7 @@ export function DashboardContent() {
                       Copy
                     </Button>
                   </div>
-                  <pre className="mt-2 max-h-72 overflow-auto rounded-xl border border-line bg-bg-2 p-5 font-mono text-xs leading-relaxed text-ink-2 whitespace-pre-wrap">
+                  <pre className="mt-2 max-h-72 overflow-auto rounded-lg border border-line bg-bg-2 p-5 font-mono text-xs leading-relaxed text-ink-2 whitespace-pre-wrap">
                     {recallResult.memory_pack_text}
                   </pre>
                 </details>
@@ -611,7 +611,7 @@ export function DashboardContent() {
                     {isFailed ? (
                       <div className="space-y-4">
                         {/* Warning banner */}
-                        <div className="flex items-start gap-3.5 rounded-xl border border-warn/20 bg-warn/[0.06] p-4">
+                        <div className="flex items-start gap-3.5 rounded-lg border border-warn/20 bg-warn/[0.06] p-4">
                           <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-warn/15">
                             <AlertTriangle className="h-5 w-5 text-warn" />
                           </div>
@@ -629,7 +629,7 @@ export function DashboardContent() {
                             <ChevronRight className="h-4 w-4 shrink-0 transition-transform duration-200 group-open:rotate-90" />
                             View raw captured content
                           </summary>
-                          <pre className="mt-2 max-h-80 overflow-auto rounded-xl border border-line bg-bg-2 p-5 font-mono text-xs leading-relaxed text-ink-2 whitespace-pre-wrap break-words">
+                          <pre className="mt-2 max-h-80 overflow-auto rounded-lg border border-line bg-bg-2 p-5 font-mono text-xs leading-relaxed text-ink-2 whitespace-pre-wrap break-words">
                             {item.suggested_content.replace(/^\[Gemini extraction failed: [^\]]*\]\n*/, '')}
                           </pre>
                         </details>
@@ -690,7 +690,7 @@ export function DashboardContent() {
               <select
                 value={memType}
                 onChange={(e) => setMemType(e.target.value)}
-                className="w-full rounded-lg border border-line bg-bg-2 px-4 py-2.5 text-sm text-ink outline-none focus:border-brand/50"
+                className="cc-field"
               >
                 {MEMORY_TYPES.map((t) => (
                   <option key={t.key} value={t.key}>{t.label}</option>
@@ -709,7 +709,7 @@ export function DashboardContent() {
                 onChange={(e) => setMemBody(e.target.value)}
                 placeholder="Describe the decision, finding, or note..."
                 rows={4}
-                className="w-full rounded-lg border border-line bg-bg-2 px-4 py-2.5 text-sm text-ink placeholder:text-muted outline-none focus:border-brand/50"
+                className="cc-field"
               />
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -745,7 +745,7 @@ export function DashboardContent() {
               <select
                 value={editMemType}
                 onChange={(e) => setEditMemType(e.target.value)}
-                className="w-full rounded-lg border border-line bg-bg-2 px-4 py-2.5 text-sm text-ink outline-none focus:border-brand/50"
+                className="cc-field"
               >
                 {MEMORY_TYPES.map((t) => (
                   <option key={t.key} value={t.key}>{t.label}</option>
@@ -763,7 +763,7 @@ export function DashboardContent() {
                 value={editMemBody}
                 onChange={(e) => setEditMemBody(e.target.value)}
                 rows={5}
-                className="w-full rounded-lg border border-line bg-bg-2 px-4 py-2.5 text-sm text-ink placeholder:text-muted outline-none focus:border-brand/50"
+                className="cc-field"
               />
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -799,7 +799,7 @@ export function DashboardContent() {
               <select
                 value={approveType}
                 onChange={(e) => setApproveType(e.target.value)}
-                className="w-full rounded-lg border border-line bg-bg-2 px-4 py-2.5 text-sm text-ink outline-none focus:border-brand/50"
+                className="cc-field"
               >
                 {MEMORY_TYPES.map((t) => (
                   <option key={t.key} value={t.key}>{t.label}</option>
@@ -817,7 +817,7 @@ export function DashboardContent() {
                 value={approveContent}
                 onChange={(e) => setApproveContent(e.target.value)}
                 rows={6}
-                className="w-full rounded-lg border border-line bg-bg-2 px-4 py-2.5 text-sm text-ink placeholder:text-muted outline-none focus:border-brand/50"
+                className="cc-field"
               />
             </div>
             <Button type="submit" loading={approvingEdited} className="w-full">Approve item</Button>
@@ -857,7 +857,7 @@ export function DashboardContent() {
     <div className="animate-fade-in">
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="font-display text-2xl font-bold">Projects</h1>
+          <h1 className="text-2xl font-semibold">Projects</h1>
           <div className="mt-1 inline-flex items-center gap-2 text-xs text-muted">
             <Building2 className="h-3.5 w-3.5" />
             Org: {orgList.find((o) => String(o.id) === activeOrgId)?.name || 'Not selected'}

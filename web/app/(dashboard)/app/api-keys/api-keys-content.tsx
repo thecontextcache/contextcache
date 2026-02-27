@@ -81,7 +81,7 @@ export function ApiKeysContent() {
   if (noOrg) {
     return (
       <div className="animate-fade-in">
-        <h1 className="mb-6 font-display text-2xl font-bold">API Keys</h1>
+        <h1 className="mb-6 text-2xl font-semibold">API Keys</h1>
         <Card className="py-12 text-center">
           <AlertTriangle className="mx-auto mb-3 h-10 w-10 text-warn" />
           <p className="mb-2 text-sm text-ink-2">No organisation selected.</p>
@@ -96,7 +96,7 @@ export function ApiKeysContent() {
   return (
     <div className="animate-fade-in">
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="font-display text-2xl font-bold">API Keys</h1>
+        <h1 className="text-2xl font-semibold">API Keys</h1>
         <Button size="sm" onClick={() => { setShowCreate(true); setNewKey(null); }}>
           <Plus className="h-4 w-4" />
           Create key
@@ -115,33 +115,33 @@ export function ApiKeysContent() {
           </Button>
         </Card>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-line">
-          <table className="w-full text-sm">
+        <div className="cc-table-wrap">
+          <table className="cc-table">
             <thead>
-              <tr className="border-b border-line bg-bg-2 text-left">
-                <th className="px-4 py-3 font-medium text-ink-2">Name</th>
-                <th className="px-4 py-3 font-medium text-ink-2">Prefix</th>
-                <th className="px-4 py-3 font-medium text-ink-2">Created</th>
-                <th className="px-4 py-3 font-medium text-ink-2">Last used</th>
-                <th className="px-4 py-3 font-medium text-ink-2">Uses</th>
-                <th className="px-4 py-3 font-medium text-ink-2" />
+              <tr className="cc-table-head">
+                <th className="cc-th">Name</th>
+                <th className="cc-th">Prefix</th>
+                <th className="cc-th">Created</th>
+                <th className="cc-th">Last used</th>
+                <th className="cc-th">Uses</th>
+                <th className="cc-th" />
               </tr>
             </thead>
             <tbody>
               {keys.map((k) => (
-                <tr key={k.id} className="border-b border-line last:border-0">
-                  <td className="px-4 py-3 font-medium text-ink">{k.name}</td>
-                  <td className="px-4 py-3">
+                <tr key={k.id} className="cc-tr">
+                  <td className="cc-td font-medium">{k.name}</td>
+                  <td className="cc-td">
                     <code className="rounded bg-bg-2 px-2 py-1 font-mono text-xs text-ink-2">{k.prefix}...</code>
                   </td>
-                  <td className="px-4 py-3 text-muted">
+                  <td className="cc-td-muted">
                     {new Date(k.created_at).toLocaleDateString()}
                   </td>
-                  <td className="px-4 py-3 text-muted">
+                  <td className="cc-td-muted">
                     {k.last_used_at ? new Date(k.last_used_at).toLocaleDateString() : 'Never'}
                   </td>
-                  <td className="px-4 py-3 text-muted">{k.use_count}</td>
-                  <td className="px-4 py-3">
+                  <td className="cc-td-muted">{k.use_count}</td>
+                  <td className="cc-td">
                     <button
                       onClick={() => handleRevoke(k.id)}
                       className="rounded p-1.5 text-muted transition-colors hover:bg-err/10 hover:text-err"

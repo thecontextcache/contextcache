@@ -8,13 +8,13 @@ interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
 }
 
 const variantStyles: Record<BadgeVariant, string> = {
-  default: 'bg-brand/10 text-brand border-brand/20',
-  brand: 'bg-brand/10 text-brand border-brand/20',
-  violet: 'bg-violet/10 text-violet border-violet/20',
-  ok: 'bg-ok/10 text-ok border-ok/20',
-  err: 'bg-err/10 text-err border-err/20',
-  warn: 'bg-warn/10 text-warn border-warn/20',
-  muted: 'bg-muted/10 text-muted border-muted/20',
+  default: 'bg-brand/10 text-brand border-brand/25',
+  brand: 'bg-brand/10 text-brand border-brand/25',
+  violet: 'bg-violet/10 text-violet border-violet/25',
+  ok: 'bg-ok/12 text-ok border-ok/30',
+  err: 'bg-err/12 text-err border-err/30',
+  warn: 'bg-warn/15 text-warn border-warn/35',
+  muted: 'bg-muted/10 text-ink-2 border-line',
 };
 
 function Badge({ className, variant = 'default', children, ...props }: BadgeProps) {

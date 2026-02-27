@@ -10,8 +10,8 @@ function Card({ className, hover, gradient, children, ...props }: CardProps) {
   return (
     <div
       className={cn(
-        'rounded-xl border border-line bg-panel p-6 shadow-panel',
-        hover && 'transition-all duration-200 hover:border-brand/20 hover:shadow-glow',
+        'rounded-lg border border-line bg-panel p-6 shadow-panel',
+        hover && 'transition-all duration-200 hover:border-line/90 hover:bg-bg-2',
         gradient && 'gradient-border',
         className
       )}

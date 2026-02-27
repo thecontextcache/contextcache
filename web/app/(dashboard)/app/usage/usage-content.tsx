@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react';
 import { usage, type Usage } from '@/lib/api';
 import { Card } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { SkeletonCard } from '@/components/skeleton';
 import { useToast } from '@/components/toast';
 import { BarChart3, Brain, Search, FolderOpen } from 'lucide-react';
@@ -44,7 +43,7 @@ export function UsageContent() {
   if (loading) {
     return (
       <div className="animate-fade-in">
-        <h1 className="mb-6 font-display text-2xl font-bold">Usage</h1>
+        <h1 className="mb-6 text-2xl font-semibold">Usage</h1>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {[1, 2, 3, 4, 5, 6].map((i) => <SkeletonCard key={i} />)}
         </div>
@@ -55,7 +54,7 @@ export function UsageContent() {
   if (!data) {
     return (
       <div className="animate-fade-in">
-        <h1 className="mb-6 font-display text-2xl font-bold">Usage</h1>
+        <h1 className="mb-6 text-2xl font-semibold">Usage</h1>
         <Card className="py-12 text-center">
           <BarChart3 className="mx-auto mb-3 h-10 w-10 text-muted" />
           <p className="text-sm text-ink-2">No usage data available.</p>
@@ -123,7 +122,7 @@ export function UsageContent() {
   return (
     <div className="animate-fade-in">
       <div className="mb-6">
-        <h1 className="font-display text-2xl font-bold">Usage</h1>
+        <h1 className="text-2xl font-semibold">Usage</h1>
         <p className="mt-1 text-sm text-ink-2">
           Your usage for <strong>{data.day}</strong> (week of {data.week_start})
         </p>
@@ -142,7 +141,7 @@ export function UsageContent() {
                 <p className="text-sm font-medium text-ink">{m.label}</p>
               </div>
               <div className="flex items-baseline gap-2">
-                <span className="font-display text-2xl font-bold gradient-text">
+                <span className="text-2xl font-semibold text-brand">
                   {m.used}
                 </span>
                 <span className="text-sm text-muted">/ {m.limit}</span>
@@ -171,7 +170,7 @@ export function UsageContent() {
                 <p className="text-sm font-medium text-ink">{m.label}</p>
               </div>
               <div className="flex items-baseline gap-2">
-                <span className="font-display text-2xl font-bold gradient-text">
+                <span className="text-2xl font-semibold text-brand">
                   {m.used}
                 </span>
                 <span className="text-sm text-muted">/ {m.limit}</span>
