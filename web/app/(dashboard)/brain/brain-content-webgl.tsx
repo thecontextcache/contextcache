@@ -27,6 +27,37 @@ interface GraphEdge {
   target: string;
 }
 
+interface ClusterMetrics {
+  id: string;
+  nodeCount: number;
+  edgeCount: number;
+  density: number;
+  avgDegree: number;
+}
+
+interface ClusterNodeAssignment {
+  nodeId: string;
+  clusterId: string;
+  x: number;
+  y: number;
+}
+
+interface OverlayHull {
+  clusterId: string;
+  points: { x: number; y: number }[];
+  centroid: { x: number; y: number };
+  radius: number;
+}
+
+interface ClusteringResult {
+  algo: 'louvain' | 'label-propagation' | 'spatial';
+  clusters: ClusterMetrics[];
+  nodeAssignments: ClusterNodeAssignment[];
+  clusterEdges: Array<{ id: string; sourceClusterId: string; targetClusterId: string; edgeCount: number }>;
+  hulls: OverlayHull[];
+  generatedAt: number;
+}
+
 type BrainWorkerInMessage =
   | {
       type: 'INIT_GRAPH';
@@ -42,6 +73,29 @@ type BrainWorkerInMessage =
 type BrainWorkerOutMessage =
   | { type: 'POSITIONS'; nodes: Array<{ id: string; x: number; y: number }> }
   | { type: 'COOLED' };
+
+type ClusterWorkerInMessage =
+  | {
+      type: 'INIT_GRAPH';
+      nodes: Array<{ id: string; x: number; y: number }>;
+      edges: Array<{ id?: string; source: string; target: string }>;
+    }
+  | { type: 'RUN_CLUSTERING'; requestId: string; algo?: 'louvain' | 'label-propagation' }
+  | {
+      type: 'APPLY_DELTA';
+      requestId: string;
+      addedNodes: Array<{ id: string; x?: number; y?: number }>;
+      removedNodeIds: string[];
+      addedEdges: Array<{ id?: string; source: string; target: string }>;
+      removedEdgeIds: string[];
+    }
+  | { type: 'SYNC_POSITIONS'; positions: Array<{ id: string; x: number; y: number }> }
+  | { type: 'ABORT'; requestId?: string };
+
+type ClusterWorkerOutMessage =
+  | { type: 'CLUSTERING_RESULT'; requestId: string; result: ClusteringResult }
+  | { type: 'CLUSTERING_ERROR'; requestId: string; error: string }
+  | { type: 'PROGRESS'; requestId: string; phase: 'building' | 'iterating' | 'refining'; progress: number };
 
 const TYPE_ORDER: NodeType[] = [
   'project',
@@ -75,6 +129,12 @@ const LOD_HIDE_EDGES_RATIO = 1.35;
 const LOD_EDGE_LIMIT = 12000;
 const MEMORY_FETCH_CONCURRENCY = 10;
 const MEMORY_FETCH_TIMEOUT_MS = 12000;
+const CLUSTER_RECOMPUTE_DEBOUNCE_MS = 5000;
+const CLUSTER_MIN_ZOOM = 0.4;
+const CLUSTER_HIDE_ZOOM = 0.6;
+const CLUSTER_MIN_LABEL_SIZE = 10;
+const ENABLE_CLUSTERS = process.env.NEXT_PUBLIC_FEATURE_CLUSTERS !== '0';
+const ENABLE_BATCH_ACTIONS = process.env.NEXT_PUBLIC_FEATURE_BATCH_ACTIONS !== '0';
 
 type BadgeVariant = 'brand' | 'violet' | 'ok' | 'warn' | 'err' | 'muted';
 
@@ -150,6 +210,39 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
+function parseNodeMemoryId(nodeId: string): number | null {
+  if (!nodeId.startsWith('mem-')) return null;
+  const n = Number(nodeId.slice(4));
+  return Number.isFinite(n) ? n : null;
+}
+
+function downloadJson(filename: string, value: unknown) {
+  const blob = new Blob([JSON.stringify(value, null, 2)], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadCsv(filename: string, rows: Array<Record<string, string | number>>) {
+  if (rows.length === 0) return;
+  const keys = Object.keys(rows[0]);
+  const escapeCsv = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
+  const lines = [keys.join(',')];
+  for (const row of rows) {
+    lines.push(keys.map((k) => escapeCsv(row[k] ?? '')).join(','));
+  }
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function createSyntheticGraph(nodeCount: number, edgeCount: number) {
   const typePool: NodeType[] = ['decision', 'finding', 'snippet', 'note', 'issue', 'context', 'code', 'todo'];
   const projectCount = Math.max(1, Math.ceil(nodeCount / 850));
@@ -205,9 +298,12 @@ export function BrainContentWebGL() {
   const graphRef = useRef<any>(null);
   const sigmaRef = useRef<any>(null);
   const workerRef = useRef<Worker | null>(null);
+  const clusterWorkerRef = useRef<Worker | null>(null);
   const contextLostCleanupRef = useRef<(() => void) | null>(null);
   const layoutStartRef = useRef<number>(0);
   const loadStartRef = useRef<number>(0);
+  const clusterRequestIdRef = useRef<string | null>(null);
+  const clusterRunAtRef = useRef<number>(0);
 
   const nodesRef = useRef<GraphNode[]>([]);
   const edgesRef = useRef<GraphEdge[]>([]);
@@ -219,6 +315,11 @@ export function BrainContentWebGL() {
   const [isEmpty, setIsEmpty] = useState(false);
   const [paused, setPaused] = useState(false);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
+  const [selectedClusterId, setSelectedClusterId] = useState<string | null>(null);
+  const [clusterFocusMode, setClusterFocusMode] = useState(false);
+  const [expandedClusterIds, setExpandedClusterIds] = useState<Set<string>>(new Set());
+  const [clusterResult, setClusterResult] = useState<ClusteringResult | null>(null);
+  const [clusterProgress, setClusterProgress] = useState<{ phase: string; progress: number } | null>(null);
   const [focusMode, setFocusMode] = useState(false);
   const [stats, setStats] = useState({ projects: 0, memories: 0 });
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
@@ -237,6 +338,10 @@ export function BrainContentWebGL() {
   const [mobileFallback, setMobileFallback] = useState(false);
   const [allowFullGraphOnMobile, setAllowFullGraphOnMobile] = useState(false);
   const [selectedFromList, setSelectedFromList] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [, setLastFocusedId] = useState<string | null>(null);
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [cameraState, setCameraState] = useState<{ x: number; y: number; ratio: number }>({ x: 0, y: 0, ratio: 1 });
   const metricsRef = useRef({
     fps: 0,
     p95FrameMs: 0,
@@ -305,6 +410,21 @@ export function BrainContentWebGL() {
     workerRef.current.postMessage(message);
   }
 
+  function postToClusterWorker(message: ClusterWorkerInMessage) {
+    if (!clusterWorkerRef.current || !ENABLE_CLUSTERS) return;
+    clusterWorkerRef.current.postMessage(message);
+  }
+
+  function queueClusteringRun(algo: 'louvain' | 'label-propagation' = 'louvain') {
+    if (!ENABLE_CLUSTERS) return;
+    const now = Date.now();
+    if (now - clusterRunAtRef.current < CLUSTER_RECOMPUTE_DEBOUNCE_MS) return;
+    const requestId = `${now}-${Math.random().toString(36).slice(2, 8)}`;
+    clusterRequestIdRef.current = requestId;
+    clusterRunAtRef.current = now;
+    postToClusterWorker({ type: 'RUN_CLUSTERING', requestId, algo });
+  }
+
   function updateVisibility() {
     const graph = graphRef.current;
     if (!graph) return;
@@ -316,10 +436,18 @@ export function BrainContentWebGL() {
         if (e.target === selectedNode.id) focusSet.add(e.source);
       }
     }
+    const clusterSet = new Set<string>();
+    if (clusterFocusMode && selectedClusterId && clusterResult) {
+      for (const n of clusterResult.nodeAssignments) {
+        if (n.clusterId === selectedClusterId) clusterSet.add(n.nodeId);
+      }
+    }
     for (const node of nodesRef.current) {
       const typeVisible = node.type === 'project' || activeTypesRef.current.has(node.type);
       const focusVisible = !focusMode || !selectedNode || focusSet.has(node.id) || node.type === 'project';
-      const visible = typeVisible && focusVisible;
+      const clusterVisible =
+        !clusterFocusMode || !selectedClusterId || clusterSet.has(node.id) || node.type === 'project';
+      const visible = typeVisible && focusVisible && clusterVisible;
       if (graph.hasNode(node.id)) {
         graph.setNodeAttribute(node.id, 'hidden', !visible);
       }
@@ -341,6 +469,12 @@ export function BrainContentWebGL() {
       nodes: nodesRef.current.map((n) => ({ id: n.id, x: n.x, y: n.y, radius: n.radius })),
       edges: edgesRef.current.map((e) => ({ source: e.source, target: e.target })),
     });
+    postToClusterWorker({
+      type: 'INIT_GRAPH',
+      nodes: nodesRef.current.map((n) => ({ id: n.id, x: n.x, y: n.y })),
+      edges: edgesRef.current.map((e) => ({ id: `${e.source}->${e.target}`, source: e.source, target: e.target })),
+    });
+    queueClusteringRun('louvain');
     if (paused) postToWorker({ type: 'PAUSE_LAYOUT' });
   }
 
@@ -378,6 +512,24 @@ export function BrainContentWebGL() {
     if (sigmaRef.current?.refresh) sigmaRef.current.refresh();
   }
 
+  function applySelectionStyles() {
+    const graph = graphRef.current;
+    if (!graph) return;
+    const selected = selectedIds;
+    const clusterId = selectedClusterId;
+    const assignments = new Map<string, string>(
+      (clusterResult?.nodeAssignments ?? []).map((a) => [a.nodeId, a.clusterId])
+    );
+    for (const node of nodesRef.current) {
+      if (!graph.hasNode(node.id)) continue;
+      const isSelected = selected.has(node.id);
+      const isClusterSelected = clusterId ? assignments.get(node.id) === clusterId : false;
+      graph.setNodeAttribute(node.id, 'size', Math.max(2, node.radius * 0.35 + (isSelected ? 2.2 : isClusterSelected ? 1.2 : 0)));
+      graph.setNodeAttribute(node.id, 'zIndex', isSelected ? 2 : isClusterSelected ? 1 : 0);
+    }
+    if (sigmaRef.current?.refresh) sigmaRef.current.refresh();
+  }
+
   function computeSearchResults(query: string): GraphNode[] {
     const q = query.trim().toLowerCase();
     if (!q) return [];
@@ -400,6 +552,8 @@ export function BrainContentWebGL() {
       searchStartRef.current = 0;
     }
     setSelectedNode(node);
+    setSelectedIds(new Set([node.id]));
+    setLastFocusedId(node.id);
     const sigma = sigmaRef.current;
     if (!sigma?.getCamera) return;
     const camera = sigma.getCamera();
@@ -453,6 +607,178 @@ export function BrainContentWebGL() {
       postToWorker({ type: 'PIN_NODE', id: selectedNode.id, x: selectedNode.x, y: selectedNode.y });
     }
     setPinnedNodeIds(next);
+  }
+
+  function setSingleSelection(id: string | null) {
+    if (!id) {
+      setSelectedIds(new Set());
+      setLastFocusedId(null);
+      return;
+    }
+    setSelectedIds(new Set([id]));
+    setLastFocusedId(id);
+  }
+
+  function toggleSelection(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    setLastFocusedId(id);
+  }
+
+  function addManySelection(ids: string[]) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+    if (ids.length > 0) setLastFocusedId(ids[ids.length - 1]);
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+    setLastFocusedId(null);
+    setSelectedClusterId(null);
+    setClusterFocusMode(false);
+  }
+
+  function getFilteredSelectableNodeIds(): string[] {
+    const visible = nodesRef.current.filter((n) => n.type === 'project' || activeTypesRef.current.has(n.type));
+    return visible.map((n) => n.id);
+  }
+
+  function selectNeighbors() {
+    const selected = Array.from(selectedIds);
+    if (selected.length === 0) return;
+    const neighbors = new Set<string>(selected);
+    for (const edge of edgesRef.current) {
+      if (selected.includes(edge.source)) neighbors.add(edge.target);
+      if (selected.includes(edge.target)) neighbors.add(edge.source);
+    }
+    addManySelection(Array.from(neighbors));
+  }
+
+  function invertSelection() {
+    const inScope = getFilteredSelectableNodeIds();
+    const next = new Set<string>();
+    for (const id of inScope) {
+      if (!selectedIds.has(id)) next.add(id);
+    }
+    setSelectedIds(next);
+    setLastFocusedId(inScope[0] ?? null);
+  }
+
+  async function runBatchAction(action: 'add_tag' | 'remove_tag' | 'change_type' | 'pin' | 'unpin' | 'export_json' | 'export_csv' | 'open_recall') {
+    const snapshot = Array.from(selectedIds);
+    if (snapshot.length === 0) {
+      toast('error', 'Select at least one node');
+      return;
+    }
+    setBatchBusy(true);
+    try {
+      if (action === 'pin' || action === 'unpin') {
+        const next = new Set(pinnedNodeIds);
+        for (const id of snapshot) {
+          const node = nodesRef.current.find((n) => n.id === id);
+          if (!node) continue;
+          if (action === 'pin') {
+            next.add(id);
+            postToWorker({ type: 'PIN_NODE', id, x: node.x, y: node.y });
+          } else {
+            next.delete(id);
+            postToWorker({ type: 'UNPIN_NODE', id });
+          }
+        }
+        setPinnedNodeIds(next);
+        toast('ok', `${action === 'pin' ? 'Pinned' : 'Unpinned'} ${snapshot.length} node(s)`);
+        return;
+      }
+
+      if (action === 'add_tag' || action === 'remove_tag') {
+        const tag = window.prompt(action === 'add_tag' ? 'Tag to add:' : 'Tag to remove:');
+        if (!tag) return;
+        for (const id of snapshot) {
+          const node = nodesRef.current.find((n) => n.id === id);
+          if (!node || node.type === 'project' || !node.data || !('tags' in node.data)) continue;
+          const mem = node.data as Memory;
+          const tags = new Set(mem.tags ?? []);
+          if (action === 'add_tag') tags.add(tag);
+          else tags.delete(tag);
+          mem.tags = Array.from(tags);
+        }
+        setSelectedNode((prev) => (prev ? { ...prev } : prev));
+        toast('ok', `${action === 'add_tag' ? 'Added' : 'Removed'} tag on ${snapshot.length} node(s)`);
+        return;
+      }
+
+      if (action === 'change_type') {
+        const nextType = window.prompt('New type (decision|finding|snippet|note|issue|context|code|todo):');
+        const normalized = normalizeNodeType(nextType);
+        for (const id of snapshot) {
+          const node = nodesRef.current.find((n) => n.id === id);
+          if (!node || node.type === 'project') continue;
+          node.type = normalized;
+          if (node.data && 'type' in node.data) {
+            (node.data as Memory).type = normalized;
+          }
+          const graph = graphRef.current;
+          if (graph?.hasNode(node.id)) {
+            graph.setNodeAttribute(node.id, 'color', nodeColors[normalized] ?? nodeColors.note);
+          }
+        }
+        rebuildGraph();
+        updateVisibility();
+        toast('ok', `Updated type for ${snapshot.length} node(s)`);
+        return;
+      }
+
+      if (action === 'export_json') {
+        const rows = snapshot
+          .map((id) => nodesRef.current.find((n) => n.id === id))
+          .filter(Boolean)
+          .map((n) => ({
+            id: n!.id,
+            label: n!.label,
+            type: n!.type,
+            tags: (n!.data && 'tags' in n!.data ? (n!.data as Memory).tags ?? [] : []),
+            created_at: n!.data?.created_at ?? null,
+          }));
+        downloadJson(`contextcache-selection-${Date.now()}.json`, rows);
+        toast('ok', `Exported ${rows.length} node(s)`);
+        return;
+      }
+
+      if (action === 'export_csv') {
+        const rows = snapshot
+          .map((id) => nodesRef.current.find((n) => n.id === id))
+          .filter(Boolean)
+          .map((n) => ({
+            id: n!.id,
+            label: n!.label,
+            type: n!.type,
+            tags: (n!.data && 'tags' in n!.data ? ((n!.data as Memory).tags ?? []).join('|') : ''),
+            created_at: n!.data?.created_at ?? '',
+          }));
+        downloadCsv(`contextcache-selection-${Date.now()}.csv`, rows);
+        toast('ok', `Exported ${rows.length} node(s)`);
+        return;
+      }
+
+      if (action === 'open_recall') {
+        const memoryIds = snapshot.map(parseNodeMemoryId).filter((n): n is number => n != null).slice(0, 100);
+        if (memoryIds.length === 0) {
+          toast('error', 'No memory nodes selected');
+          return;
+        }
+        const query = encodeURIComponent(memoryIds.join(','));
+        window.location.assign(`/app?brain_selected=${query}`);
+      }
+    } finally {
+      setBatchBusy(false);
+    }
   }
 
   const loadData = useCallback(async () => {
@@ -656,12 +982,19 @@ export function BrainContentWebGL() {
 
         sigma.on('clickNode', (payload: any) => {
           const id = String(payload.node);
+          const originalEvt = payload?.event?.original ?? payload?.event;
+          const toggle = Boolean(originalEvt?.metaKey || originalEvt?.ctrlKey || originalEvt?.shiftKey);
           if (clickStartRef.current > 0) {
             metricsRef.current.clickLatencyMs = Math.round(performance.now() - clickStartRef.current);
             clickStartRef.current = 0;
           }
           const node = nodesRef.current.find((n) => n.id === id) || null;
-          if (node) setSelectedNode(node);
+          if (node) {
+            setSelectedNode(node);
+            if (toggle) toggleSelection(id);
+            else setSingleSelection(id);
+            setSelectedClusterId(null);
+          }
         });
 
         sigma.on('downNode', () => {
@@ -670,6 +1003,7 @@ export function BrainContentWebGL() {
 
         sigma.on('clickStage', () => {
           setSelectedNode(null);
+          clearSelection();
         });
 
         requestAnimationFrame(() => {
@@ -690,6 +1024,7 @@ export function BrainContentWebGL() {
         if (camera?.on) {
           camera.on('updated', () => {
             const ratio = typeof camera.ratio === 'number' ? camera.ratio : 1;
+            setCameraState({ x: camera.x ?? 0, y: camera.y ?? 0, ratio });
             const hideEdges = ratio > LOD_HIDE_EDGES_RATIO && edgesRef.current.length > LOD_EDGE_LIMIT;
             const graph = graphRef.current;
             if (!graph) return;
@@ -752,6 +1087,10 @@ export function BrainContentWebGL() {
               graph.setNodeAttribute(p.id, 'y', p.y);
             }
           }
+          postToClusterWorker({
+            type: 'SYNC_POSITIONS',
+            positions: data.nodes,
+          });
           if (sigmaRef.current?.refresh) sigmaRef.current.refresh();
         } else if (data.type === 'COOLED') {
           if (layoutStartRef.current > 0) {
@@ -779,6 +1118,47 @@ export function BrainContentWebGL() {
       }
     };
   }, [fatalError]);
+
+  useEffect(() => {
+    if (!ENABLE_CLUSTERS || fatalError) return;
+    let disposed = false;
+    try {
+      const worker = new Worker(new URL('./brain-cluster.worker.ts', import.meta.url));
+      clusterWorkerRef.current = worker;
+      worker.onmessage = (event: MessageEvent<ClusterWorkerOutMessage>) => {
+        const data = event.data;
+        if (disposed) return;
+        if (data.type === 'PROGRESS') {
+          if (data.requestId !== clusterRequestIdRef.current) return;
+          setClusterProgress({ phase: data.phase, progress: data.progress });
+          return;
+        }
+        if (data.type === 'CLUSTERING_RESULT') {
+          if (data.requestId !== clusterRequestIdRef.current) return;
+          setClusterResult(data.result);
+          setClusterProgress(null);
+          return;
+        }
+        if (data.type === 'CLUSTERING_ERROR') {
+          if (data.requestId !== clusterRequestIdRef.current) return;
+          setClusterProgress(null);
+          toast('error', `Clustering failed: ${data.error}`);
+        }
+      };
+      worker.onerror = () => {
+        setClusterProgress(null);
+      };
+    } catch {
+      setClusterProgress(null);
+    }
+    return () => {
+      disposed = true;
+      if (clusterWorkerRef.current) {
+        clusterWorkerRef.current.terminate();
+        clusterWorkerRef.current = null;
+      }
+    };
+  }, [fatalError, toast]);
 
   useEffect(() => {
     let raf = 0;
@@ -858,7 +1238,14 @@ export function BrainContentWebGL() {
     if (searchQuery.trim()) {
       setSearchResults(computeSearchResults(searchQuery));
     }
-  }, [activeTypes, searchQuery, focusMode, selectedNode?.id]);
+    if (ENABLE_CLUSTERS && nodesRef.current.length > 0) {
+      queueClusteringRun('label-propagation');
+    }
+  }, [activeTypes, searchQuery, focusMode, selectedNode?.id, clusterFocusMode, selectedClusterId, clusterResult]);
+
+  useEffect(() => {
+    applySelectionStyles();
+  }, [selectedIds, selectedClusterId, clusterResult]);
 
   useEffect(() => {
     const interval = setInterval(loadData, REFRESH_INTERVAL);
@@ -876,6 +1263,23 @@ export function BrainContentWebGL() {
   const listNodes = nodesRef.current
     .filter((n) => n.type === 'project' || activeTypes.has(n.type))
     .slice(0, 250);
+  const selectedCluster = clusterResult?.clusters.find((c) => c.id === selectedClusterId) ?? null;
+
+  function graphToViewport(x: number, y: number) {
+    const el = containerRef.current;
+    if (!el) return { x: 0, y: 0 };
+    const width = el.clientWidth || 1;
+    const height = el.clientHeight || 1;
+    const minSide = Math.min(width, height);
+    const ratio = cameraState.ratio || 1;
+    return {
+      x: ((x - cameraState.x) / ratio) * minSide + width / 2,
+      y: ((y - cameraState.y) / ratio) * minSide + height / 2,
+    };
+  }
+
+  const showClusterOnly = ENABLE_CLUSTERS && cameraState.ratio <= CLUSTER_MIN_ZOOM;
+  const showClusterMixed = ENABLE_CLUSTERS && cameraState.ratio > CLUSTER_MIN_ZOOM && cameraState.ratio < CLUSTER_HIDE_ZOOM;
 
   if (fatalError) {
     return (
@@ -1046,7 +1450,37 @@ export function BrainContentWebGL() {
                 {focusMode ? 'Focus: on' : 'Focus: off'}
               </button>
             )}
+            {ENABLE_CLUSTERS && (
+              <button
+                type="button"
+                onClick={() => queueClusteringRun('louvain')}
+                className="rounded-full border border-line bg-bg-2 px-2 py-1 text-[10px] text-muted hover:text-ink-2"
+              >
+                Recompute communities
+              </button>
+            )}
+            {clusterProgress && (
+              <span className="text-[10px] text-muted">
+                cluster {clusterProgress.phase} {Math.round(clusterProgress.progress * 100)}%
+              </span>
+            )}
           </div>
+          {ENABLE_BATCH_ACTIONS && selectedIds.size > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded border border-line bg-panel p-2 text-[11px]">
+              <span className="font-medium text-ink">{selectedIds.size} selected</span>
+              <button type="button" className="rounded border border-line px-2 py-1 hover:bg-bg-2" onClick={() => runBatchAction('add_tag')} disabled={batchBusy}>Add tag</button>
+              <button type="button" className="rounded border border-line px-2 py-1 hover:bg-bg-2" onClick={() => runBatchAction('remove_tag')} disabled={batchBusy}>Remove tag</button>
+              <button type="button" className="rounded border border-line px-2 py-1 hover:bg-bg-2" onClick={() => runBatchAction('change_type')} disabled={batchBusy}>Change type</button>
+              <button type="button" className="rounded border border-line px-2 py-1 hover:bg-bg-2" onClick={() => runBatchAction('pin')} disabled={batchBusy}>Pin</button>
+              <button type="button" className="rounded border border-line px-2 py-1 hover:bg-bg-2" onClick={() => runBatchAction('unpin')} disabled={batchBusy}>Unpin</button>
+              <button type="button" className="rounded border border-line px-2 py-1 hover:bg-bg-2" onClick={() => runBatchAction('export_json')} disabled={batchBusy}>Export JSON</button>
+              <button type="button" className="rounded border border-line px-2 py-1 hover:bg-bg-2" onClick={() => runBatchAction('export_csv')} disabled={batchBusy}>Export CSV</button>
+              <button type="button" className="rounded border border-line px-2 py-1 hover:bg-bg-2" onClick={() => runBatchAction('open_recall')} disabled={batchBusy}>Open in recall</button>
+              <button type="button" className="rounded border border-line px-2 py-1 hover:bg-bg-2" onClick={selectNeighbors} disabled={batchBusy}>Select neighbors</button>
+              <button type="button" className="rounded border border-line px-2 py-1 hover:bg-bg-2" onClick={invertSelection} disabled={batchBusy}>Invert</button>
+              <button type="button" className="rounded border border-line px-2 py-1 hover:bg-bg-2" onClick={clearSelection} disabled={batchBusy}>Clear</button>
+            </div>
+          )}
         </div>
       )}
 
@@ -1125,6 +1559,32 @@ export function BrainContentWebGL() {
           className="h-full w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/70"
           tabIndex={0}
           onKeyDown={(e) => {
+            const cmd = e.metaKey || e.ctrlKey;
+            if (cmd && e.key.toLowerCase() === 'a') {
+              e.preventDefault();
+              const ids = getFilteredSelectableNodeIds();
+              const capped = ids.slice(0, 1000);
+              if (ids.length > 1000 && !window.confirm(`Select first 1000 of ${ids.length} nodes?`)) return;
+              setSelectedIds(new Set(capped));
+              setLastFocusedId(capped[0] ?? null);
+              return;
+            }
+            if (cmd && e.shiftKey && e.key.toLowerCase() === 'a') {
+              e.preventDefault();
+              clearSelection();
+              setSelectedNode(null);
+              return;
+            }
+            if (cmd && e.shiftKey && e.key.toLowerCase() === 'n') {
+              e.preventDefault();
+              selectNeighbors();
+              return;
+            }
+            if (cmd && e.altKey && e.key.toLowerCase() === 'i') {
+              e.preventDefault();
+              invertSelection();
+              return;
+            }
             if (e.key === 'ArrowUp') {
               e.preventDefault();
               panCamera(0, -20);
@@ -1164,6 +1624,7 @@ export function BrainContentWebGL() {
               e.preventDefault();
               setSelectedNode(null);
               setSearchResults([]);
+              clearSelection();
               return;
             }
             if (e.key === 'Tab') {
@@ -1183,10 +1644,78 @@ export function BrainContentWebGL() {
               if (keyboardNodeIndexRef.current < 0) {
                 keyboardNodeIndexRef.current = 0;
               }
-              focusNode(visibleNodes[keyboardNodeIndexRef.current]);
+              const node = visibleNodes[keyboardNodeIndexRef.current];
+              focusNode(node);
+              if (e.shiftKey) toggleSelection(node.id);
+              else setSingleSelection(node.id);
             }
           }}
         />
+        {ENABLE_CLUSTERS && clusterResult && (showClusterOnly || showClusterMixed) && (
+          <svg className="pointer-events-none absolute inset-0 z-[5] h-full w-full">
+            {clusterResult.hulls
+              .filter((h) => {
+                const m = clusterResult.clusters.find((c) => c.id === h.clusterId);
+                return Boolean(m && m.nodeCount >= CLUSTER_MIN_LABEL_SIZE && !expandedClusterIds.has(h.clusterId));
+              })
+              .map((hull) => {
+                const metric = clusterResult.clusters.find((c) => c.id === hull.clusterId);
+                if (!metric) return null;
+                const pts = hull.points.map((p) => graphToViewport(p.x, p.y));
+                if (pts.length < 3) return null;
+                const points = pts.map((p) => `${p.x},${p.y}`).join(' ');
+                const center = graphToViewport(hull.centroid.x, hull.centroid.y);
+                const isSelected = selectedClusterId === hull.clusterId;
+                const opacity = showClusterOnly ? 1 : 0.45;
+                return (
+                  <g key={`hull-${hull.clusterId}`} className="pointer-events-auto">
+                    <polygon
+                      points={points}
+                      fill="var(--cc-cluster-hull-fill, rgba(14,148,136,0.10))"
+                      stroke="var(--cc-cluster-hull-stroke, rgba(14,148,136,0.45))"
+                      strokeWidth={isSelected ? 2.2 : 1.5}
+                      opacity={opacity}
+                      onClick={() => {
+                        setSelectedClusterId(hull.clusterId);
+                        setSelectedNode(null);
+                        if (!clusterFocusMode) setClusterFocusMode(true);
+                      }}
+                    />
+                    {(showClusterOnly || isSelected || metric.nodeCount >= 24) && (
+                      <g
+                        transform={`translate(${center.x},${center.y})`}
+                        onClick={() => {
+                          setSelectedClusterId(hull.clusterId);
+                          setClusterFocusMode((v) => !v);
+                        }}
+                      >
+                        <rect
+                          x={-36}
+                          y={-12}
+                          width={72}
+                          height={24}
+                          rx={6}
+                          fill="var(--cc-bg-surface, #ffffff)"
+                          opacity={0.92}
+                          stroke="var(--cc-border-subtle, #cbd5e1)"
+                        />
+                        <text
+                          x={0}
+                          y={5}
+                          textAnchor="middle"
+                          fontSize="10"
+                          fill="var(--cc-fg-primary, #020617)"
+                          fontFamily="var(--cc-font-sans, Inter)"
+                        >
+                          {`C ${hull.clusterId.replace(/^c/, '')} • ${metric.nodeCount}`}
+                        </text>
+                      </g>
+                    )}
+                  </g>
+                );
+              })}
+          </svg>
+        )}
       </div>
       )}
 
@@ -1206,6 +1735,46 @@ export function BrainContentWebGL() {
           ))}
         </div>
       </details>
+
+      {selectedCluster && (
+        <Card className="absolute right-4 top-20 z-20 w-72 animate-fade-in shadow-panel">
+          <div className="mb-3 flex items-center justify-between">
+            <Badge variant="brand">Cluster {selectedCluster.id.replace(/^c/, '')}</Badge>
+            <button
+              onClick={() => {
+                setSelectedClusterId(null);
+                setClusterFocusMode(false);
+              }}
+              className="rounded p-1 text-muted transition-colors hover:text-ink"
+            >
+              <XIcon className="h-4 w-4" />
+            </button>
+          </div>
+          <p className="text-xs text-ink-2">Nodes: {selectedCluster.nodeCount}</p>
+          <p className="text-xs text-ink-2">Edges: {selectedCluster.edgeCount}</p>
+          <p className="text-xs text-ink-2">Density: {selectedCluster.density.toFixed(3)}</p>
+          <p className="mb-3 text-xs text-ink-2">Avg degree: {selectedCluster.avgDegree.toFixed(2)}</p>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setClusterFocusMode((v) => !v)}>
+              {clusterFocusMode ? 'Exit focus' : 'Focus community'}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() =>
+                setExpandedClusterIds((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(selectedCluster.id)) next.delete(selectedCluster.id);
+                  else next.add(selectedCluster.id);
+                  return next;
+                })
+              }
+            >
+              {expandedClusterIds.has(selectedCluster.id) ? 'Collapse' : 'Expand'}
+            </Button>
+          </div>
+        </Card>
+      )}
 
       {selectedNode && (
         <Card className="absolute right-4 top-20 z-20 w-72 animate-fade-in shadow-panel">

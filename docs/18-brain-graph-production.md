@@ -21,8 +21,12 @@ This document turns the Brain Graph research brief into enforceable implementati
 
 - WebGL renderer path with Sigma + Graphology.
 - Worker simulation from `web/app/(dashboard)/brain/brain-sim.worker.ts`.
+- Community clustering worker from `web/app/(dashboard)/brain/brain-cluster.worker.ts`.
 - Auto fallback to Canvas when WebGL init/context fails.
 - Keyboard controls: pan, zoom, reset, tab-cycle, select, escape.
+- Batch selection controls: Cmd/Ctrl multi-select, select-all, invert, neighbors.
+- Batch actions: tag add/remove, type change, pin/unpin, export JSON/CSV.
+- Cluster overlays: zoom-threshold hulls, cluster focus, cluster detail panel.
 - Basic mobile-safe list fallback for low-memory small-screen devices.
 - Debug API: `window.__brainGraphDebug`.
 

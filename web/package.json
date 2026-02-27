@@ -10,7 +10,10 @@
     "build": "next build",
     "start": "next start -H 0.0.0.0 -p 3000",
     "lint": "next lint",
-    "perf:brain": "node scripts/brain-perf-check.mjs"
+    "perf:brain": "node scripts/brain-perf-check.mjs",
+    "test:tokens:contrast": "node scripts/check-contrast.mjs",
+    "test:a11y:smoke": "playwright test tests/a11y/smoke.spec.ts",
+    "lint:a11y": "next lint --dir app"
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -24,12 +27,14 @@
     "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.10.2",
     "@playwright/test": "^1.54.2",
     "@types/d3-force": "^3.0.10",
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "eslint": "^9.38.0",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
     "postcss": "^8.5.0",
     "tailwindcss": "^4.0.0",
     "@tailwindcss/postcss": "^4.0.0",

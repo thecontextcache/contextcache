@@ -58,6 +58,8 @@
   --cc-graph-node-context: #06b6d4;
   --cc-graph-node-code: #0f766e;
   --cc-graph-node-todo: #f97316;
+  --cc-cluster-hull-fill: rgba(14, 148, 136, 0.10);
+  --cc-cluster-hull-stroke: rgba(14, 148, 136, 0.45);
 
   --bg-rgb: 248, 250, 252;
   --panel-rgb: 255, 255, 255;
@@ -100,6 +102,8 @@
   --cc-graph-node-context: #67e8f9;
   --cc-graph-node-code: #34d399;
   --cc-graph-node-todo: #fb923c;
+  --cc-cluster-hull-fill: rgba(34, 197, 166, 0.14);
+  --cc-cluster-hull-stroke: rgba(34, 197, 166, 0.60);
 
   --bg-rgb: 2, 6, 23;
   --panel-rgb: 17, 24, 39;

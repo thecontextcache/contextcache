@@ -12,6 +12,17 @@ This document defines mandatory checks for all UI PRs.
   - `Enter/Space` activate controls
   - `Esc` closes dialogs/palettes
 
+### Automated checks
+
+- `npm run lint` (includes `jsx-a11y` rules)
+- `npm run test:tokens:contrast` (token pair WCAG checks)
+- `npm run test:a11y:smoke` (Playwright + Axe serious/critical checks)
+
+CI enforces:
+
+- `a11y-lint` job (lint + token contrast)
+- `a11y-smoke` job (route-level Axe smoke)
+
 ## Visual Consistency
 
 - Use design tokens only (no one-off hex colors in components).
