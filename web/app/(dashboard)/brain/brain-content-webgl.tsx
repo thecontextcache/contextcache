@@ -128,6 +128,13 @@ function initialPosition(type: NodeType, key: string, anchor?: { x: number; y: n
   };
 }
 
+function normalizeNodeType(value: string | null | undefined): NodeType {
+  if (!value) return 'note';
+  const v = value.toLowerCase();
+  const allowed = new Set<NodeType>(['project', 'decision', 'finding', 'snippet', 'note', 'issue', 'context', 'code', 'todo']);
+  return allowed.has(v as NodeType) ? (v as NodeType) : 'note';
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`timeout after ${ms}ms`)), ms);
@@ -350,7 +357,7 @@ export function BrainContentWebGL() {
         x: node.x,
         y: node.y,
         size: Math.max(2, node.radius * 0.35),
-        color: nodeColors[node.type],
+        color: nodeColors[node.type] ?? nodeColors.note,
         type: node.type,
         hidden: !visible,
       });
@@ -533,7 +540,7 @@ export function BrainContentWebGL() {
         for (const mem of mems) {
           const mId = `mem-${mem.id}`;
           const mExisting = existingMap.get(mId);
-          const t = (mem.type || 'note') as NodeType;
+          const t = normalizeNodeType(mem.type);
           const seed = initialPosition(t, mId, { x: pNode.x, y: pNode.y });
           memCount += 1;
 
@@ -594,6 +601,10 @@ export function BrainContentWebGL() {
     } catch (err) {
       if (nodesRef.current.length === 0) {
         setIsEmpty(true);
+      }
+      if (!(err instanceof ApiError)) {
+        const message = err instanceof Error ? err.message : 'Unknown graph runtime error';
+        setFatalError(message);
       }
       setPartialLoadWarning('Graph loaded with errors. Some data may be missing.');
       toast('error', err instanceof ApiError ? err.message : 'Failed to load brain data');
