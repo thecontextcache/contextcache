@@ -73,6 +73,8 @@ const MOBILE_FALLBACK_NODE_THRESHOLD = 3000;
 const LOW_MEMORY_GB = 4;
 const LOD_HIDE_EDGES_RATIO = 1.35;
 const LOD_EDGE_LIMIT = 12000;
+const MEMORY_FETCH_CONCURRENCY = 10;
+const MEMORY_FETCH_TIMEOUT_MS = 12000;
 
 type BadgeVariant = 'brand' | 'violet' | 'ok' | 'warn' | 'err' | 'muted';
 
@@ -124,6 +126,21 @@ function initialPosition(type: NodeType, key: string, anchor?: { x: number; y: n
     x: anchor.x + Math.cos(angle) * (45 + (hashString(`${key}:a`) - 0.5) * 35),
     y: anchor.y + Math.sin(angle) * (45 + (hashString(`${key}:b`) - 0.5) * 35),
   };
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`timeout after ${ms}ms`)), ms);
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
 }
 
 function createSyntheticGraph(nodeCount: number, edgeCount: number) {
@@ -195,6 +212,7 @@ export function BrainContentWebGL() {
   const [isEmpty, setIsEmpty] = useState(false);
   const [paused, setPaused] = useState(false);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
+  const [focusMode, setFocusMode] = useState(false);
   const [stats, setStats] = useState({ projects: 0, memories: 0 });
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [searchQuery, setSearchQuery] = useState('');
@@ -207,6 +225,7 @@ export function BrainContentWebGL() {
     simulation: 'worker' as 'worker' | 'none',
   });
   const [fatalError, setFatalError] = useState<string | null>(null);
+  const [partialLoadWarning, setPartialLoadWarning] = useState<string | null>(null);
   const [pinnedNodeIds, setPinnedNodeIds] = useState<Set<string>>(new Set());
   const [mobileFallback, setMobileFallback] = useState(false);
   const [allowFullGraphOnMobile, setAllowFullGraphOnMobile] = useState(false);
@@ -282,8 +301,18 @@ export function BrainContentWebGL() {
   function updateVisibility() {
     const graph = graphRef.current;
     if (!graph) return;
+    const focusSet = new Set<string>();
+    if (focusMode && selectedNode) {
+      focusSet.add(selectedNode.id);
+      for (const e of edgesRef.current) {
+        if (e.source === selectedNode.id) focusSet.add(e.target);
+        if (e.target === selectedNode.id) focusSet.add(e.source);
+      }
+    }
     for (const node of nodesRef.current) {
-      const visible = node.type === 'project' || activeTypesRef.current.has(node.type);
+      const typeVisible = node.type === 'project' || activeTypesRef.current.has(node.type);
+      const focusVisible = !focusMode || !selectedNode || focusSet.has(node.id) || node.type === 'project';
+      const visible = typeVisible && focusVisible;
       if (graph.hasNode(node.id)) {
         graph.setNodeAttribute(node.id, 'hidden', !visible);
       }
@@ -462,16 +491,28 @@ export function BrainContentWebGL() {
       const newEdges: GraphEdge[] = [];
       let memCount = 0;
 
-      const memoryResults = await Promise.all(
-        projectList.map(async (proj) => {
-          try {
-            const mems = await memories.list(proj.id);
-            return { proj, mems };
-          } catch {
-            return { proj, mems: [] as Memory[] };
-          }
-        })
-      );
+      const memoryResults: Array<{ proj: Project; mems: Memory[] }> = [];
+      let failedProjects = 0;
+      for (let i = 0; i < projectList.length; i += MEMORY_FETCH_CONCURRENCY) {
+        const batch = projectList.slice(i, i + MEMORY_FETCH_CONCURRENCY);
+        const loaded = await Promise.all(
+          batch.map(async (proj) => {
+            try {
+              const mems = await withTimeout(memories.list(proj.id), MEMORY_FETCH_TIMEOUT_MS);
+              return { proj, mems };
+            } catch {
+              failedProjects += 1;
+              return { proj, mems: [] as Memory[] };
+            }
+          })
+        );
+        memoryResults.push(...loaded);
+      }
+      if (failedProjects > 0) {
+        setPartialLoadWarning(`Partial graph: ${failedProjects} project(s) timed out.`);
+      } else {
+        setPartialLoadWarning(null);
+      }
 
       for (const { proj, mems } of memoryResults) {
         const pId = `proj-${proj.id}`;
@@ -554,6 +595,7 @@ export function BrainContentWebGL() {
       if (nodesRef.current.length === 0) {
         setIsEmpty(true);
       }
+      setPartialLoadWarning('Graph loaded with errors. Some data may be missing.');
       toast('error', err instanceof ApiError ? err.message : 'Failed to load brain data');
     } finally {
       setTelemetry((prev) => ({
@@ -805,7 +847,7 @@ export function BrainContentWebGL() {
     if (searchQuery.trim()) {
       setSearchResults(computeSearchResults(searchQuery));
     }
-  }, [activeTypes, searchQuery]);
+  }, [activeTypes, searchQuery, focusMode, selectedNode?.id]);
 
   useEffect(() => {
     const interval = setInterval(loadData, REFRESH_INTERVAL);
@@ -846,6 +888,9 @@ export function BrainContentWebGL() {
               {telemetry.simulation} sim · load {telemetry.loadMs} ms · layout {telemetry.layoutMs} ms · fps {perfView.fps}
               {' '}· p95 {perfView.p95FrameMs} ms
             </p>
+          )}
+          {partialLoadWarning && (
+            <p className="mt-1 text-xs text-warn">{partialLoadWarning}</p>
           )}
         </div>
         <div className="flex items-center gap-3">
@@ -976,6 +1021,19 @@ export function BrainContentWebGL() {
                 <Info className="h-3 w-3" />
                 Mobile-safe list fallback active
               </span>
+            )}
+            {selectedNode && (
+              <button
+                type="button"
+                onClick={() => setFocusMode((v) => !v)}
+                className={`rounded-full border px-2 py-1 text-[10px] transition-colors ${
+                  focusMode
+                    ? 'border-brand/40 bg-brand/10 text-brand'
+                    : 'border-line bg-bg-2 text-muted hover:text-ink-2'
+                }`}
+              >
+                {focusMode ? 'Focus: on' : 'Focus: off'}
+              </button>
             )}
           </div>
         </div>

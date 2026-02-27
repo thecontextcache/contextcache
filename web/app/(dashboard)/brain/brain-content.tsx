@@ -99,6 +99,8 @@ const REFRESH_INTERVAL = 30000;
 const MIN_ZOOM = 0.35;
 const MAX_ZOOM = 2.4;
 const SAME_TYPE_EDGE_NEIGHBORS = 2;
+const MEMORY_FETCH_CONCURRENCY = 10;
+const MEMORY_FETCH_TIMEOUT_MS = 12000;
 
 type BadgeVariant = 'brand' | 'violet' | 'ok' | 'warn' | 'err' | 'muted';
 
@@ -132,6 +134,21 @@ function clamp(n: number, min: number, max: number): number {
 
 function nodeScaleForZoom(zoom: number): number {
   return 0.9 + Math.min(zoom, 1.8) * 0.25;
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`timeout after ${ms}ms`)), ms);
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
 }
 
 /* ── Component ─────────────────────────────────────────────── */
@@ -187,6 +204,7 @@ export function BrainContent() {
     layoutMs: 0,
     simulation: 'worker' as 'worker' | 'local',
   });
+  const [partialLoadWarning, setPartialLoadWarning] = useState<string | null>(null);
 
   const pausedRef = useRef(false);
   const activeTypesRef = useRef<Set<string>>(new Set(Object.keys(DEFAULT_NODE_COLORS).filter((t) => t !== 'project')));
@@ -453,16 +471,28 @@ export function BrainContent() {
       const existingMap = new Map(nodesRef.current.map((n) => [n.id, n]));
       let memCount = 0;
 
-      const memoryResults = await Promise.all(
-        projectList.map(async (proj) => {
-          try {
-            const mems = await memories.list(proj.id);
-            return { proj, mems };
-          } catch {
-            return { proj, mems: [] as Memory[] };
-          }
-        })
-      );
+      const memoryResults: Array<{ proj: Project; mems: Memory[] }> = [];
+      let failedProjects = 0;
+      for (let i = 0; i < projectList.length; i += MEMORY_FETCH_CONCURRENCY) {
+        const batch = projectList.slice(i, i + MEMORY_FETCH_CONCURRENCY);
+        const loaded = await Promise.all(
+          batch.map(async (proj) => {
+            try {
+              const mems = await withTimeout(memories.list(proj.id), MEMORY_FETCH_TIMEOUT_MS);
+              return { proj, mems };
+            } catch {
+              failedProjects += 1;
+              return { proj, mems: [] as Memory[] };
+            }
+          })
+        );
+        memoryResults.push(...loaded);
+      }
+      if (failedProjects > 0) {
+        setPartialLoadWarning(`Partial graph: ${failedProjects} project(s) timed out.`);
+      } else {
+        setPartialLoadWarning(null);
+      }
 
       for (const { proj, mems } of memoryResults) {
         const pId = `proj-${proj.id}`;
@@ -565,6 +595,7 @@ export function BrainContent() {
         initPlaceholderNodes();
         syncGraphToWorker();
       }
+      setPartialLoadWarning('Graph loaded with errors. Some data may be missing.');
       toast('error', err instanceof ApiError ? err.message : 'Failed to load brain data');
     } finally {
       if (loadStartRef.current > 0) {
@@ -1175,6 +1206,9 @@ export function BrainContent() {
             <p className="mt-1 text-xs text-muted">
               {telemetry.simulation} sim · {telemetry.fps} fps · load {telemetry.loadMs} ms · layout {telemetry.layoutMs} ms
             </p>
+          )}
+          {partialLoadWarning && (
+            <p className="mt-1 text-xs text-warn">{partialLoadWarning}</p>
           )}
         </div>
         <div className="flex items-center gap-3">
