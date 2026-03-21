@@ -12,7 +12,7 @@ from app.analyzer.algorithm import build_vector_candidate_stmt
 from app.auth_utils import hash_token, now_utc
 from app.db import hash_api_key
 from app.ingestion.pipeline import IngestionConfig, ingest_path_incremental
-from app.models import ApiKey, AuditLog, AuthMagicLink, Membership, Memory, Organization, Project, RawCapture, User
+from app.models import ApiKey, AuditLog, AuthMagicLink, Membership, Memory, Organization, Project, RawCapture, RecallLog, User
 from app.seed import seed
 from .conftest import Ctx, auth_headers, login_via_magic_link, session_auth_headers
 
@@ -279,9 +279,18 @@ async def test_recall_falls_back_when_private_engine_raises(
     )
     assert recall.status_code == 200
     body = recall.json()
-    assert body["strategy"] in {"hybrid", "recency"}
-    assert body["score_details"]["source"] == "local-fallback"
+    assert recall.headers["X-ContextCache-Recall-Strategy"] in {"hybrid", "recency"}
     assert len(body["items"]) >= 1
+
+    recall_log = (
+        await db_session.execute(
+            select(RecallLog)
+            .where(RecallLog.project_id == app_ctx.project_id)
+            .order_by(RecallLog.id.desc())
+            .limit(1)
+        )
+    ).scalar_one()
+    assert recall_log.score_details_json["source"] == "local-fallback"
 
 
 async def test_recall_uses_recency_fallback_when_no_hybrid_match(
