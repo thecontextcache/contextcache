@@ -10,7 +10,7 @@ from datetime import date as _today_date
 from datetime import datetime, timedelta, timezone
 from typing import Any, List
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import desc, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
@@ -89,6 +89,7 @@ from .schemas import (
     BrainBatchRequest,
     BrainBatchOut,
     BrainBatchResultItem,
+    IntegrationsCapabilitiesOut,
 )
 
 # ── Daily usage limits (env-configurable, 0 = no limit) ─────────────────────
@@ -113,12 +114,22 @@ HEDGE_MIN_DELAY_MS = int(os.getenv("HEDGE_MIN_DELAY_MS", "25"))
 HEDGE_USE_P95_CACHE = (
     os.getenv("HEDGE_USE_P95_CACHE", os.getenv("HEDGE_USE_P95", "true")).strip().lower() == "true"
 )
+API_VERSION = os.getenv("API_VERSION", "2026-03-20").strip() or "2026-03-20"
+BRAIN_BATCH_MAX_TARGETS = int(os.getenv("BRAIN_BATCH_MAX_TARGETS", "1000"))
+BRAIN_BATCH_DB_CHUNK_SIZE = int(os.getenv("BRAIN_BATCH_DB_CHUNK_SIZE", "200"))
+BRAIN_BATCH_UNDO_WINDOW_SECONDS = int(os.getenv("BRAIN_BATCH_UNDO_WINDOW_SECONDS", "600"))
 
 router = APIRouter()
 
 ROLE_RANK: dict[str, int] = {"viewer": 1, "member": 2, "admin": 3, "owner": 4}
 DEFAULT_PLAN_CODE = "free"
 SUPER_PLAN_CODE = "super"
+REVERSIBLE_BATCH_ACTIONS: dict[str, str] = {
+    "add_tag": "remove_tag",
+    "remove_tag": "add_tag",
+    "pin": "unpin",
+    "unpin": "pin",
+}
 
 
 @dataclass(frozen=True)
@@ -617,6 +628,22 @@ async def get_my_usage(
             recalls_per_week=WEEKLY_RECALL_LIMIT,
             projects_per_week=WEEKLY_PROJECT_LIMIT,
         ),
+    )
+
+
+@router.get("/integrations/capabilities", response_model=IntegrationsCapabilitiesOut)
+async def integrations_capabilities(
+    _ctx: RequestContext = Depends(get_actor_context),
+) -> IntegrationsCapabilitiesOut:
+    return IntegrationsCapabilitiesOut(
+        api_version=API_VERSION,
+        auth_modes=["session", "api_key", "bearer"],
+        ingest_sources=["chrome_ext", "cli", "mcp", "email"],
+        recall_formats=["text", "toon"],
+        brain_batch_max_targets=BRAIN_BATCH_MAX_TARGETS,
+        supports_idempotency=True,
+        supports_ingest_replay=True,
+        supports_batch_undo=sorted(REVERSIBLE_BATCH_ACTIONS.keys()),
     )
 
 
@@ -1625,6 +1652,235 @@ async def _resolve_project_tag(
     return tags[0] if tags else None
 
 
+def _chunked(seq: list[int], size: int) -> list[list[int]]:
+    if size <= 0:
+        return [seq]
+    return [seq[idx: idx + size] for idx in range(0, len(seq), size)]
+
+
+async def _load_batch_memories(
+    db: AsyncSession,
+    *,
+    org_id: int,
+    memory_ids: list[int],
+) -> dict[int, Memory]:
+    if not memory_ids:
+        return {}
+
+    memory_by_id: dict[int, Memory] = {}
+    for chunk in _chunked(memory_ids, BRAIN_BATCH_DB_CHUNK_SIZE):
+        rows = (
+            await db.execute(
+                select(Memory)
+                .join(Project, Project.id == Memory.project_id)
+                .where(Project.org_id == org_id, Memory.id.in_(chunk))
+            )
+        ).scalars().all()
+        for memory in rows:
+            memory_by_id[memory.id] = memory
+    return memory_by_id
+
+
+def _undoable_target_ids(response: BrainBatchOut) -> list[str]:
+    return [item.id for item in response.results if item.success]
+
+
+def _build_inverse_batch_request(
+    original_payload: BrainBatchRequest,
+    original_response: BrainBatchOut,
+) -> BrainBatchRequest:
+    inverse_type = REVERSIBLE_BATCH_ACTIONS.get(original_payload.action.type)
+    if inverse_type is None:
+        raise HTTPException(status_code=409, detail="This batch action cannot be undone")
+
+    successful_ids = _undoable_target_ids(original_response)
+    if not successful_ids:
+        raise HTTPException(status_code=409, detail="No successful items available to undo")
+
+    return BrainBatchRequest(
+        actionId=f"{original_payload.actionId}-undo",
+        action={
+            "type": inverse_type,
+            "targetIds": successful_ids,
+            "tagId": original_payload.action.tagId,
+            "newType": original_payload.action.newType,
+            "exportFormat": original_payload.action.exportFormat,
+        },
+    )
+
+
+async def _run_brain_batch_action(
+    *,
+    payload: BrainBatchRequest,
+    db: AsyncSession,
+    ctx: RequestContext,
+) -> BrainBatchOut:
+    target_ids = payload.action.targetIds
+    if len(target_ids) > BRAIN_BATCH_MAX_TARGETS:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Too many targets in one batch request: {len(target_ids)}. "
+                f"Limit is {BRAIN_BATCH_MAX_TARGETS}."
+            ),
+        )
+
+    results: list[BrainBatchResultItem] = []
+    extracted: list[tuple[str, int]] = []
+    for tid in target_ids:
+        mid = _extract_memory_id(tid)
+        if mid is None:
+            results.append(
+                BrainBatchResultItem(
+                    id=tid,
+                    success=False,
+                    errorCode="INVALID_ID",
+                    errorMessage="Target ID must be numeric or mem-<id>",
+                )
+            )
+        else:
+            extracted.append((tid, mid))
+
+    memory_ids = sorted({mid for _, mid in extracted})
+    memory_by_id = await _load_batch_memories(db, org_id=ctx.org_id or 0, memory_ids=memory_ids)
+
+    action_type = payload.action.type
+    mutating_actions = {"add_tag", "remove_tag", "change_type", "pin", "unpin"}
+    tag_cache: dict[int, Tag | None] = {}
+    exported: list[dict[str, Any]] = []
+    selected_memory_ids: list[int] = []
+
+    for raw_id, mem_id in extracted:
+        memory = memory_by_id.get(mem_id)
+        if memory is None:
+            results.append(
+                BrainBatchResultItem(
+                    id=raw_id,
+                    success=False,
+                    errorCode="NOT_FOUND",
+                    errorMessage="Memory not found in current org scope",
+                )
+            )
+            continue
+
+        if action_type == "add_tag":
+            tag = tag_cache.get(memory.project_id)
+            if tag is None and memory.project_id not in tag_cache:
+                tag = await _resolve_project_tag(db, project_id=memory.project_id, tag_spec=payload.action.tagId)
+                tag_cache[memory.project_id] = tag
+            if tag is None:
+                results.append(
+                    BrainBatchResultItem(
+                        id=raw_id,
+                        success=False,
+                        errorCode="INVALID_TAG",
+                        errorMessage="Tag is missing or invalid for this project",
+                    )
+                )
+                continue
+            existing_link = (
+                await db.execute(
+                    select(MemoryTag)
+                    .where(MemoryTag.memory_id == memory.id, MemoryTag.tag_id == tag.id)
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if existing_link is None:
+                db.add(MemoryTag(memory_id=memory.id, tag_id=tag.id))
+            results.append(BrainBatchResultItem(id=raw_id, success=True))
+            continue
+
+        if action_type == "remove_tag":
+            tag = tag_cache.get(memory.project_id)
+            if tag is None and memory.project_id not in tag_cache:
+                tag = await _resolve_project_tag(db, project_id=memory.project_id, tag_spec=payload.action.tagId)
+                tag_cache[memory.project_id] = tag
+            if tag is None:
+                results.append(
+                    BrainBatchResultItem(
+                        id=raw_id,
+                        success=False,
+                        errorCode="TAG_NOT_FOUND",
+                        errorMessage="Tag does not exist in this project",
+                    )
+                )
+                continue
+            links = (
+                await db.execute(
+                    select(MemoryTag).where(MemoryTag.memory_id == memory.id, MemoryTag.tag_id == tag.id)
+                )
+            ).scalars().all()
+            for link in links:
+                await db.delete(link)
+            results.append(BrainBatchResultItem(id=raw_id, success=True))
+            continue
+
+        if action_type == "change_type":
+            new_type = (payload.action.newType or "").strip().lower()
+            if not new_type:
+                results.append(
+                    BrainBatchResultItem(
+                        id=raw_id,
+                        success=False,
+                        errorCode="INVALID_TYPE",
+                        errorMessage="newType is required",
+                    )
+                )
+                continue
+            memory.type = new_type
+            results.append(BrainBatchResultItem(id=raw_id, success=True))
+            continue
+
+        if action_type in {"pin", "unpin"}:
+            meta = dict(memory.metadata_json or {})
+            meta["pinned"] = action_type == "pin"
+            memory.metadata_json = meta
+            results.append(BrainBatchResultItem(id=raw_id, success=True))
+            continue
+
+        if action_type == "export":
+            exported.append(
+                {
+                    "id": memory.id,
+                    "project_id": memory.project_id,
+                    "type": memory.type,
+                    "title": memory.title or "",
+                    "content": memory.content,
+                    "created_at": memory.created_at.isoformat() if memory.created_at else None,
+                }
+            )
+            results.append(BrainBatchResultItem(id=raw_id, success=True))
+            continue
+
+        if action_type == "open_in_recall":
+            selected_memory_ids.append(memory.id)
+            results.append(BrainBatchResultItem(id=raw_id, success=True))
+            continue
+
+        results.append(
+            BrainBatchResultItem(
+                id=raw_id,
+                success=False,
+                errorCode="UNSUPPORTED_ACTION",
+                errorMessage=f"Unsupported action: {action_type}",
+            )
+        )
+
+    succeeded = sum(1 for r in results if r.success)
+    return BrainBatchOut(
+        actionId=payload.actionId,
+        type=action_type,
+        results=results,
+        total=len(target_ids),
+        succeeded=succeeded,
+        failed=len(results) - succeeded,
+        exported=exported,
+        selected_memory_ids=selected_memory_ids,
+        undoAvailable=action_type in REVERSIBLE_BATCH_ACTIONS,
+        undoActionId=payload.actionId if action_type in REVERSIBLE_BATCH_ACTIONS else None,
+    )
+
+
 def _check_integration_signature(request: Request, body_bytes: bytes) -> None:
     secret = os.getenv("INTEGRATION_SIGNING_SECRET", "").strip()
     if not secret:
@@ -2106,169 +2362,10 @@ async def brain_batch(
             raise HTTPException(status_code=409, detail="Idempotency key reused with different payload")
         return BrainBatchOut(**(existing.response_json or {}))
 
-    target_ids = payload.action.targetIds
-    results: list[BrainBatchResultItem] = []
-    extracted: list[tuple[str, int]] = []
-    for tid in target_ids:
-        mid = _extract_memory_id(tid)
-        if mid is None:
-            results.append(
-                BrainBatchResultItem(
-                    id=tid,
-                    success=False,
-                    errorCode="INVALID_ID",
-                    errorMessage="Target ID must be numeric or mem-<id>",
-                )
-            )
-        else:
-            extracted.append((tid, mid))
-
-    memory_ids = sorted({mid for _, mid in extracted})
-    memory_by_id: dict[int, Memory] = {}
-    if memory_ids:
-        rows = (
-            await db.execute(
-                select(Memory)
-                .join(Project, Project.id == Memory.project_id)
-                .where(Project.org_id == ctx.org_id, Memory.id.in_(memory_ids))
-            )
-        ).scalars().all()
-        memory_by_id = {m.id: m for m in rows}
+    response = await _run_brain_batch_action(payload=payload, db=db, ctx=ctx)
 
     action_type = payload.action.type
     mutating_actions = {"add_tag", "remove_tag", "change_type", "pin", "unpin"}
-    tag_cache: dict[int, Tag | None] = {}
-    exported: list[dict[str, Any]] = []
-    selected_memory_ids: list[int] = []
-
-    for raw_id, mem_id in extracted:
-        memory = memory_by_id.get(mem_id)
-        if memory is None:
-            results.append(
-                BrainBatchResultItem(
-                    id=raw_id,
-                    success=False,
-                    errorCode="NOT_FOUND",
-                    errorMessage="Memory not found in current org scope",
-                )
-            )
-            continue
-
-        if action_type == "add_tag":
-            tag = tag_cache.get(memory.project_id)
-            if tag is None and memory.project_id not in tag_cache:
-                tag = await _resolve_project_tag(db, project_id=memory.project_id, tag_spec=payload.action.tagId)
-                tag_cache[memory.project_id] = tag
-            if tag is None:
-                results.append(
-                    BrainBatchResultItem(
-                        id=raw_id,
-                        success=False,
-                        errorCode="INVALID_TAG",
-                        errorMessage="Tag is missing or invalid for this project",
-                    )
-                )
-                continue
-            existing_link = (
-                await db.execute(
-                    select(MemoryTag)
-                    .where(MemoryTag.memory_id == memory.id, MemoryTag.tag_id == tag.id)
-                    .limit(1)
-                )
-            ).scalar_one_or_none()
-            if existing_link is None:
-                db.add(MemoryTag(memory_id=memory.id, tag_id=tag.id))
-            results.append(BrainBatchResultItem(id=raw_id, success=True))
-            continue
-
-        if action_type == "remove_tag":
-            tag = tag_cache.get(memory.project_id)
-            if tag is None and memory.project_id not in tag_cache:
-                tag = await _resolve_project_tag(db, project_id=memory.project_id, tag_spec=payload.action.tagId)
-                tag_cache[memory.project_id] = tag
-            if tag is None:
-                results.append(
-                    BrainBatchResultItem(
-                        id=raw_id,
-                        success=False,
-                        errorCode="TAG_NOT_FOUND",
-                        errorMessage="Tag does not exist in this project",
-                    )
-                )
-                continue
-            links = (
-                await db.execute(
-                    select(MemoryTag).where(MemoryTag.memory_id == memory.id, MemoryTag.tag_id == tag.id)
-                )
-            ).scalars().all()
-            for link in links:
-                await db.delete(link)
-            results.append(BrainBatchResultItem(id=raw_id, success=True))
-            continue
-
-        if action_type == "change_type":
-            new_type = (payload.action.newType or "").strip().lower()
-            if not new_type:
-                results.append(
-                    BrainBatchResultItem(
-                        id=raw_id,
-                        success=False,
-                        errorCode="INVALID_TYPE",
-                        errorMessage="newType is required",
-                    )
-                )
-                continue
-            memory.type = new_type
-            results.append(BrainBatchResultItem(id=raw_id, success=True))
-            continue
-
-        if action_type in {"pin", "unpin"}:
-            meta = dict(memory.metadata_json or {})
-            meta["pinned"] = action_type == "pin"
-            memory.metadata_json = meta
-            results.append(BrainBatchResultItem(id=raw_id, success=True))
-            continue
-
-        if action_type == "export":
-            exported.append(
-                {
-                    "id": memory.id,
-                    "project_id": memory.project_id,
-                    "type": memory.type,
-                    "title": memory.title or "",
-                    "content": memory.content,
-                    "created_at": memory.created_at.isoformat() if memory.created_at else None,
-                }
-            )
-            results.append(BrainBatchResultItem(id=raw_id, success=True))
-            continue
-
-        if action_type == "open_in_recall":
-            selected_memory_ids.append(memory.id)
-            results.append(BrainBatchResultItem(id=raw_id, success=True))
-            continue
-
-        results.append(
-            BrainBatchResultItem(
-                id=raw_id,
-                success=False,
-                errorCode="UNSUPPORTED_ACTION",
-                errorMessage=f"Unsupported action: {action_type}",
-            )
-        )
-
-    succeeded = sum(1 for r in results if r.success)
-    response = BrainBatchOut(
-        actionId=payload.actionId,
-        type=action_type,
-        results=results,
-        total=len(target_ids),
-        succeeded=succeeded,
-        failed=len(results) - succeeded,
-        exported=exported,
-        selected_memory_ids=selected_memory_ids,
-    )
-
     if action_type in mutating_actions:
         await write_audit(
             db,
@@ -2279,9 +2376,9 @@ async def brain_batch(
             entity_id=0,
             metadata={
                 "action_type": action_type,
-                "target_total": len(target_ids),
-                "succeeded": succeeded,
-                "failed": len(results) - succeeded,
+                "target_total": len(payload.action.targetIds),
+                "succeeded": response.succeeded,
+                "failed": response.failed,
             },
         )
 
@@ -2294,6 +2391,7 @@ async def brain_batch(
             request_hash=request_hash,
             action_type=action_type,
             status="completed",
+            request_json=payload.model_dump(mode="json"),
             response_json=response.model_dump(mode="json"),
         )
     )
@@ -2315,6 +2413,90 @@ async def brain_batch(
             raise HTTPException(status_code=409, detail="Idempotency key reused with different payload")
         return BrainBatchOut(**(existing_retry.response_json or {}))
 
+    return response
+
+
+@router.post("/brain/batch/{action_id}/undo", response_model=BrainBatchOut)
+async def undo_brain_batch(
+    action_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    ctx: RequestContext = Depends(get_actor_context),
+) -> BrainBatchOut:
+    if ctx.org_id is None:
+        raise HTTPException(status_code=400, detail="X-Org-Id required")
+    require_role(ctx, "member")
+
+    existing = (
+        await db.execute(
+            select(BatchActionRun)
+            .where(BatchActionRun.org_id == ctx.org_id, BatchActionRun.action_id == action_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Batch action not found")
+    if existing.status == "undone":
+        raise HTTPException(status_code=409, detail="Batch action has already been undone")
+    if existing.action_type not in REVERSIBLE_BATCH_ACTIONS:
+        raise HTTPException(status_code=409, detail="This batch action cannot be undone")
+    if existing.created_at < datetime.now(timezone.utc) - timedelta(seconds=BRAIN_BATCH_UNDO_WINDOW_SECONDS):
+        raise HTTPException(status_code=409, detail="Undo window expired")
+
+    original_payload = BrainBatchRequest(**(existing.request_json or {}))
+    original_response = BrainBatchOut(**(existing.response_json or {}))
+    inverse_payload = _build_inverse_batch_request(original_payload, original_response)
+
+    idempotency_key = request.headers.get("Idempotency-Key", "").strip() or inverse_payload.actionId
+    request_hash = _batch_request_hash(inverse_payload)
+    replay = (
+        await db.execute(
+            select(BatchActionRun)
+            .where(BatchActionRun.org_id == ctx.org_id, BatchActionRun.idempotency_key == idempotency_key)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if replay is not None:
+        if replay.request_hash != request_hash:
+            raise HTTPException(status_code=409, detail="Idempotency key reused with different payload")
+        return BrainBatchOut(**(replay.response_json or {}))
+
+    response = await _run_brain_batch_action(payload=inverse_payload, db=db, ctx=ctx)
+
+    db.add(
+        BatchActionRun(
+            org_id=ctx.org_id,
+            actor_user_id=ctx.actor_user_id,
+            action_id=inverse_payload.actionId,
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
+            action_type=inverse_payload.action.type,
+            status="completed",
+            request_json=inverse_payload.model_dump(mode="json"),
+            response_json=response.model_dump(mode="json"),
+        )
+    )
+    existing.status = "undone"
+    existing.response_json = {
+        **(existing.response_json or {}),
+        "undone_by_action_id": inverse_payload.actionId,
+    }
+    await write_audit(
+        db,
+        ctx=ctx,
+        org_id=ctx.org_id,
+        action="brain.batch.undo",
+        entity_type="memory",
+        entity_id=0,
+        metadata={
+            "action_id": action_id,
+            "undo_action_id": inverse_payload.actionId,
+            "target_total": response.total,
+            "succeeded": response.succeeded,
+            "failed": response.failed,
+        },
+    )
+    await db.commit()
     return response
 
 
@@ -2396,6 +2578,7 @@ async def search_memories(
 async def recall(
     project_id: int,
     request: Request,
+    response: Response,
     query: str = "",
     limit: int = Query(default=10, ge=1, le=50),
     format: str = Query(default="text", description="Output format: 'text' (default) or 'toon' (compact, token-optimised for agents)"),
@@ -2638,6 +2821,10 @@ async def recall(
         total_duration_ms=total_duration_ms,
     )
     await db.commit()
+    response.headers["X-ContextCache-API-Version"] = API_VERSION
+    response.headers["X-ContextCache-Recall-Strategy"] = strategy
+    response.headers["X-ContextCache-Recall-Served-By"] = served_by
+    response.headers["X-ContextCache-Recall-Duration-Ms"] = str(total_duration_ms)
 
     tag_map = await _load_tag_names(db, [m.id for m, _ in top_with_rank]) if top_with_rank else {}
     out_items = [_recall_item_to_out(m, tag_map.get(m.id, []), rs) for m, rs in top_with_rank]

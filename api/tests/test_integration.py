@@ -12,7 +12,7 @@ from app.analyzer.algorithm import build_vector_candidate_stmt
 from app.auth_utils import hash_token, now_utc
 from app.db import hash_api_key
 from app.ingestion.pipeline import IngestionConfig, ingest_path_incremental
-from app.models import ApiKey, AuthMagicLink, Membership, Memory, Organization, User
+from app.models import ApiKey, AuditLog, AuthMagicLink, Membership, Memory, Organization, Project, RawCapture, User
 from app.seed import seed
 from .conftest import Ctx, auth_headers
 
@@ -249,6 +249,238 @@ async def test_integrations_list_returns_uploaded_memory(client, app_ctx: Ctx) -
     assert listed.status_code == 200
     rows = listed.json()
     assert any(row["content"] == "Integration list should return this memory." for row in rows)
+
+
+async def test_integrations_capabilities_returns_stable_contract(client, app_ctx: Ctx) -> None:
+    response = await client.get(
+        "/integrations/capabilities",
+        headers=auth_headers(app_ctx, role="viewer"),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["api_version"]
+    assert "cli" in body["ingest_sources"]
+    assert body["supports_idempotency"] is True
+    assert body["supports_ingest_replay"] is True
+
+
+async def test_ingest_raw_idempotency_reuses_existing_capture(client, app_ctx: Ctx, monkeypatch) -> None:
+    monkeypatch.setattr("app.ingest_routes._WORKER_ENABLED", False)
+
+    headers = auth_headers(app_ctx, role="owner")
+    headers["Idempotency-Key"] = "cap-dup-1"
+    payload = {
+        "project_id": app_ctx.project_id,
+        "source": "cli",
+        "payload": {"text": "duplicate capture"},
+    }
+
+    first = await client.post("/ingest/raw", headers=headers, json=payload)
+    assert first.status_code == 202
+    second = await client.post("/ingest/raw", headers=headers, json=payload)
+    assert second.status_code == 202
+    assert second.json()["capture_id"] == first.json()["capture_id"]
+    assert second.json()["duplicate"] is True
+
+
+async def test_ingest_capture_status_and_replay(client, app_ctx: Ctx, db_session: AsyncSession, monkeypatch) -> None:
+    monkeypatch.setattr("app.ingest_routes._WORKER_ENABLED", False)
+
+    async def _fail_inline(db, capture):
+        raise RuntimeError("simulated refinery failure")
+
+    monkeypatch.setattr("app.ingest_routes._run_refinery_inline", _fail_inline)
+
+    create = await client.post(
+        "/ingest/raw",
+        headers=auth_headers(app_ctx, role="owner"),
+        json={
+            "project_id": app_ctx.project_id,
+            "source": "cli",
+            "payload": {"text": "needs replay"},
+        },
+    )
+    assert create.status_code == 202
+    capture_id = create.json()["capture_id"]
+    assert create.json()["processing_status"] == "dead_letter"
+
+    status = await client.get(
+        f"/ingest/raw/{capture_id}",
+        headers=auth_headers(app_ctx, role="owner"),
+    )
+    assert status.status_code == 200
+    assert status.json()["processing_status"] == "dead_letter"
+    assert "simulated refinery failure" in (status.json()["last_error"] or "")
+
+    async def _recover_inline(db, capture):
+        capture.processed_at = now_utc()
+        capture.processing_status = "processed"
+        capture.last_error = None
+        capture.last_error_at = None
+        capture.dead_lettered_at = None
+        return 1
+
+    monkeypatch.setattr("app.ingest_routes._run_refinery_inline", _recover_inline)
+
+    replay = await client.post(
+        f"/ingest/raw/{capture_id}/replay",
+        headers=auth_headers(app_ctx, role="owner"),
+    )
+    assert replay.status_code == 202
+    assert replay.json()["processing_status"] == "processed"
+
+    refreshed = (
+        await db_session.execute(select(RawCapture).where(RawCapture.id == capture_id).limit(1))
+    ).scalar_one()
+    assert refreshed.processing_status == "processed"
+
+    audit_actions = (
+        await db_session.execute(
+            select(AuditLog.action).where(AuditLog.org_id == app_ctx.org_id).order_by(AuditLog.id.asc())
+        )
+    ).scalars().all()
+    assert "ingest.capture_failed" in audit_actions
+    assert "ingest.capture_replayed" in audit_actions
+
+
+async def test_ingest_capture_org_isolation_returns_not_found(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    other_org = Organization(name=f"Capture Isolation Org {uuid.uuid4().hex[:6]}")
+    db_session.add(other_org)
+    await db_session.flush()
+    outsider = User(email=f"capture-isolated-{uuid.uuid4().hex[:6]}@example.com", display_name="Capture Isolated")
+    db_session.add(outsider)
+    await db_session.flush()
+    db_session.add(Membership(org_id=other_org.id, user_id=outsider.id, role="owner"))
+    isolated_project = Project(name="Capture Isolation Project", org_id=other_org.id, created_by_user_id=outsider.id)
+    db_session.add(isolated_project)
+    await db_session.flush()
+    capture = RawCapture(
+        org_id=other_org.id,
+        project_id=isolated_project.id,
+        source="cli",
+        payload_json={"text": "isolated capture"},
+        processing_status="failed",
+    )
+    db_session.add(capture)
+    await db_session.commit()
+
+    status = await client.get(
+        f"/ingest/raw/{capture.id}",
+        headers=auth_headers(app_ctx, role="owner"),
+    )
+    assert status.status_code == 404
+
+    replay = await client.post(
+        f"/ingest/raw/{capture.id}/replay",
+        headers=auth_headers(app_ctx, role="owner"),
+    )
+    assert replay.status_code == 404
+
+
+async def test_brain_batch_idempotency_and_conflict(client, app_ctx: Ctx) -> None:
+    create_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=auth_headers(app_ctx, role="owner"),
+        json={"type": "note", "content": "batch idempotency memory"},
+    )
+    assert create_resp.status_code == 201
+    memory_id = create_resp.json()["id"]
+
+    headers = auth_headers(app_ctx, role="owner")
+    headers["Idempotency-Key"] = "batch-pin-1"
+    payload = {"actionId": "batch-pin-1", "action": {"type": "pin", "targetIds": [f"mem-{memory_id}"]}}
+
+    first = await client.post("/brain/batch", headers=headers, json=payload)
+    assert first.status_code == 200
+    second = await client.post("/brain/batch", headers=headers, json=payload)
+    assert second.status_code == 200
+    assert second.json() == first.json()
+
+    conflict = await client.post(
+        "/brain/batch",
+        headers=headers,
+        json={"actionId": "batch-pin-2", "action": {"type": "unpin", "targetIds": [f"mem-{memory_id}"]}},
+    )
+    assert conflict.status_code == 409
+
+
+async def test_brain_batch_limit_and_undo(client, app_ctx: Ctx, db_session: AsyncSession, monkeypatch) -> None:
+    create_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=auth_headers(app_ctx, role="owner"),
+        json={"type": "note", "content": "undo memory"},
+    )
+    assert create_resp.status_code == 201
+    memory_id = create_resp.json()["id"]
+
+    monkeypatch.setattr("app.routes.BRAIN_BATCH_MAX_TARGETS", 1)
+    too_many = await client.post(
+        "/brain/batch",
+        headers=auth_headers(app_ctx, role="owner"),
+        json={"actionId": "batch-too-many", "action": {"type": "pin", "targetIds": [f"mem-{memory_id}", "mem-999999"]}},
+    )
+    assert too_many.status_code == 413
+
+    pin_payload = {"actionId": "batch-pin-undo", "action": {"type": "pin", "targetIds": [f"mem-{memory_id}"]}}
+    pin = await client.post("/brain/batch", headers=auth_headers(app_ctx, role="owner"), json=pin_payload)
+    assert pin.status_code == 200
+    assert pin.json()["undoAvailable"] is True
+
+    memory = (await db_session.execute(select(Memory).where(Memory.id == memory_id).limit(1))).scalar_one()
+    assert memory.metadata_json.get("pinned") is True
+
+    undo = await client.post(
+        "/brain/batch/batch-pin-undo/undo",
+        headers=auth_headers(app_ctx, role="owner"),
+    )
+    assert undo.status_code == 200
+
+    await db_session.refresh(memory)
+    assert memory.metadata_json.get("pinned") is False
+
+    second_undo = await client.post(
+        "/brain/batch/batch-pin-undo/undo",
+        headers=auth_headers(app_ctx, role="owner"),
+    )
+    assert second_undo.status_code == 409
+
+    audit_actions = (
+        await db_session.execute(
+            select(AuditLog.action).where(AuditLog.org_id == app_ctx.org_id).order_by(AuditLog.id.asc())
+        )
+    ).scalars().all()
+    assert "brain.batch" in audit_actions
+    assert "brain.batch.undo" in audit_actions
+
+
+async def test_brain_batch_org_isolation_returns_not_found(client, db_session: AsyncSession, app_ctx: Ctx) -> None:
+    other_org = Organization(name=f"Isolated Org {uuid.uuid4().hex[:6]}")
+    db_session.add(other_org)
+    await db_session.flush()
+    outsider = User(email=f"isolated-{uuid.uuid4().hex[:6]}@example.com", display_name="Isolated")
+    db_session.add(outsider)
+    await db_session.flush()
+    db_session.add(Membership(org_id=other_org.id, user_id=outsider.id, role="owner"))
+    project = Project(name="Isolated Project", org_id=other_org.id, created_by_user_id=outsider.id)
+    db_session.add(project)
+    await db_session.flush()
+    memory = Memory(project_id=project.id, created_by_user_id=outsider.id, type="note", source="manual", content="isolated")
+    db_session.add(memory)
+    await db_session.commit()
+
+    response = await client.post(
+        "/brain/batch",
+        headers=auth_headers(app_ctx, role="owner"),
+        json={"actionId": "cross-org", "action": {"type": "pin", "targetIds": [f"mem-{memory.id}"]}},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["failed"] == 1
+    assert body["results"][0]["errorCode"] == "NOT_FOUND"
 
 
 async def test_admin_recall_logs_returns_recent_entries(client, app_ctx: Ctx) -> None:

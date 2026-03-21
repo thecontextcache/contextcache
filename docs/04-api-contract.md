@@ -2,11 +2,17 @@
 
 Base URL: `http://<host>:8000`
 
+Default version header on every response:
+
+- `X-ContextCache-API-Version: 2026-03-20` (or the configured `API_VERSION`)
+
 ## Public endpoints
 
 - `GET /health`
 - `GET /docs`
 - `GET /openapi.json`
+- `GET /integrations/capabilities`
+- `GET /ingest/capabilities`
 - `POST /auth/request-link`
 - `GET /auth/verify?token=...`
 
@@ -231,10 +237,102 @@ Daily + weekly limits are configured via environment variables (`DAILY_MAX_*`, `
 - `POST /integrations/memories`
 - `GET /integrations/memories?project_id=...&limit=...&offset=...`
 - `POST /integrations/memories/{memory_id}/contextualize`
+- `POST /ingest/raw`
+- `GET /ingest/raw/{capture_id}`
+- `POST /ingest/raw/{capture_id}/replay`
 - `GET /projects/{project_id}/memories`
 - `GET /projects/{project_id}/recall?query=...&limit=10`
+- `POST /brain/batch`
+- `POST /brain/batch/{action_id}/undo`
 - `GET /health/worker`
 - `GET /health/redis`
+
+## Integrations capabilities contract
+
+`GET /integrations/capabilities` and `GET /ingest/capabilities` expose the
+stable machine-facing contract for extensions, CLI tools, and future agents.
+
+Response:
+
+```json
+{
+  "api_version": "2026-03-20",
+  "auth_modes": ["session", "api_key", "bearer_optional"],
+  "ingest_sources": ["extension", "api", "cli", "agent"],
+  "recall_formats": ["memory_pack_text", "items"],
+  "brain_batch_max_targets": 1000,
+  "supports_idempotency": true,
+  "supports_ingest_replay": true,
+  "supports_batch_undo": ["add_tag", "remove_tag", "pin", "unpin"]
+}
+```
+
+Clients should read this once at startup and:
+
+1. cache `api_version`
+2. respect `brain_batch_max_targets`
+3. only enable replay / undo UX when supported
+
+## Raw ingest contract
+
+`POST /ingest/raw` accepts raw capture payloads from extension/CLI/agent sources.
+
+Recommended headers:
+
+- `Idempotency-Key: <stable-client-generated-id>`
+- `X-API-Key: <org-api-key>` or authenticated session/bearer token
+- `X-Org-Id: <org-id>` when using API keys
+
+Response:
+
+```json
+{
+  "capture_id": 14,
+  "queued": true,
+  "duplicate": false,
+  "worker_enabled": true,
+  "processing_status": "queued"
+}
+```
+
+Response headers:
+
+- `X-ContextCache-API-Version`
+- `X-ContextCache-Capture-Id`
+- `X-ContextCache-Processing-Status`
+
+Idempotency rules:
+
+1. same org + same `Idempotency-Key` returns the existing capture
+2. duplicate replay does not create a second `raw_captures` row
+3. refinery replay deletes prior `inbox_items` for that capture before rewriting
+
+### `GET /ingest/raw/{capture_id}`
+
+Returns capture status for extension/agent polling:
+
+```json
+{
+  "id": 14,
+  "org_id": 1,
+  "project_id": 3,
+  "source": "extension",
+  "idempotency_key": "ext-4f6c",
+  "processing_status": "failed",
+  "attempt_count": 2,
+  "processing_started_at": "2026-03-20T14:20:00Z",
+  "processed_at": null,
+  "last_error": "refinery timeout",
+  "last_error_at": "2026-03-20T14:20:08Z",
+  "dead_lettered_at": null
+}
+```
+
+### `POST /ingest/raw/{capture_id}/replay`
+
+Allowed when the capture belongs to the caller's org and is in `failed` or
+`dead_letter` state. This resets status back to `queued` or `processing`
+depending on worker mode.
 
 Global admin API-key view:
 - `GET /admin/api-keys` — list API keys across all orgs (`org_id` filter optional; session admin only)
@@ -264,6 +362,68 @@ Access-request audit trail:
   ]
 }
 ```
+
+Response headers:
+
+- `X-ContextCache-API-Version`
+- `X-ContextCache-Recall-Strategy`
+- `X-ContextCache-Recall-Served-By`
+- `X-ContextCache-Recall-Duration-Ms`
+
+These headers are the stable low-overhead observability surface for agents and
+CLI tools that need latency and strategy visibility without parsing admin logs.
+
+## Brain batch contract
+
+`POST /brain/batch` applies a batch action to a set of memory IDs.
+
+Rules:
+
+1. requests must include `actionId`
+2. `Idempotency-Key` is recommended and takes precedence for replay detection
+3. requests larger than `BRAIN_BATCH_MAX_TARGETS` return `413`
+4. the server chunks DB reads internally using `BRAIN_BATCH_DB_CHUNK_SIZE`
+
+Example request:
+
+```json
+{
+  "actionId": "8c2d7f7e-cc42-45e7-a73d-9c69d9983d11",
+  "action": {
+    "type": "pin",
+    "targetIds": ["mem_1", "mem_2"]
+  }
+}
+```
+
+Example response:
+
+```json
+{
+  "actionId": "8c2d7f7e-cc42-45e7-a73d-9c69d9983d11",
+  "type": "pin",
+  "results": [
+    {"id": "mem_1", "success": true},
+    {"id": "mem_2", "success": true}
+  ],
+  "total": 2,
+  "succeeded": 2,
+  "failed": 0,
+  "undoAvailable": true,
+  "undoActionId": "8c2d7f7e-cc42-45e7-a73d-9c69d9983d11"
+}
+```
+
+### `POST /brain/batch/{action_id}/undo`
+
+Supported reversible actions:
+
+- `add_tag`
+- `remove_tag`
+- `pin`
+- `unpin`
+
+Undo window is controlled by `BRAIN_BATCH_UNDO_WINDOW_SECONDS`.
 
 - Recall ranking is implemented in a private proprietary engine.
 - Public response shape, auth behavior, and endpoint contract are unchanged.

@@ -1,10 +1,22 @@
 # Integrations (MCP-style capture)
 
-ContextCache supports a simple ingestion API for external tools:
+ContextCache supports a stable machine-facing ingestion and recall API for:
+
+- browser extensions
+- CLI tools
+- IDE plugins
+- Codex/agent integrations
+
+Core endpoints:
 
 - `POST /integrations/memories`
 - `GET /integrations/memories`
 - `POST /projects/{project_id}/memories` (equivalent direct route)
+- `POST /ingest/raw`
+- `GET /ingest/raw/{capture_id}`
+- `POST /ingest/raw/{capture_id}/replay`
+- `GET /integrations/capabilities`
+- `GET /projects/{project_id}/recall`
 
 Both routes enforce the same auth, RBAC, and usage limits.
 
@@ -33,6 +45,25 @@ Use either:
 - Session cookie (`/auth/verify` login flow)
 - API key header: `X-API-Key: <key>` (+ `X-Org-Id` when needed)
 
+Every client should also read `GET /integrations/capabilities` at startup.
+
+Example:
+
+```json
+{
+  "api_version": "2026-03-20",
+  "auth_modes": ["session", "api_key", "bearer_optional"],
+  "ingest_sources": ["extension", "api", "cli", "agent"],
+  "recall_formats": ["memory_pack_text", "items"],
+  "brain_batch_max_targets": 1000,
+  "supports_idempotency": true,
+  "supports_ingest_replay": true,
+  "supports_batch_undo": ["add_tag", "remove_tag", "pin", "unpin"]
+}
+```
+
+Use this to lock extension/backend compatibility without hard-coding assumptions.
+
 ## Request shape
 
 ```json
@@ -46,6 +77,12 @@ Use either:
   "tags": ["capture", "browser"]
 }
 ```
+
+Recommended headers:
+
+- `Idempotency-Key: <stable-client-event-id>`
+- `X-ContextCache-Client: extension|cli|agent`
+- `X-ContextCache-Client-Version: <semver>`
 
 Optional request signing:
 
@@ -109,6 +146,83 @@ def handle_slack_message(text: str, project_id: int, api_key: str, org_id: int) 
 
 - For public beta scale, this API is enough for IDE plugins, bots, and scripts.
 - Future hardening: signed webhooks, per-integration keys, and Redis-backed global rate limits.
+
+## Extension reliability requirements
+
+The extension should not assume a network round-trip is always available.
+
+Recommended client behavior:
+
+1. write outgoing captures to a local queue first
+2. generate a stable `Idempotency-Key` per queued event
+3. attempt `POST /ingest/raw`
+4. poll `GET /ingest/raw/{capture_id}` until terminal state
+5. if terminal state is `failed` or `dead_letter`, expose a retry button that calls
+   `POST /ingest/raw/{capture_id}/replay`
+
+Suggested local queue item shape:
+
+```json
+{
+  "local_id": "ext_01hzy8...",
+  "idempotency_key": "ext_01hzy8...",
+  "project_id": 12,
+  "source": "extension",
+  "captured_at": "2026-03-20T15:00:00Z",
+  "status": "queued"
+}
+```
+
+## Agent / Codex usage pattern
+
+ContextCache should be treated as a memory service, not just a UI.
+
+Write path:
+
+1. agent completes a task
+2. agent stores a structured memory or raw capture
+3. store the tool/source metadata and stable idempotency key
+
+Read path:
+
+1. agent receives a new task
+2. call `GET /projects/{project_id}/recall?query=...`
+3. use `memory_pack_text` or structured `items`
+4. log the returned recall headers for latency/strategy visibility
+
+Minimal memory-write example:
+
+```bash
+curl -sS -X POST https://api.thecontextcache.com/integrations/memories \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $CONTEXTCACHE_API_KEY" \
+  -H "X-Org-Id: $CONTEXTCACHE_ORG_ID" \
+  -H "Idempotency-Key: codex-task-123" \
+  -d '{
+    "project_id": 1,
+    "type": "code",
+    "source": "agent",
+    "title": "Fixed migration retry bug",
+    "content": "Root cause: retries were duplicating inbox items. Added capture replay dedupe.",
+    "metadata": {"tool": "codex", "repo": "contextcache"},
+    "tags": ["migration", "reliability"]
+  }'
+```
+
+Minimal recall example:
+
+```bash
+curl -si "https://api.thecontextcache.com/projects/1/recall?query=migration retries&limit=5" \
+  -H "X-API-Key: $CONTEXTCACHE_API_KEY" \
+  -H "X-Org-Id: $CONTEXTCACHE_ORG_ID"
+```
+
+The response headers are part of the contract:
+
+- `X-ContextCache-API-Version`
+- `X-ContextCache-Recall-Strategy`
+- `X-ContextCache-Recall-Served-By`
+- `X-ContextCache-Recall-Duration-Ms`
 
 ## Retrieval flow
 

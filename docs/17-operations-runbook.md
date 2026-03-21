@@ -31,6 +31,12 @@ Hard reset (downtime + cache prune) is still available:
 make prod-deploy-hard
 ```
 
+Safer variant with verification:
+
+```bash
+make prod-deploy-safe
+```
+
 ## Database observability on server
 
 Helper script:
@@ -48,7 +54,50 @@ Equivalent make targets:
 ```bash
 make prod-db-logs
 make prod-status
+make prod-db-backup
+make prod-db-restore-verify
 ```
+
+## Backup and restore verification
+
+Create an on-host compressed backup:
+
+```bash
+./scripts/db_backup.sh
+```
+
+Restore verification without touching the live database:
+
+```bash
+./scripts/db_restore_verify.sh backups/contextcache-YYYYmmdd-HHMMSS.sql.gz
+```
+
+What restore verification does:
+
+1. creates a temporary database inside the running Postgres container
+2. restores the supplied dump into that temporary database
+3. runs a small schema/query sanity check
+4. drops the temporary database
+
+This is the minimum bar before calling backups "real."
+
+## Rollback checklist
+
+If a deploy is unhealthy:
+
+1. stop changing the system
+2. inspect `docker compose ... logs -n 150 api web worker`
+3. if the break is code-only, roll back the app image/container first
+4. if the break is schema-related and not forward-compatible, restore from the
+   last known-good dump only after confirming the application rollback is not enough
+
+The failure boundary matters:
+
+- code bug: rollback app
+- bad env/config: fix env and restart
+- destructive migration/data corruption: restore database
+
+Do not restore the database just because a container failed to boot.
 
 ## Visual DB tooling from Mac (DBeaver/TablePlus/pgAdmin)
 

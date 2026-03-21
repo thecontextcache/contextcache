@@ -241,6 +241,22 @@ jobs:
     name: Web — Brain synthetic perf check
     runs-on: ubuntu-latest
     needs: [web-build]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: medium
+            nodes: "5000"
+            edges: "15000"
+            min_fps: "20"
+            max_p95_ms: "70"
+            max_load_ms: "9000"
+          - name: large
+            nodes: "10000"
+            edges: "30000"
+            min_fps: "15"
+            max_p95_ms: "80"
+            max_load_ms: "12000"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -283,16 +299,17 @@ jobs:
           cat /tmp/next-web.log
           exit 1
 
-      - name: Run brain perf check
+      - name: Run brain perf check (${{ matrix.name }})
         working-directory: web
         env:
           NEXT_PUBLIC_BRAIN_RENDERER: "webgl"
           BRAIN_PERF_BASE_URL: "http://127.0.0.1:3000"
-          BRAIN_PERF_NODES: "10000"
-          BRAIN_PERF_EDGES: "30000"
-          BRAIN_MIN_FPS: "15"
-          BRAIN_MAX_P95_MS: "80"
-          BRAIN_MAX_LOAD_MS: "12000"
+          BRAIN_PERF_NODES: ${{ matrix.nodes }}
+          BRAIN_PERF_EDGES: ${{ matrix.edges }}
+          BRAIN_MIN_FPS: ${{ matrix.min_fps }}
+          BRAIN_MAX_P95_MS: ${{ matrix.max_p95_ms }}
+          BRAIN_MAX_LOAD_MS: ${{ matrix.max_load_ms }}
+          BRAIN_INTERACTION_MS: "2500"
         run: npm run perf:brain
 
       - name: Stop app

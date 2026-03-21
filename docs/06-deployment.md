@@ -98,6 +98,17 @@ HEDGE_P95_CACHE_TTL_SECONDS=900
 ANALYZER_MODE=local
 CAG_CACHE_MAX_ITEMS=512
 CAG_KV_STUB_ENABLED=true
+
+# Stable API / integration contract
+API_VERSION=2026-03-20
+
+# Brain batch safety
+BRAIN_BATCH_MAX_TARGETS=1000
+BRAIN_BATCH_DB_CHUNK_SIZE=200
+BRAIN_BATCH_UNDO_WINDOW_SECONDS=600
+
+# Ingest reliability
+INGEST_DEAD_LETTER_MAX_ATTEMPTS=4
 ```
 
 ### 6. Start
@@ -238,6 +249,36 @@ curl -sI https://thecontextcache.com | head -5
 #    → verify → check /app loads + session cookie is set
 docker compose logs api | grep -i "MAGIC LINK" | tail -3
 ```
+
+### Safer deploy sequence
+
+Use this order on production:
+
+```bash
+# 1. Validate env + compose
+docker compose --env-file .env -f infra/docker-compose.prod.yml config >/dev/null
+
+# 2. Create a backup before schema changes
+./scripts/db_backup.sh
+
+# 3. Build images
+docker compose --env-file .env -f infra/docker-compose.prod.yml build api web worker beat
+
+# 4. Recreate app containers without restarting db/redis
+docker compose --env-file .env -f infra/docker-compose.prod.yml up -d --no-deps api web worker beat
+
+# 5. Verify health
+curl -fsS http://127.0.0.1:8000/health
+curl -fsS http://127.0.0.1:3000/auth >/dev/null
+docker compose --env-file .env -f infra/docker-compose.prod.yml logs -n 100 api
+```
+
+Rollback rule:
+
+1. keep the pre-deploy backup
+2. if the new API fails health checks, restore the prior image/tag first
+3. only restore the database if a migration actually changed persisted state and
+   the older code is not forward-compatible
 
 ### Cookie / session notes
 

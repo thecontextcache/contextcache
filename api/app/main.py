@@ -43,10 +43,20 @@ BOOTSTRAP_OWNER_EMAIL = "demo@local"
 BOOTSTRAP_OWNER_NAME = "Demo Owner"
 
 _CAG_EVAPORATION_TASK: asyncio.Task | None = None
+API_VERSION = os.getenv("API_VERSION", "2026-03-20").strip() or "2026-03-20"
 
 raw_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000")
 cors_origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
 cors_allow_headers = ["authorization", "x-api-key", "x-org-id", "content-type"]
+cors_expose_headers = [
+    "content-type",
+    "x-contextcache-api-version",
+    "x-contextcache-capture-id",
+    "x-contextcache-processing-status",
+    "x-contextcache-recall-strategy",
+    "x-contextcache-recall-served-by",
+    "x-contextcache-recall-duration-ms",
+]
 if APP_ENV == "dev":
     cors_allow_headers.append("x-user-email")
 
@@ -533,7 +543,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=cors_allow_headers,
-    expose_headers=["content-type"],
+    expose_headers=cors_expose_headers,
 )
 
 
@@ -663,6 +673,13 @@ async def api_key_middleware(request: Request, call_next):
         _apply_auth_context(request, result)
 
     return await call_next(request)
+
+
+@app.middleware("http")
+async def api_contract_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-ContextCache-API-Version", API_VERSION)
+    return response
 
 
 # ── Routers ────────────────────────────────────────────────────────────────────

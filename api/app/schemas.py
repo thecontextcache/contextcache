@@ -165,6 +165,8 @@ class BrainBatchOut(BaseModel):
     failed: int
     exported: List[Dict[str, Any]] = Field(default_factory=list)
     selected_memory_ids: List[int] = Field(default_factory=list)
+    undoAvailable: bool = False
+    undoActionId: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -490,14 +492,34 @@ class RawCaptureOut(BaseModel):
     id: int
     org_id: int
     project_id: Optional[int] = None
+    idempotency_key: Optional[str] = None
     source: str
+    processing_status: str
+    attempt_count: int
+    processing_started_at: Optional[datetime] = None
     captured_at: datetime
     processed_at: Optional[datetime] = None
+    last_error: Optional[str] = None
+    last_error_at: Optional[datetime] = None
+    dead_lettered_at: Optional[datetime] = None
 
 
 class RawCaptureQueuedOut(BaseModel):
     status: str
     capture_id: int
+    processing_status: str
+    duplicate: bool = False
+
+
+class IntegrationsCapabilitiesOut(BaseModel):
+    api_version: str
+    auth_modes: List[str]
+    ingest_sources: List[str]
+    recall_formats: List[str]
+    brain_batch_max_targets: int
+    supports_idempotency: bool
+    supports_ingest_replay: bool
+    supports_batch_undo: List[str]
 
 
 # ---------------------------------------------------------------------------

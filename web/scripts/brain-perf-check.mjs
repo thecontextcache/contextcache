@@ -7,6 +7,7 @@ const EDGE_COUNT = Number(process.env.BRAIN_PERF_EDGES || '30000');
 const MIN_FPS = Number(process.env.BRAIN_MIN_FPS || '20');
 const MAX_P95 = Number(process.env.BRAIN_MAX_P95_MS || '50');
 const MAX_LOAD_MS = Number(process.env.BRAIN_MAX_LOAD_MS || '6000');
+const INTERACTION_MS = Number(process.env.BRAIN_INTERACTION_MS || '2500');
 
 function parseHostFromUrl(url) {
   const u = new URL(url);
@@ -47,6 +48,30 @@ async function main() {
 
   await page.waitForFunction(() => Boolean(window.__brainGraphDebug), { timeout: 15000 });
   await wait(2500);
+
+  const graphRegion = page.locator('[aria-label="Brain graph of your knowledge context"]');
+  await graphRegion.waitFor({ state: 'visible', timeout: 15000 });
+  const box = await graphRegion.boundingBox();
+  if (!box) {
+    throw new Error('Brain graph region is not measurable');
+  }
+
+  const centerX = box.x + box.width / 2;
+  const centerY = box.y + box.height / 2;
+  const deltaX = Math.min(180, box.width / 4);
+  const deltaY = Math.min(120, box.height / 5);
+
+  await page.mouse.move(centerX, centerY);
+  await page.mouse.down();
+  await page.mouse.move(centerX + deltaX, centerY + deltaY, { steps: 20 });
+  await page.mouse.move(centerX - deltaX, centerY - deltaY, { steps: 20 });
+  await page.mouse.up();
+
+  await page.mouse.move(centerX, centerY);
+  await page.mouse.wheel(0, -900);
+  await wait(300);
+  await page.mouse.wheel(0, 1100);
+  await wait(INTERACTION_MS);
 
   const metrics = await page.evaluate(() => window.__brainGraphDebug?.getMetrics?.() ?? null);
   const snapshot = await page.evaluate(() => window.__brainGraphDebug?.getSnapshot?.() ?? null);

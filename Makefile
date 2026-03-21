@@ -7,7 +7,7 @@
 PROD_COMPOSE := --env-file .env -f infra/docker-compose.prod.yml
 DEV_COMPOSE  := --env-file .env -f docker-compose.yml
 
-.PHONY: help dev dev-down dev-logs prod-deploy prod-deploy-hard prod-up prod-down prod-logs prod-db-logs prod-status
+.PHONY: help dev dev-down dev-logs prod-deploy prod-deploy-safe prod-deploy-hard prod-up prod-down prod-logs prod-db-logs prod-status prod-config-check prod-verify prod-db-backup prod-db-restore-verify
 
 help:               ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -31,6 +31,12 @@ prod-deploy:        ## Low-downtime deploy: build first, recreate app services o
 	@echo "🚀  Recreating app services (db/redis stay up)..."
 	docker compose $(PROD_COMPOSE) up -d --no-deps api worker beat web docs
 	@echo "✅  Done — low-downtime deploy complete."
+
+prod-deploy-safe:   ## Safer deploy: validate config, back up DB, deploy app services, verify health
+	$(MAKE) prod-config-check
+	$(MAKE) prod-db-backup
+	$(MAKE) prod-deploy
+	$(MAKE) prod-verify
 
 prod-deploy-hard:   ## Full clean-slate rebuild (includes downtime)
 	@echo "⏬  Stopping running containers..."
@@ -61,3 +67,18 @@ prod-db-logs:       ## Tail DB logs only
 
 prod-status:        ## Show prod container status
 	docker compose $(PROD_COMPOSE) ps
+
+prod-config-check:  ## Validate production compose/env resolution
+	docker compose $(PROD_COMPOSE) config >/dev/null
+
+prod-verify:        ## Verify production health after deploy
+	curl -fsS http://127.0.0.1:8000/health >/dev/null
+	curl -fsS http://127.0.0.1:3000/auth >/dev/null
+	docker compose $(PROD_COMPOSE) ps
+
+prod-db-backup:     ## Create compressed production Postgres backup under ./backups
+	./scripts/db_backup.sh
+
+prod-db-restore-verify: ## Verify a backup can be restored to a temporary database (requires BACKUP=path.sql.gz)
+	test -n "$(BACKUP)"
+	./scripts/db_restore_verify.sh "$(BACKUP)"

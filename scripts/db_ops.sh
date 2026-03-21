@@ -16,6 +16,8 @@ Commands:
   locks        Show waiting lock pairs
   size         Show top table sizes
   schema       List all public tables
+  backup       Create compressed backup under ./backups
+  restore-verify <file.sql.gz>  Restore a backup into a temporary database and verify it
 EOF
 }
 
@@ -79,6 +81,16 @@ SELECT table_name
 FROM information_schema.tables
 WHERE table_schema='public'
 ORDER BY table_name;"
+    ;;
+  backup)
+    ./scripts/db_backup.sh
+    ;;
+  restore-verify)
+    if [[ $# -ne 2 ]]; then
+      echo "Usage: scripts/db_ops.sh restore-verify <backup.sql.gz>"
+      exit 1
+    fi
+    ./scripts/db_restore_verify.sh "$2"
     ;;
   *)
     usage

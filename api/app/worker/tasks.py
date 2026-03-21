@@ -566,6 +566,14 @@ def process_raw_capture_task(self, capture_id: int) -> dict:
             logger.info("[worker] process_raw_capture_task already processed id=%s", capture_id)
             return {"status": "already_processed", "capture_id": capture_id}
 
+        now = datetime.now(timezone.utc)
+        capture.processing_status = "processing"
+        capture.processing_started_at = now
+        capture.attempt_count = int(capture.attempt_count or 0) + 1
+        capture.last_error = None
+        capture.last_error_at = None
+        capture.dead_lettered_at = None
+
         # Determine target project (required to create inbox items).
         project_id = capture.project_id
         if project_id is None:
@@ -573,19 +581,45 @@ def process_raw_capture_task(self, capture_id: int) -> dict:
                 "[worker] process_raw_capture_task no project_id on capture id=%s — skipping",
                 capture_id,
             )
-            capture.processed_at = datetime.now(timezone.utc)
+            capture.processing_status = "dead_letter"
+            capture.last_error = "missing project_id"
+            capture.last_error_at = now
+            capture.dead_lettered_at = now
             return {"status": "skipped_no_project", "capture_id": capture_id}
 
         # LLM extraction (stub by default; real call goes here).
         try:
             drafts = refine_content_with_llm(capture.payload)
         except Exception as exc:
+            capture.last_error = str(exc)[:2000]
+            capture.last_error_at = datetime.now(timezone.utc)
+            will_exhaust = int(getattr(self.request, "retries", 0)) >= int(self.max_retries or 0)
+            if will_exhaust:
+                capture.processing_status = "dead_letter"
+                capture.dead_lettered_at = capture.last_error_at
+                logger.error(
+                    "[worker] process_raw_capture_task dead-lettered capture_id=%s after retries: %s",
+                    capture_id,
+                    exc,
+                )
+                return {
+                    "status": "dead_letter",
+                    "capture_id": capture_id,
+                    "detail": capture.last_error,
+                }
+            capture.processing_status = "failed"
             logger.error(
                 "[worker] process_raw_capture_task LLM extraction failed capture_id=%s: %s",
                 capture_id,
                 exc,
             )
             raise self.retry(exc=exc)
+
+        existing_items = (
+            await session.execute(select(InboxItem).where(InboxItem.raw_capture_id == capture_id))
+        ).scalars().all()
+        for item in existing_items:
+            await session.delete(item)
 
         inserted = 0
         for draft in drafts:
@@ -610,6 +644,10 @@ def process_raw_capture_task(self, capture_id: int) -> dict:
             inserted += 1
 
         capture.processed_at = datetime.now(timezone.utc)
+        capture.processing_status = "processed"
+        capture.last_error = None
+        capture.last_error_at = None
+        capture.dead_lettered_at = None
         logger.info(
             "[worker] process_raw_capture_task complete capture_id=%s inserted=%s",
             capture_id,
@@ -730,6 +768,7 @@ def retry_stale_raw_captures(self, stale_minutes: int = 60) -> dict:
                 select(RawCapture.id)
                 .where(
                     RawCapture.processed_at.is_(None),
+                    RawCapture.processing_status.in_(["queued", "failed"]),
                     RawCapture.captured_at < cutoff,
                 )
                 .limit(100)
