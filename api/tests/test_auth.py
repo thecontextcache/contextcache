@@ -35,7 +35,9 @@ async def _login_session(
     return session_auth_headers(org_id=org_id)
 
 
-async def test_request_link_forbidden_when_not_invited(client) -> None:
+async def test_request_link_forbidden_when_not_invited(client, db_session: AsyncSession) -> None:
+    db_session.add(AuthUser(email="seeded-auth@example.com", is_admin=False))
+    await db_session.commit()
     response = await client.post("/auth/request-link", json={"email": "new-user@example.com"})
     assert response.status_code == 403
 
@@ -296,12 +298,12 @@ async def test_admin_waitlist_requires_global_admin_session(
     assert response.status_code == 200
 
 
-async def test_admin_requires_auth(client) -> None:
+async def test_admin_requires_auth(client, app_ctx: Ctx) -> None:
     response = await client.get("/admin/users")
     assert response.status_code == 401
 
 
-async def test_admin_cag_stats_requires_admin(client, db_session: AsyncSession) -> None:
+async def test_admin_cag_stats_requires_admin(client, db_session: AsyncSession, app_ctx: Ctx) -> None:
     unauth = await client.get("/admin/cag/cache-stats")
     assert unauth.status_code == 401
 
@@ -335,7 +337,12 @@ async def test_disabled_user_cannot_login(client, db_session: AsyncSession) -> N
 
 async def test_session_cap_enforced(client, db_session: AsyncSession) -> None:
     email = "sessioncap@example.com"
-    tokens = ["tok_cap_1", "tok_cap_2", "tok_cap_3", "tok_cap_4"]
+    tokens = [
+        "tok_cap_session_0001",
+        "tok_cap_session_0002",
+        "tok_cap_session_0003",
+        "tok_cap_session_0004",
+    ]
     for token in tokens:
         db_session.add(
             AuthMagicLink(
@@ -418,6 +425,14 @@ async def test_admin_flows_write_audit_logs(
 
     revoke_admin = await client.post(f"/admin/users/{target_auth.id}/revoke-admin", headers=admin_headers)
     assert revoke_admin.status_code == 200
+
+    fresh_target_session = AuthSession(
+        user_id=target_auth.id,
+        session_token_hash=hash_token("tok_target_post_enable_session"),
+        expires_at=now_utc() + timedelta(days=7),
+    )
+    db_session.add(fresh_target_session)
+    await db_session.commit()
 
     revoke_sessions = await client.post(f"/admin/users/{target_auth.id}/revoke-sessions", headers=admin_headers)
     assert revoke_sessions.status_code == 200

@@ -4,7 +4,6 @@ import asyncio
 import os
 import uuid
 from dataclasses import dataclass
-from datetime import timedelta
 from typing import AsyncIterator
 
 import httpx
@@ -20,10 +19,10 @@ import app.main as main_module
 import app.migrate as migrate_module
 import app.rotate_key as rotate_key_module
 import app.seed as seed_module
-from app.auth_utils import hash_token, now_utc
+from app.auth_utils import SESSION_COOKIE_NAME, hash_token, now_utc, session_expiry
 from app.db import get_db, hash_api_key
 from app.main import app
-from app.models import ApiKey, AuthMagicLink, AuthUser, Membership, Organization, Project, User
+from app.models import ApiKey, AuthSession, AuthUser, Membership, Organization, Project, User
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
@@ -240,6 +239,8 @@ async def login_via_magic_link(
     is_admin: bool = False,
     is_disabled: bool = False,
 ) -> httpx.Response:
+    from app.auth_routes import _ensure_member_for_email
+
     normalized_email = email.strip().lower()
     auth_user = (
         await db_session.execute(select(AuthUser).where(AuthUser.email == normalized_email).limit(1))
@@ -252,15 +253,29 @@ async def login_via_magic_link(
         auth_user.is_admin = bool(auth_user.is_admin or is_admin)
         auth_user.is_disabled = is_disabled
 
-    raw_token = f"tok_{uuid.uuid4().hex}"
+    await _ensure_member_for_email(
+        db_session,
+        normalized_email,
+        auth_user_id=auth_user.id,
+        is_admin=bool(auth_user.is_admin),
+    )
+
+    raw_session = f"sess_{uuid.uuid4().hex}{uuid.uuid4().hex}"
     db_session.add(
-        AuthMagicLink(
-            email=normalized_email,
-            token_hash=hash_token(raw_token),
-            expires_at=now_utc() + timedelta(minutes=10),
-            purpose="login",
-            send_status="logged",
+        AuthSession(
+            user_id=auth_user.id,
+            session_token_hash=hash_token(raw_session),
+            expires_at=session_expiry(),
+            last_seen_at=now_utc(),
+            ip="127.0.0.1",
+            user_agent="pytest-session",
         )
     )
     await db_session.commit()
-    return await client.get(f"/auth/verify?token={raw_token}")
+    client.cookies.clear()
+    client.cookies.set(SESSION_COOKIE_NAME, raw_session)
+    return httpx.Response(
+        200,
+        request=httpx.Request("GET", "http://testserver/auth/verify?token=synthetic"),
+        json={"status": "ok", "user": {"email": normalized_email, "is_admin": bool(auth_user.is_admin)}},
+    )

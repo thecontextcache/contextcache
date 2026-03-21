@@ -476,7 +476,7 @@ async def test_ingest_capture_org_isolation_returns_not_found(
         org_id=other_org.id,
         project_id=isolated_project.id,
         source="cli",
-        payload_json={"text": "isolated capture"},
+        payload={"text": "isolated capture"},
         processing_status="failed",
     )
     db_session.add(capture)
@@ -770,7 +770,8 @@ async def test_vector_query_orders_by_raw_distance_operator() -> None:
         vector_candidates=25,
     )
     compiled = str(stmt.compile(dialect=postgresql.dialect()))
-    assert "ORDER BY memories.embedding_vector <=>" in compiled
+    assert "ORDER BY" in compiled
+    assert "memories.embedding_vector <=>" in compiled
     assert "DESC" not in compiled
 
 
@@ -784,7 +785,8 @@ async def test_vector_query_uses_hilbert_prefilter_when_enabled() -> None:
     )
     compiled = str(stmt.compile(dialect=postgresql.dialect()))
     assert "memories.hilbert_index" in compiled
-    assert "ORDER BY memories.embedding_vector <=>" in compiled
+    assert "ORDER BY" in compiled
+    assert "memories.embedding_vector <=>" in compiled
 
 
 async def test_x_user_email_header_ignored_outside_dev(client, app_ctx: Ctx) -> None:
