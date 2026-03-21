@@ -3,6 +3,7 @@ set -euo pipefail
 
 COMPOSE_FILE="infra/docker-compose.prod.yml"
 ENV_FILE=".env"
+RESTORE_VERIFY_MAINTENANCE_WORK_MEM="${RESTORE_VERIFY_MAINTENANCE_WORK_MEM:-256MB}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/lib/compose_db_env.sh"
@@ -36,6 +37,7 @@ cc_compose exec -T db \
 
 echo "Restoring backup into verification database"
 gzip -dc "$BACKUP_FILE" | cc_compose exec -T db \
+  env PGOPTIONS="-c maintenance_work_mem=${RESTORE_VERIFY_MAINTENANCE_WORK_MEM}" \
   psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$VERIFY_DB" >/dev/null
 
 echo "Running verification queries"
