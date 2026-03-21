@@ -7,7 +7,7 @@ cd "$ROOT_DIR"
 COMPOSE_FILE="infra/docker-compose.prod.yml"
 ENV_FILE=".env"
 source "$ROOT_DIR/scripts/lib/compose_db_env.sh"
-read -r DB_NAME DB_USER < <(cc_resolve_db_env)
+cc_resolve_db_env
 ARTIFACT_DIR="${ROOT_DIR}/artifacts/bigint"
 mkdir -p "$ARTIFACT_DIR"
 STAMP="$(date +%Y%m%d-%H%M%S)"

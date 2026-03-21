@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 source "$ROOT_DIR/scripts/lib/compose_db_env.sh"
-read -r DB_NAME DB_USER < <(cc_resolve_db_env)
+cc_resolve_db_env
 
 WAVE="${1:-}"
 LOCK_TIMEOUT_MS="${LOCK_TIMEOUT_MS:-5000}"
