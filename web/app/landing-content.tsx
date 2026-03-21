@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState, useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { NeuralBackground } from '@/components/neural-bg';
 import {
