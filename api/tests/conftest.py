@@ -4,13 +4,14 @@ import asyncio
 import os
 import uuid
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import AsyncIterator
 
 import httpx
 import pytest
 import pytest_asyncio
 from asgi_lifespan import LifespanManager
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -19,9 +20,10 @@ import app.main as main_module
 import app.migrate as migrate_module
 import app.rotate_key as rotate_key_module
 import app.seed as seed_module
+from app.auth_utils import hash_token, now_utc
 from app.db import get_db, hash_api_key
 from app.main import app
-from app.models import ApiKey, Membership, Organization, Project, User
+from app.models import ApiKey, AuthMagicLink, AuthUser, Membership, Organization, Project, User
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
@@ -221,3 +223,44 @@ def auth_headers(ctx: Ctx, *, role: str | None = None, include_org: bool = True)
     if role:
         headers["X-User-Email"] = ctx.users[role]
     return headers
+
+
+def session_auth_headers(*, org_id: int | None = None) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    if org_id is not None:
+        headers["X-Org-Id"] = str(org_id)
+    return headers
+
+
+async def login_via_magic_link(
+    client: httpx.AsyncClient,
+    db_session: AsyncSession,
+    *,
+    email: str,
+    is_admin: bool = False,
+    is_disabled: bool = False,
+) -> httpx.Response:
+    normalized_email = email.strip().lower()
+    auth_user = (
+        await db_session.execute(select(AuthUser).where(AuthUser.email == normalized_email).limit(1))
+    ).scalar_one_or_none()
+    if auth_user is None:
+        auth_user = AuthUser(email=normalized_email, is_admin=is_admin, is_disabled=is_disabled)
+        db_session.add(auth_user)
+        await db_session.flush()
+    else:
+        auth_user.is_admin = bool(auth_user.is_admin or is_admin)
+        auth_user.is_disabled = is_disabled
+
+    raw_token = f"tok_{uuid.uuid4().hex}"
+    db_session.add(
+        AuthMagicLink(
+            email=normalized_email,
+            token_hash=hash_token(raw_token),
+            expires_at=now_utc() + timedelta(minutes=10),
+            purpose="login",
+            send_status="logged",
+        )
+    )
+    await db_session.commit()
+    return await client.get(f"/auth/verify?token={raw_token}")

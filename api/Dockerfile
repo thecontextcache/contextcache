@@ -3,7 +3,7 @@ FROM python:3.11-slim AS base
 
 WORKDIR /app
 
-# Install uv + git (git needed to pull private contextcache-engine)
+# Install uv + git (git is only needed when the optional private engine is enabled)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends git openssh-client && \
     rm -rf /var/lib/apt/lists/* && \
@@ -13,12 +13,8 @@ RUN apt-get update && \
 COPY pyproject.toml uv.lock /app/
 
 FROM base AS dev-deps
-# Install all deps (including dev/test)
-RUN uv sync
-
-FROM base AS runtime-deps
-# Install runtime deps only. The private engine repo is fetched through a
-# BuildKit secret so the credential never appears in build ARG/ENV metadata.
+# Install all deps (including dev/test). The private engine is optional: when
+# ENGINE_TOKEN is absent, local fallback shims keep dev/test/CI runnable.
 RUN --mount=type=secret,id=engine_pat,required=false \
     set -eu; \
     token=""; \
@@ -33,8 +29,33 @@ RUN --mount=type=secret,id=engine_pat,required=false \
       git config --global url."https://${token}@github.com/".insteadOf "ssh://git@github.com/"; \
       git config --global url."https://${token}@github.com/".insteadOf "git+ssh://git@github.com/"; \
       git config --global url."https://${token}@github.com/".insteadOf "git@github.com:"; \
+      uv sync --extra private-engine; \
+    else \
+      uv sync; \
+    fi
+
+FROM base AS runtime-deps
+# Install runtime deps only. The private engine repo is fetched through a
+# BuildKit secret so the credential never appears in build ARG/ENV metadata.
+# When the secret is absent, runtime falls back to the local shim modules.
+RUN --mount=type=secret,id=engine_pat,required=false \
+    set -eu; \
+    token=""; \
+    if [ -f /run/secrets/engine_pat ]; then \
+      token="$(tr -d '\r\n' < /run/secrets/engine_pat)"; \
     fi; \
-    uv sync --no-dev; \
+    git_home="$(mktemp -d)"; \
+    export HOME="$git_home"; \
+    trap 'rm -rf "$git_home"' EXIT; \
+    if [ -n "$token" ]; then \
+      git config --global url."https://${token}@github.com/thecontextcache/contextcache-engine.git".insteadOf "ssh://git@github.com/thecontextcache/contextcache-engine.git"; \
+      git config --global url."https://${token}@github.com/".insteadOf "ssh://git@github.com/"; \
+      git config --global url."https://${token}@github.com/".insteadOf "git+ssh://git@github.com/"; \
+      git config --global url."https://${token}@github.com/".insteadOf "git@github.com:"; \
+      uv sync --no-dev --extra private-engine; \
+    else \
+      uv sync --no-dev; \
+    fi; \
     /app/.venv/bin/python -c "import sqlalchemy, alembic, celery"
 
 FROM runtime-deps AS runtime

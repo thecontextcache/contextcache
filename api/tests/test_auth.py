@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import external_auth as external_auth_module
 from app.auth_utils import hash_token, now_utc
 from app.models import AuditLog, AuthInvite, AuthMagicLink, AuthSession, AuthUser, Membership, User, Waitlist
-from .conftest import Ctx, auth_headers
+from .conftest import Ctx, auth_headers, login_via_magic_link, session_auth_headers
 
 pytestmark = pytest.mark.asyncio
 
@@ -17,6 +17,22 @@ pytestmark = pytest.mark.asyncio
 @pytest.fixture(autouse=True)
 def patch_email_sender(monkeypatch):
     monkeypatch.setattr("app.auth_routes.send_magic_link", lambda email, link, template_type="login": (True, "logged"))
+    monkeypatch.setattr("app.auth_routes.send_invite_email", lambda email: (True, "logged"))
+    monkeypatch.setattr("app.auth_routes.send_waitlist_rejection_email", lambda email: (True, "logged"))
+
+
+async def _login_session(
+    client,
+    db_session: AsyncSession,
+    *,
+    email: str,
+    is_admin: bool = False,
+    org_id: int | None = None,
+) -> dict[str, str]:
+    await client.post("/auth/logout")
+    verify = await login_via_magic_link(client, db_session, email=email, is_admin=is_admin)
+    assert verify.status_code == 200
+    return session_auth_headers(org_id=org_id)
 
 
 async def test_request_link_forbidden_when_not_invited(client) -> None:
@@ -217,61 +233,30 @@ async def test_rate_limit_triggers(client, db_session: AsyncSession) -> None:
 
 
 async def test_admin_invite_endpoints_require_admin(client, db_session: AsyncSession) -> None:
-    raw = "tok_admin_123"
-    db_session.add(
-        AuthMagicLink(
-            email="admin@example.com",
-            token_hash=hash_token(raw),
-            expires_at=now_utc() + timedelta(minutes=10),
-            purpose="login",
-            send_status="logged",
-        )
+    admin_headers = await _login_session(
+        client,
+        db_session,
+        email="admin@example.com",
+        is_admin=True,
     )
-    await db_session.commit()
 
-    verify = await client.get(f"/auth/verify?token={raw}")
-    assert verify.status_code == 200
-
-    create = await client.post("/admin/invites", json={"email": "another@example.com"})
+    create = await client.post("/admin/invites", headers=admin_headers, json={"email": "another@example.com"})
     assert create.status_code == 201
-    duplicate = await client.post("/admin/invites", json={"email": "another@example.com"})
+    duplicate = await client.post("/admin/invites", headers=admin_headers, json={"email": "another@example.com"})
     assert duplicate.status_code == 409
 
-    non_admin = AuthUser(email="member@example.com", is_admin=False)
-    db_session.add(non_admin)
-    db_session.add(
-        AuthMagicLink(
-            email="member@example.com",
-            token_hash=hash_token("tok_member_123"),
-            expires_at=now_utc() + timedelta(minutes=10),
-            purpose="login",
-            send_status="logged",
-        )
-    )
-    await db_session.commit()
-
-    await client.post("/auth/logout")
-    verify_member = await client.get("/auth/verify?token=tok_member_123")
-    assert verify_member.status_code == 200
-
-    blocked = await client.post("/admin/invites", json={"email": "nope@example.com"})
+    member_headers = await _login_session(client, db_session, email="member@example.com")
+    blocked = await client.post("/admin/invites", headers=member_headers, json={"email": "nope@example.com"})
     assert blocked.status_code == 403
 
 
 async def test_admin_waitlist_supports_pagination_and_filters(client, db_session: AsyncSession) -> None:
-    raw = "tok_waitlist_admin_123"
-    db_session.add(
-        AuthMagicLink(
-            email="waitlist-admin@example.com",
-            token_hash=hash_token(raw),
-            expires_at=now_utc() + timedelta(minutes=10),
-            purpose="login",
-            send_status="logged",
-        )
+    admin_headers = await _login_session(
+        client,
+        db_session,
+        email="waitlist-admin@example.com",
+        is_admin=True,
     )
-    await db_session.commit()
-    verify = await client.get(f"/auth/verify?token={raw}")
-    assert verify.status_code == 200
 
     db_session.add_all(
         [
@@ -282,15 +267,32 @@ async def test_admin_waitlist_supports_pagination_and_filters(client, db_session
     )
     await db_session.commit()
 
-    filtered = await client.get("/admin/waitlist?status=pending&email_q=alpha&limit=5&offset=0")
+    filtered = await client.get(
+        "/admin/waitlist?status=pending&email_q=alpha&limit=5&offset=0",
+        headers=admin_headers,
+    )
     assert filtered.status_code == 200
     rows = filtered.json()
     assert len(rows) == 1
     assert rows[0]["email"] == "alpha1@example.com"
 
 
-async def test_admin_waitlist_allows_admin_api_key(client, app_ctx: Ctx) -> None:
-    response = await client.get("/admin/waitlist", headers=auth_headers(app_ctx))
+async def test_admin_waitlist_requires_global_admin_session(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    forbidden = await client.get("/admin/waitlist", headers=auth_headers(app_ctx))
+    assert forbidden.status_code == 403
+
+    admin_headers = await _login_session(
+        client,
+        db_session,
+        email=app_ctx.users["owner"],
+        is_admin=True,
+        org_id=app_ctx.org_id,
+    )
+    response = await client.get("/admin/waitlist", headers=admin_headers)
     assert response.status_code == 200
 
 
@@ -303,21 +305,8 @@ async def test_admin_cag_stats_requires_admin(client, db_session: AsyncSession) 
     unauth = await client.get("/admin/cag/cache-stats")
     assert unauth.status_code == 401
 
-    db_session.add(AuthUser(email="plain-user@example.com", is_admin=False))
-    db_session.add(
-        AuthMagicLink(
-            email="plain-user@example.com",
-            token_hash=hash_token("tok_plain_user"),
-            expires_at=now_utc() + timedelta(minutes=10),
-            purpose="login",
-            send_status="logged",
-        )
-    )
-    await db_session.commit()
-
-    verified = await client.get("/auth/verify?token=tok_plain_user")
-    assert verified.status_code == 200
-    forbidden = await client.get("/admin/cag/cache-stats")
+    plain_headers = await _login_session(client, db_session, email="plain-user@example.com")
+    forbidden = await client.get("/admin/cag/cache-stats", headers=plain_headers)
     assert forbidden.status_code == 403
 
 
@@ -391,51 +380,75 @@ async def test_admin_flows_write_audit_logs(
     db_session.add_all([admin_auth, target_auth, Waitlist(email="audited-waitlist@example.com", status="pending")])
     await db_session.flush()
 
-    db_session.add(
-        AuthMagicLink(
-            email=admin_email,
-            token_hash=hash_token("tok_audit_admin"),
-            expires_at=now_utc() + timedelta(minutes=10),
-            purpose="login",
-            send_status="logged",
-        )
+    target_session = AuthSession(
+        user_id=target_auth.id,
+        session_token_hash=hash_token("tok_target_active_session"),
+        expires_at=now_utc() + timedelta(days=7),
     )
+    db_session.add(target_session)
     await db_session.commit()
 
-    verify = await client.get("/auth/verify?token=tok_audit_admin")
-    assert verify.status_code == 200
+    admin_headers = await _login_session(
+        client,
+        db_session,
+        email=admin_email,
+        is_admin=True,
+        org_id=app_ctx.org_id,
+    )
 
     create_invite = await client.post(
         "/admin/invites",
+        headers=admin_headers,
         json={"email": "audited-invite@example.com", "notes": "security regression"},
     )
     assert create_invite.status_code == 201
+    invite_id = create_invite.json()["id"]
 
-    disable = await client.post(f"/admin/users/{target_auth.id}/disable")
+    revoke_invite = await client.post(f"/admin/invites/{invite_id}/revoke", headers=admin_headers)
+    assert revoke_invite.status_code == 200
+
+    disable = await client.post(f"/admin/users/{target_auth.id}/disable", headers=admin_headers)
     assert disable.status_code == 200
 
-    enable = await client.post(f"/admin/users/{target_auth.id}/enable")
+    enable = await client.post(f"/admin/users/{target_auth.id}/enable", headers=admin_headers)
     assert enable.status_code == 200
 
-    grant_admin = await client.post(f"/admin/users/{target_auth.id}/grant-admin")
+    grant_admin = await client.post(f"/admin/users/{target_auth.id}/grant-admin", headers=admin_headers)
     assert grant_admin.status_code == 200
 
+    revoke_admin = await client.post(f"/admin/users/{target_auth.id}/revoke-admin", headers=admin_headers)
+    assert revoke_admin.status_code == 200
+
+    revoke_sessions = await client.post(f"/admin/users/{target_auth.id}/revoke-sessions", headers=admin_headers)
+    assert revoke_sessions.status_code == 200
+    assert revoke_sessions.json()["revoked"] == 1
+
     set_unlimited = await client.post(
-        f"/admin/users/{target_auth.id}/set-unlimited?unlimited=true"
+        f"/admin/users/{target_auth.id}/set-unlimited?unlimited=true",
+        headers=admin_headers,
     )
     assert set_unlimited.status_code == 200
 
-    set_plan = await client.post(f"/admin/users/{target_auth.id}/set-plan?plan_code=free")
+    set_plan = await client.post(
+        f"/admin/users/{target_auth.id}/set-plan?plan_code=free",
+        headers=admin_headers,
+    )
     assert set_plan.status_code == 200
 
-    approve_waitlist = await client.post("/admin/waitlist/1/approve")
+    set_org_plan = await client.post(
+        f"/admin/orgs/{app_ctx.org_id}/set-plan?plan_code=free",
+        headers=admin_headers,
+    )
+    assert set_org_plan.status_code == 200
+
+    approve_waitlist = await client.post("/admin/waitlist/1/approve", headers=admin_headers)
     assert approve_waitlist.status_code == 201
 
     reject_seed = Waitlist(email="audited-reject@example.com", status="pending")
     db_session.add(reject_seed)
     await db_session.commit()
 
-    reject_waitlist = await client.post(f"/admin/waitlist/{reject_seed.id}/reject")
+    reject_waitlist = await client.post(f"/admin/waitlist/{reject_seed.id}/reject", headers=admin_headers)
     assert reject_waitlist.status_code == 200
 
     actions = (
@@ -447,10 +460,14 @@ async def test_admin_flows_write_audit_logs(
     ).scalars().all()
 
     assert "admin.invite.create" in actions
+    assert "admin.invite.revoke" in actions
     assert "admin.user.disable" in actions
     assert "admin.user.enable" in actions
     assert "admin.user.grant_admin" in actions
+    assert "admin.user.revoke_admin" in actions
+    assert "admin.user.revoke_sessions" in actions
     assert "admin.user.set_unlimited" in actions
     assert "admin.user.set_plan" in actions
+    assert "admin.org.set_plan" in actions
     assert "admin.waitlist.approve" in actions
     assert "admin.waitlist.reject" in actions

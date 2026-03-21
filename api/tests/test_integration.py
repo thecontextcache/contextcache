@@ -14,9 +14,29 @@ from app.db import hash_api_key
 from app.ingestion.pipeline import IngestionConfig, ingest_path_incremental
 from app.models import ApiKey, AuditLog, AuthMagicLink, Membership, Memory, Organization, Project, RawCapture, User
 from app.seed import seed
-from .conftest import Ctx, auth_headers
+from .conftest import Ctx, auth_headers, login_via_magic_link, session_auth_headers
 
 pytestmark = pytest.mark.asyncio
+
+
+async def _login_org_member(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+    *,
+    role: str,
+    is_admin: bool = False,
+    org_id: int | None = None,
+) -> dict[str, str]:
+    await client.post("/auth/logout")
+    verify = await login_via_magic_link(
+        client,
+        db_session,
+        email=app_ctx.users[role],
+        is_admin=is_admin,
+    )
+    assert verify.status_code == 200
+    return session_auth_headers(org_id=app_ctx.org_id if org_id is None else org_id)
 
 
 async def test_health_public(client) -> None:
@@ -49,6 +69,26 @@ async def test_api_key_org_header_mismatch_returns_forbidden(
 
     headers = auth_headers(app_ctx, role="owner")
     headers["X-Org-Id"] = str(other_org.id)
+    response = await client.get("/me", headers=headers)
+    assert response.status_code == 403
+
+
+async def test_session_auth_org_header_mismatch_returns_forbidden(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    other_org = Organization(name=f"Session Header Mismatch Org {uuid.uuid4().hex[:6]}")
+    db_session.add(other_org)
+    await db_session.commit()
+
+    headers = await _login_org_member(
+        client,
+        db_session,
+        app_ctx,
+        role="owner",
+        org_id=other_org.id,
+    )
     response = await client.get("/me", headers=headers)
     assert response.status_code == 403
 
@@ -126,10 +166,16 @@ async def test_seed_smoke_and_list_projects(client, db_session: AsyncSession) ->
 
 
 @pytest.mark.parametrize("role", ["owner", "admin"])
-async def test_create_org_project_allowed_for_owner_admin(client, app_ctx: Ctx, role: str) -> None:
+async def test_create_org_project_allowed_for_owner_admin(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+    role: str,
+) -> None:
+    headers = await _login_org_member(client, db_session, app_ctx, role=role)
     response = await client.post(
         f"/orgs/{app_ctx.org_id}/projects",
-        headers=auth_headers(app_ctx, role=role),
+        headers=headers,
         json={"name": f"Project by {role}"},
     )
     assert response.status_code == 201
@@ -138,26 +184,34 @@ async def test_create_org_project_allowed_for_owner_admin(client, app_ctx: Ctx, 
     assert body["name"] == f"Project by {role}"
 
 
-async def test_membership_routes_require_owner(client, app_ctx: Ctx) -> None:
+async def test_membership_routes_require_owner(client, db_session: AsyncSession, app_ctx: Ctx) -> None:
+    member_headers = await _login_org_member(client, db_session, app_ctx, role="member")
     forbidden = await client.get(
         f"/orgs/{app_ctx.org_id}/memberships",
-        headers=auth_headers(app_ctx, role="member"),
+        headers=member_headers,
     )
     assert forbidden.status_code == 403
 
+    owner_headers = await _login_org_member(client, db_session, app_ctx, role="owner")
     allowed = await client.get(
         f"/orgs/{app_ctx.org_id}/memberships",
-        headers=auth_headers(app_ctx, role="owner"),
+        headers=owner_headers,
     )
     assert allowed.status_code == 200
     assert len(allowed.json()) >= 1
 
 
 @pytest.mark.parametrize("role", ["member", "owner"])
-async def test_create_memory_allowed_for_member_owner(client, app_ctx: Ctx, role: str) -> None:
+async def test_create_memory_allowed_for_member_owner(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+    role: str,
+) -> None:
+    headers = await _login_org_member(client, db_session, app_ctx, role=role)
     response = await client.post(
         f"/projects/{app_ctx.project_id}/memories",
-        headers=auth_headers(app_ctx, role=role),
+        headers=headers,
         json={"type": "finding", "content": f"Memory added by {role}"},
     )
     assert response.status_code == 201
@@ -166,24 +220,30 @@ async def test_create_memory_allowed_for_member_owner(client, app_ctx: Ctx, role
     assert body["type"] == "finding"
 
 
-async def test_recall_returns_rank_score_for_fts_matches(client, app_ctx: Ctx) -> None:
+async def test_recall_returns_rank_score_for_fts_matches(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    owner_headers = await _login_org_member(client, db_session, app_ctx, role="owner")
     first = await client.post(
         f"/projects/{app_ctx.project_id}/memories",
-        headers=auth_headers(app_ctx, role="owner"),
+        headers=owner_headers,
         json={"type": "finding", "content": "Database migrations with alembic improve reliability."},
     )
     assert first.status_code == 201
 
     second = await client.post(
         f"/projects/{app_ctx.project_id}/memories",
-        headers=auth_headers(app_ctx, role="owner"),
+        headers=owner_headers,
         json={"type": "note", "content": "General note unrelated to migration ranking."},
     )
     assert second.status_code == 201
 
+    viewer_headers = await _login_org_member(client, db_session, app_ctx, role="viewer")
     recall = await client.get(
         f"/projects/{app_ctx.project_id}/recall",
-        headers=auth_headers(app_ctx, role="viewer"),
+        headers=viewer_headers,
         params={"query": "alembic migrations reliability", "limit": 5},
     )
     assert recall.status_code == 200
@@ -192,17 +252,23 @@ async def test_recall_returns_rank_score_for_fts_matches(client, app_ctx: Ctx) -
     assert items[0]["rank_score"] is not None
 
 
-async def test_recall_uses_recency_fallback_when_no_hybrid_match(client, app_ctx: Ctx) -> None:
+async def test_recall_uses_recency_fallback_when_no_hybrid_match(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    owner_headers = await _login_org_member(client, db_session, app_ctx, role="owner")
     create_resp = await client.post(
         f"/projects/{app_ctx.project_id}/memories",
-        headers=auth_headers(app_ctx, role="owner"),
+        headers=owner_headers,
         json={"type": "note", "content": "Short memory for fallback behavior."},
     )
     assert create_resp.status_code == 201
 
+    viewer_headers = await _login_org_member(client, db_session, app_ctx, role="viewer")
     recall = await client.get(
         f"/projects/{app_ctx.project_id}/recall",
-        headers=auth_headers(app_ctx, role="viewer"),
+        headers=viewer_headers,
         params={"query": "zzzxxyyqqqvvmn unusualtoken", "limit": 5},
     )
     assert recall.status_code == 200
@@ -229,8 +295,9 @@ async def test_create_memory_persists_embedding_vectors(
     assert memory.embedding_vector is not None
 
 
-async def test_usage_includes_weekly_fields(client, app_ctx: Ctx) -> None:
-    response = await client.get("/me/usage", headers=auth_headers(app_ctx, role="owner"))
+async def test_usage_includes_weekly_fields(client, db_session: AsyncSession, app_ctx: Ctx) -> None:
+    owner_headers = await _login_org_member(client, db_session, app_ctx, role="owner")
+    response = await client.get("/me/usage", headers=owner_headers)
     assert response.status_code == 200
     body = response.json()
     assert "week_start" in body
@@ -239,27 +306,38 @@ async def test_usage_includes_weekly_fields(client, app_ctx: Ctx) -> None:
     assert "weekly_projects_created" in body
 
 
-async def test_contextualize_endpoint_returns_queued(client, app_ctx: Ctx) -> None:
+async def test_contextualize_endpoint_returns_queued(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    owner_headers = await _login_org_member(client, db_session, app_ctx, role="owner")
     create_response = await client.post(
         f"/projects/{app_ctx.project_id}/memories",
-        headers=auth_headers(app_ctx, role="owner"),
+        headers=owner_headers,
         json={"type": "note", "content": "Queue contextualization"},
     )
     assert create_response.status_code == 201
     memory_id = create_response.json()["id"]
 
+    member_headers = await _login_org_member(client, db_session, app_ctx, role="member")
     response = await client.post(
         f"/integrations/memories/{memory_id}/contextualize",
-        headers=auth_headers(app_ctx, role="member"),
+        headers=member_headers,
     )
     assert response.status_code == 200
     assert response.json()["status"] == "queued"
 
 
-async def test_integrations_list_returns_uploaded_memory(client, app_ctx: Ctx) -> None:
+async def test_integrations_list_returns_uploaded_memory(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    owner_headers = await _login_org_member(client, db_session, app_ctx, role="owner")
     create_resp = await client.post(
         "/integrations/memories",
-        headers=auth_headers(app_ctx, role="owner"),
+        headers=owner_headers,
         json={
             "project_id": app_ctx.project_id,
             "type": "note",
@@ -271,9 +349,10 @@ async def test_integrations_list_returns_uploaded_memory(client, app_ctx: Ctx) -
     )
     assert create_resp.status_code == 201
 
+    viewer_headers = await _login_org_member(client, db_session, app_ctx, role="viewer")
     listed = await client.get(
         "/integrations/memories",
-        headers=auth_headers(app_ctx, role="viewer"),
+        headers=viewer_headers,
         params={"project_id": app_ctx.project_id, "limit": 20, "offset": 0},
     )
     assert listed.status_code == 200
@@ -281,10 +360,15 @@ async def test_integrations_list_returns_uploaded_memory(client, app_ctx: Ctx) -
     assert any(row["content"] == "Integration list should return this memory." for row in rows)
 
 
-async def test_integrations_capabilities_returns_stable_contract(client, app_ctx: Ctx) -> None:
+async def test_integrations_capabilities_returns_stable_contract(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    viewer_headers = await _login_org_member(client, db_session, app_ctx, role="viewer")
     response = await client.get(
         "/integrations/capabilities",
-        headers=auth_headers(app_ctx, role="viewer"),
+        headers=viewer_headers,
     )
     assert response.status_code == 200
     body = response.json()
@@ -411,6 +495,113 @@ async def test_ingest_capture_org_isolation_returns_not_found(
     assert replay.status_code == 404
 
 
+async def test_integrations_memory_endpoints_are_org_scoped(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    other_org = Organization(name=f"Integration Isolation Org {uuid.uuid4().hex[:6]}")
+    db_session.add(other_org)
+    await db_session.flush()
+    outsider = User(email=f"integration-isolated-{uuid.uuid4().hex[:6]}@example.com", display_name="Integration Isolated")
+    db_session.add(outsider)
+    await db_session.flush()
+    db_session.add(Membership(org_id=other_org.id, user_id=outsider.id, role="owner"))
+    isolated_project = Project(name="Integration Isolation Project", org_id=other_org.id, created_by_user_id=outsider.id)
+    db_session.add(isolated_project)
+    await db_session.flush()
+    isolated_memory = Memory(
+        project_id=isolated_project.id,
+        created_by_user_id=outsider.id,
+        type="note",
+        source="manual",
+        content="isolated integration memory",
+    )
+    db_session.add(isolated_memory)
+    await db_session.commit()
+
+    viewer_headers = await _login_org_member(client, db_session, app_ctx, role="viewer")
+    listed = await client.get(
+        "/integrations/memories",
+        headers=viewer_headers,
+        params={"project_id": isolated_project.id},
+    )
+    assert listed.status_code == 404
+
+    member_headers = await _login_org_member(client, db_session, app_ctx, role="member")
+    contextualize = await client.post(
+        f"/integrations/memories/{isolated_memory.id}/contextualize",
+        headers=member_headers,
+    )
+    assert contextualize.status_code == 404
+
+
+async def test_api_key_access_requests_are_scoped_and_require_admin_review(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    viewer_headers = await _login_org_member(client, db_session, app_ctx, role="viewer")
+    viewer_create = await client.post(
+        f"/orgs/{app_ctx.org_id}/api-key-access-requests",
+        headers=viewer_headers,
+        json={"reason": "viewer needs export access"},
+    )
+    assert viewer_create.status_code == 201
+    viewer_request_id = viewer_create.json()["id"]
+
+    member_headers = await _login_org_member(client, db_session, app_ctx, role="member")
+    member_create = await client.post(
+        f"/orgs/{app_ctx.org_id}/api-key-access-requests",
+        headers=member_headers,
+        json={"reason": "member needs cli access"},
+    )
+    assert member_create.status_code == 201
+    member_request_id = member_create.json()["id"]
+
+    viewer_headers = await _login_org_member(client, db_session, app_ctx, role="viewer")
+    viewer_list = await client.get(
+        f"/orgs/{app_ctx.org_id}/api-key-access-requests",
+        headers=viewer_headers,
+    )
+    assert viewer_list.status_code == 200
+    assert [row["id"] for row in viewer_list.json()] == [viewer_request_id]
+
+    member_headers = await _login_org_member(client, db_session, app_ctx, role="member")
+    forbidden = await client.post(
+        f"/orgs/{app_ctx.org_id}/api-key-access-requests/{viewer_request_id}/approve",
+        headers=member_headers,
+        json={"note": "not allowed"},
+    )
+    assert forbidden.status_code == 403
+
+    admin_headers = await _login_org_member(client, db_session, app_ctx, role="admin")
+    admin_list = await client.get(
+        f"/orgs/{app_ctx.org_id}/api-key-access-requests",
+        headers=admin_headers,
+    )
+    assert admin_list.status_code == 200
+    assert {row["id"] for row in admin_list.json()} == {viewer_request_id, member_request_id}
+
+    approved = await client.post(
+        f"/orgs/{app_ctx.org_id}/api-key-access-requests/{viewer_request_id}/approve",
+        headers=admin_headers,
+        json={"note": "approved for tooling"},
+    )
+    assert approved.status_code == 200
+    assert approved.json()["status"] == "approved"
+
+    viewer_user = (
+        await db_session.execute(select(User).where(User.email == app_ctx.users["viewer"]).limit(1))
+    ).scalar_one()
+    updated_membership = (
+        await db_session.execute(
+            select(Membership).where(Membership.org_id == app_ctx.org_id, Membership.user_id == viewer_user.id).limit(1)
+        )
+    ).scalar_one()
+    assert updated_membership.role == "admin"
+
+
 async def test_brain_batch_idempotency_and_conflict(client, app_ctx: Ctx) -> None:
     create_resp = await client.post(
         f"/projects/{app_ctx.project_id}/memories",
@@ -513,24 +704,35 @@ async def test_brain_batch_org_isolation_returns_not_found(client, db_session: A
     assert body["results"][0]["errorCode"] == "NOT_FOUND"
 
 
-async def test_admin_recall_logs_returns_recent_entries(client, app_ctx: Ctx) -> None:
+async def test_admin_recall_logs_returns_recent_entries(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    admin_headers = await _login_org_member(
+        client,
+        db_session,
+        app_ctx,
+        role="owner",
+        is_admin=True,
+    )
     create_resp = await client.post(
         f"/projects/{app_ctx.project_id}/memories",
-        headers=auth_headers(app_ctx, role="owner"),
+        headers=admin_headers,
         json={"type": "decision", "content": "Recall log coverage memory"},
     )
     assert create_resp.status_code == 201
 
     recall_resp = await client.get(
         f"/projects/{app_ctx.project_id}/recall",
-        headers=auth_headers(app_ctx, role="owner"),
+        headers=admin_headers,
         params={"query": "coverage memory", "limit": 5},
     )
     assert recall_resp.status_code == 200
 
     logs_resp = await client.get(
         "/admin/recall/logs",
-        headers=auth_headers(app_ctx, role="owner"),
+        headers=admin_headers,
         params={"limit": 20, "offset": 0, "project_id": app_ctx.project_id},
     )
     assert logs_resp.status_code == 200
@@ -538,6 +740,27 @@ async def test_admin_recall_logs_returns_recent_entries(client, app_ctx: Ctx) ->
     assert len(logs) >= 1
     assert logs[0]["project_id"] == app_ctx.project_id
     assert logs[0]["strategy"] in {"hybrid", "recency", "cag"}
+
+
+async def test_admin_api_keys_requires_global_admin_session(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    owner_headers = await _login_org_member(client, db_session, app_ctx, role="owner")
+    forbidden = await client.get("/admin/api-keys", headers=owner_headers)
+    assert forbidden.status_code == 403
+
+    global_admin_headers = await _login_org_member(
+        client,
+        db_session,
+        app_ctx,
+        role="owner",
+        is_admin=True,
+    )
+    response = await client.get("/admin/api-keys", headers=global_admin_headers)
+    assert response.status_code == 200
+    assert any(row["org_id"] == app_ctx.org_id for row in response.json())
 
 
 async def test_vector_query_orders_by_raw_distance_operator() -> None:
