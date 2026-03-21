@@ -15,3 +15,7 @@ extension/dist/
 contextcache-extension/dist/
 # MkDocs generated output
 site/
+
+# Internal operator notes that should stay local to one machine
+internal-docs/local/*
+!internal-docs/local/README.md

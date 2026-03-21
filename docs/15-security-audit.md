@@ -232,6 +232,16 @@ request in addition to the route-level `get_db()` session.
 
 `pool_pre_ping=True` is always enabled to discard stale connections silently.
 
+### 14. Runtime containers ran as root
+
+**Risk:** The production `api`, `worker`, and `beat` containers were running as
+root. Celery surfaced this directly as a `SecurityWarning`, and it increased the
+blast radius of any application- or task-level compromise.
+
+**Fix:** The runtime stage in `/Users/nd/Documents/contextcache/api/Dockerfile`
+now creates a dedicated non-root user and switches the final image to that
+account before booting the app or Celery processes.
+
 ---
 
 ## 🟢 Low / Future-proofing — Tracked in Roadmap
@@ -258,6 +268,7 @@ These items are acknowledged but require larger changes:
 - [x] Extension content script narrowed to AI platforms only
 - [x] Extension validates sender origin + key format
 - [x] All exception blocks log at WARNING
+- [x] Runtime containers run as non-root
 - [x] FastAPI lifespan pattern (no deprecated on_event)
 - [x] Explicit DB connection pool configuration
 - [x] Auth middleware decomposed into testable units

@@ -20,6 +20,20 @@ Capture high-signal decisions and findings, then recall paste-ready context pack
 
 ---
 
+## Docs map
+
+- Public product and API docs: `/Users/nd/Documents/contextcache/docs/`
+- Published docs site config: `/Users/nd/Documents/contextcache/mkdocs.yml`
+- Internal operator docs: `/Users/nd/Documents/contextcache/internal-docs/`
+- Machine-local notes that should not be committed: `/Users/nd/Documents/contextcache/internal-docs/local/`
+
+The `internal-docs/` directory is intentionally excluded from MkDocs navigation.
+That keeps it off the public docs site, but it is still part of the repository.
+If the repository itself is public, keep truly sensitive notes in
+`internal-docs/local/` or move them to a separate private repo.
+
+---
+
 ## Quickstart
 
 ```bash
@@ -117,6 +131,12 @@ Hard clean-slate deploy (includes downtime):
 ```bash
 make prod-deploy-hard
 ```
+
+If you need the full operator view instead of the public docs summary, start at:
+
+- `/Users/nd/Documents/contextcache/internal-docs/README.md`
+- `/Users/nd/Documents/contextcache/internal-docs/system-map.md`
+- `/Users/nd/Documents/contextcache/internal-docs/deploy-and-debug.md`
 
 ---
 

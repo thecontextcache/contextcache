@@ -9,7 +9,7 @@ Use these checks after every deploy:
 ```bash
 docker compose --env-file .env -f infra/docker-compose.prod.yml ps
 docker compose --env-file .env -f infra/docker-compose.prod.yml logs -n 120 api | rg -n 'ERROR|Traceback|migrate'
-docker compose --env-file .env -f infra/docker-compose.prod.yml logs -n 120 worker | rg -n 'ERROR|Traceback'
+docker compose --env-file .env -f infra/docker-compose.prod.yml logs -n 120 worker | rg -n 'ERROR|Traceback|SecurityWarning'
 ```
 
 ## Deploy with less downtime
@@ -27,6 +27,9 @@ make prod-deploy
 
 If the private engine is part of the build, make sure `.env` contains
 `ENGINE_TOKEN`; production image builds now pass it as a BuildKit secret.
+If `worker` logs show Celery's root/superuser warning after deploy, you are
+almost certainly looking at a stale runtime image and should rebuild/recreate
+`api`, `worker`, and `beat`.
 
 Hard reset (downtime + cache prune) is still available:
 
@@ -39,6 +42,16 @@ Safer variant with verification:
 ```bash
 make prod-deploy-safe
 ```
+
+## Current runtime expectations
+
+After a healthy deploy:
+
+- `api`, `worker`, and `beat` should be recently recreated
+- `curl -fsS http://127.0.0.1:8000/health` should return `{"status":"ok"}`
+- `worker` should reach `celery@... ready.`
+- `beat` should log `beat: Starting...`
+- no Celery `SecurityWarning` about running as root should appear
 
 ## Database observability on server
 

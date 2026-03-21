@@ -72,6 +72,14 @@ COPY alembic /app/alembic
 COPY alembic.ini /app/alembic.ini
 COPY scripts /app/scripts
 
+ENV HOME=/home/appuser
+
+RUN addgroup --system --gid 10001 app && \
+    adduser --system --uid 10001 --ingroup app --home /home/appuser --shell /usr/sbin/nologin appuser && \
+    mkdir -p /home/appuser && \
+    chown -R appuser:app /home/appuser /app
+
+USER appuser
 EXPOSE 8000
 CMD ["sh", "-c", "if [ \"${RUN_MIGRATIONS:-1}\" = \"1\" ]; then uv run --no-sync python -m app.migrate; fi && uv run --no-sync uvicorn app.main:app --host 0.0.0.0 --port 8000"]
 

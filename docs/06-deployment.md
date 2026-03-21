@@ -272,6 +272,7 @@ docker compose --env-file .env -f infra/docker-compose.prod.yml up -d --no-deps 
 curl -fsS http://127.0.0.1:8000/health
 curl -fsS http://127.0.0.1:3000/auth >/dev/null
 docker compose --env-file .env -f infra/docker-compose.prod.yml logs -n 100 api
+docker compose --env-file .env -f infra/docker-compose.prod.yml logs -n 100 worker beat | rg -n 'ready|beat: Starting|SecurityWarning|ERROR|Traceback'
 ```
 
 Rollback rule:
@@ -298,6 +299,14 @@ Rollback rule:
   is absent, but production images should still provide `ENGINE_TOKEN` so the
   full engine is installed.
 - Use `DOCKER_BUILDKIT=1` for image builds that need secret mounts.
+
+### Runtime container user
+
+- Production runtime images now switch `api`, `worker`, and `beat` to a
+  non-root user created inside `/Users/nd/Documents/contextcache/api/Dockerfile`.
+- Celery should no longer emit the superuser `SecurityWarning` in fresh deploys.
+- `beat` still stores its schedule under `/tmp/celerybeat-schedule`, which
+  remains writable for the non-root runtime user.
 
 ---
 
@@ -606,7 +615,7 @@ docker compose --profile worker up -d
 
 ```bash
 docker compose logs worker | tail -20
-# Should show: "celery@... ready."
+# Should show: "celery@... ready." and no superuser SecurityWarning
 ```
 
 ### Disable worker mode
@@ -651,7 +660,7 @@ celery_app.conf.beat_schedule = {
 Verify beat is running:
 ```bash
 docker compose --profile worker logs beat | tail -20
-# Should show: "beat: Starting... Scheduler: DatabaseScheduler"
+# Should show: "beat: Starting..."
 ```
 
 ### Worker security notes
@@ -659,6 +668,8 @@ docker compose --profile worker logs beat | tail -20
 - Tasks **must never** receive tokens, API keys, cookies, or magic links.
 - Pass only domain IDs (project_id, user_id) and safe content.
 - The Redis port is **not exposed** to the host — internal Docker network only.
+- Runtime worker/beat processes now run as a non-root user; if logs still show
+  a Celery root warning, rebuild from the latest image before debugging further.
 
 ---
 
