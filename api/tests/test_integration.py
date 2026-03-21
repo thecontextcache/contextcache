@@ -252,6 +252,38 @@ async def test_recall_returns_rank_score_for_fts_matches(
     assert items[0]["rank_score"] is not None
 
 
+async def test_recall_falls_back_when_private_engine_raises(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+    monkeypatch,
+) -> None:
+    async def _boom(*args, **kwargs):
+        raise ValueError("ambiguous vector truthiness")
+
+    monkeypatch.setattr("app.analyzer.algorithm._private_run_hybrid_rag_recall", _boom)
+
+    owner_headers = await _login_org_member(client, db_session, app_ctx, role="owner")
+    create_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=owner_headers,
+        json={"type": "finding", "content": "Fallback recall should still succeed."},
+    )
+    assert create_resp.status_code == 201
+
+    viewer_headers = await _login_org_member(client, db_session, app_ctx, role="viewer")
+    recall = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=viewer_headers,
+        params={"query": "fallback recall succeed", "limit": 5},
+    )
+    assert recall.status_code == 200
+    body = recall.json()
+    assert body["strategy"] in {"hybrid", "recency"}
+    assert body["score_details"]["source"] == "local-fallback"
+    assert len(body["items"]) >= 1
+
+
 async def test_recall_uses_recency_fallback_when_no_hybrid_match(
     client,
     db_session: AsyncSession,
