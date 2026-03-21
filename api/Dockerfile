@@ -12,7 +12,8 @@ RUN apt-get update && \
 # Copy dependency metadata and lockfile (better layer caching)
 COPY pyproject.toml uv.lock /app/
 COPY scripts/strip_private_engine_lock.py /usr/local/bin/strip-private-engine-lock
-RUN chmod +x /usr/local/bin/strip-private-engine-lock
+COPY scripts/private_engine_spec.py /usr/local/bin/private-engine-spec
+RUN chmod +x /usr/local/bin/strip-private-engine-lock /usr/local/bin/private-engine-spec
 
 FROM base AS dev-deps
 # Install all deps (including dev/test). The private engine is optional: when
@@ -31,7 +32,8 @@ RUN --mount=type=secret,id=engine_pat,required=false \
       git config --global url."https://${token}@github.com/".insteadOf "ssh://git@github.com/"; \
       git config --global url."https://${token}@github.com/".insteadOf "git+ssh://git@github.com/"; \
       git config --global url."https://${token}@github.com/".insteadOf "git@github.com:"; \
-      uv sync --frozen --extra private-engine; \
+      uv sync --frozen; \
+      /app/.venv/bin/pip install --no-deps "$(private-engine-spec)"; \
     else \
       strip-private-engine-lock; \
       uv sync --frozen; \
@@ -55,7 +57,8 @@ RUN --mount=type=secret,id=engine_pat,required=false \
       git config --global url."https://${token}@github.com/".insteadOf "ssh://git@github.com/"; \
       git config --global url."https://${token}@github.com/".insteadOf "git+ssh://git@github.com/"; \
       git config --global url."https://${token}@github.com/".insteadOf "git@github.com:"; \
-      uv sync --frozen --no-dev --extra private-engine; \
+      uv sync --frozen --no-dev; \
+      /app/.venv/bin/pip install --no-deps "$(private-engine-spec)"; \
     else \
       strip-private-engine-lock; \
       uv sync --frozen --no-dev; \
