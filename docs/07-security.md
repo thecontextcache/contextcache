@@ -58,6 +58,30 @@ Session controls:
 - Core APIs require session or API key
 - Role checks on org resources: `viewer`, `member`, `admin`, `owner`
 
+## External auth resource-server mode
+
+ContextCache can optionally verify `Authorization: Bearer <token>` against a
+separate auth service when `EXTERNAL_AUTH_ENABLED=true`.
+
+Security model:
+- the external auth service proves identity only
+- ContextCache remains the source of truth for:
+  - org membership
+  - roles
+  - API-key authorization
+  - audit logging
+- bearer tokens are introspected server-to-server; inactive tokens return `401`
+- auth-service transport/configuration failures return `503`
+
+Hard rules:
+- require HTTPS for `EXTERNAL_AUTH_INTROSPECTION_URL` unless you are on an
+  explicitly trusted private network and set `EXTERNAL_AUTH_ALLOW_INSECURE_HTTP=true`
+- do not trust remote admin claims by default; keep
+  `EXTERNAL_AUTH_TRUST_ADMIN_CLAIMS=false` unless you intentionally centralize
+  global-admin authority in the auth service
+- local `AuthUser.is_disabled=true` still blocks access even if the upstream
+  token is otherwise valid
+
 ## Rate limiting
 
 Redis-backed with in-memory fallback for dev:

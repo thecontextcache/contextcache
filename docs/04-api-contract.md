@@ -16,10 +16,13 @@ Protected endpoints accept either:
 
 1. Session cookie (`contextcache_session`) from magic-link login (web flow)
 2. `X-API-Key` (programmatic/dev flow)
+3. `Authorization: Bearer <token>` when `EXTERNAL_AUTH_ENABLED=true`
 
 Org scoping:
 - API-key requests can send `X-Org-Id` (must match key org).
 - Session requests derive org from domain membership; optional `X-Org-Id` must be one of user memberships.
+- Bearer-token requests authenticate upstream, but org membership and role are still
+  resolved locally from ContextCache's `users` / `memberships` tables.
 
 Dev-only header:
 - `X-User-Email` is honored only in `APP_ENV=dev`.
@@ -27,6 +30,40 @@ Dev-only header:
 If no active API keys exist:
 - `APP_ENV=dev`: bootstrap convenience may allow keyless API-key path.
 - non-dev: protected requests return `503` until keys exist.
+
+### External auth bridge contract
+
+When `EXTERNAL_AUTH_ENABLED=true`, the API accepts `Authorization: Bearer <token>`
+and calls the configured introspection endpoint:
+
+- `POST ${EXTERNAL_AUTH_INTROSPECTION_URL}`
+- request body:
+
+```json
+{"token":"<bearer-token>","audience":"contextcache-api"}
+```
+
+- optional service-to-service header:
+  - `Authorization: Bearer ${EXTERNAL_AUTH_SERVICE_TOKEN}`
+
+Expected `200` response:
+
+```json
+{
+  "active": true,
+  "email": "user@example.com",
+  "sub": "auth-service-subject",
+  "display_name": "User Name",
+  "is_admin": false
+}
+```
+
+Rules:
+- `active=false` means the token is rejected with `401`.
+- HTTP `401/403/5xx` from the auth service are treated as upstream auth-service failures and return `503`.
+- The email is projected into local `auth_users` / `users` rows if missing.
+- Global admin is still local by default; remote `is_admin` is only honored when
+  `EXTERNAL_AUTH_TRUST_ADMIN_CLAIMS=true`.
 
 ## Auth endpoints
 

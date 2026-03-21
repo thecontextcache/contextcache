@@ -6,8 +6,9 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import external_auth as external_auth_module
 from app.auth_utils import hash_token, now_utc
-from app.models import AuthInvite, AuthMagicLink, AuthSession, AuthUser, Waitlist
+from app.models import AuthInvite, AuthMagicLink, AuthSession, AuthUser, Membership, User, Waitlist
 from .conftest import Ctx, auth_headers
 
 pytestmark = pytest.mark.asyncio
@@ -115,6 +116,86 @@ async def test_reuse_token_fails(client, db_session: AsyncSession) -> None:
     assert first.status_code == 200
     second = await client.get(f"/auth/verify?token={raw}")
     assert second.status_code == 400
+
+
+async def test_external_bearer_auth_projects_local_identity(client, db_session: AsyncSession, monkeypatch) -> None:
+    monkeypatch.setenv("EXTERNAL_AUTH_ENABLED", "true")
+
+    async def _fake_verify(token: str) -> external_auth_module.ExternalAuthIdentity:
+        assert token == "ext-valid"
+        return external_auth_module.ExternalAuthIdentity(
+            email="external-user@example.com",
+            display_name="External User",
+        )
+
+    monkeypatch.setattr("app.main.external_auth.verify_bearer_token", _fake_verify)
+
+    response = await client.get("/me", headers={"Authorization": "Bearer ext-valid"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["actor_user_id"] is not None
+    assert body["org_id"] is None
+    assert body["role"] is None
+
+    auth_user = (
+        await db_session.execute(
+            select(AuthUser).where(AuthUser.email == "external-user@example.com").limit(1)
+        )
+    ).scalar_one_or_none()
+    assert auth_user is not None
+
+    domain_user = (
+        await db_session.execute(
+            select(User).where(User.email == "external-user@example.com").limit(1)
+        )
+    ).scalar_one_or_none()
+    assert domain_user is not None
+    assert domain_user.auth_user_id == auth_user.id
+
+
+async def test_external_bearer_auth_can_create_org(client, db_session: AsyncSession, monkeypatch) -> None:
+    monkeypatch.setenv("EXTERNAL_AUTH_ENABLED", "true")
+
+    async def _fake_verify(_: str) -> external_auth_module.ExternalAuthIdentity:
+        return external_auth_module.ExternalAuthIdentity(
+            email="org-creator@example.com",
+            display_name="Org Creator",
+        )
+
+    monkeypatch.setattr("app.main.external_auth.verify_bearer_token", _fake_verify)
+
+    response = await client.post(
+        "/orgs",
+        headers={"Authorization": "Bearer ext-org"},
+        json={"name": "External Auth Org"},
+    )
+    assert response.status_code == 201
+
+    domain_user = (
+        await db_session.execute(select(User).where(User.email == "org-creator@example.com").limit(1))
+    ).scalar_one()
+    membership = (
+        await db_session.execute(
+            select(Membership).where(
+                Membership.org_id == response.json()["id"],
+                Membership.user_id == domain_user.id,
+            ).limit(1)
+        )
+    ).scalar_one_or_none()
+    assert membership is not None
+    assert membership.role == "owner"
+
+
+async def test_external_bearer_auth_rejects_inactive_token(client, monkeypatch) -> None:
+    monkeypatch.setenv("EXTERNAL_AUTH_ENABLED", "true")
+
+    async def _fake_verify(_: str) -> external_auth_module.ExternalAuthIdentity:
+        raise external_auth_module.ExternalAuthInvalidToken("inactive")
+
+    monkeypatch.setattr("app.main.external_auth.verify_bearer_token", _fake_verify)
+
+    response = await client.get("/me", headers={"Authorization": "Bearer ext-dead"})
+    assert response.status_code == 401
 
 
 async def test_rate_limit_triggers(client, db_session: AsyncSession) -> None:

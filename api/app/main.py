@@ -19,6 +19,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .analyzer.cag import evaporation_interval_seconds, evaporate_pheromones, warm_cag_cache
 from .auth_utils import SESSION_COOKIE_NAME, hash_token, now_utc
 from .db import AsyncSessionLocal, hash_api_key, get_db
+from . import external_auth
 from .models import ApiKey, AuthSession, AuthUser, Membership, Organization, User
 from .auth_routes import router as auth_router
 from .routes import router
@@ -45,7 +46,7 @@ _CAG_EVAPORATION_TASK: asyncio.Task | None = None
 
 raw_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000")
 cors_origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
-cors_allow_headers = ["x-api-key", "x-org-id", "content-type"]
+cors_allow_headers = ["authorization", "x-api-key", "x-org-id", "content-type"]
 if APP_ENV == "dev":
     cors_allow_headers.append("x-user-email")
 
@@ -162,6 +163,66 @@ def _apply_auth_context(request: Request, ctx: _AuthContext) -> None:
     request.state.auth_session_id = ctx.auth_session_id
 
 
+async def _find_or_create_domain_user_for_auth(
+    auth_user: AuthUser,
+    session,
+    *,
+    display_name_hint: str | None = None,
+) -> User:
+    domain_user = (
+        await session.execute(select(User).where(User.auth_user_id == auth_user.id).limit(1))
+    ).scalar_one_or_none()
+    if domain_user is None:
+        domain_user = (
+            await session.execute(
+                select(User).where(func.lower(User.email) == auth_user.email.lower()).limit(1)
+            )
+        ).scalar_one_or_none()
+        if domain_user is not None and domain_user.auth_user_id is None:
+            domain_user.auth_user_id = auth_user.id
+
+    if domain_user is None:
+        local_part = auth_user.email.split("@")[0].strip()
+        display_name = (display_name_hint or local_part or "User").strip()
+        domain_user = User(
+            email=auth_user.email,
+            display_name=display_name,
+            auth_user_id=auth_user.id,
+        )
+        session.add(domain_user)
+        await session.flush()
+    elif display_name_hint and not domain_user.display_name:
+        domain_user.display_name = display_name_hint.strip() or domain_user.display_name
+
+    return domain_user
+
+
+async def _resolve_membership_context(
+    user_id: int,
+    header_org_id: int | None,
+    session,
+) -> tuple[int | None, str | None] | None:
+    memberships = (
+        await session.execute(
+            select(Membership.org_id, Membership.role)
+            .where(Membership.user_id == user_id)
+            .order_by(Membership.id.asc())
+        )
+    ).all()
+    if not memberships:
+        return (None, None)
+
+    resolved_org_id = memberships[0][0]
+    resolved_role = memberships[0][1]
+    if header_org_id is None:
+        return (resolved_org_id, resolved_role)
+
+    for org_id, role in memberships:
+        if org_id == header_org_id:
+            return (org_id, role)
+    return None
+
+
 # ── Auth resolvers ─────────────────────────────────────────────────────────────
 
 async def _resolve_session_auth(
@@ -194,43 +255,18 @@ async def _resolve_session_auth(
 
     auth_session.last_seen_at = now_utc()
 
-    domain_user = (
-        await session.execute(select(User).where(User.auth_user_id == auth_user.id).limit(1))
-    ).scalar_one_or_none()
-    if domain_user is None:
-        domain_user = (
-            await session.execute(
-                select(User).where(func.lower(User.email) == auth_user.email.lower()).limit(1)
-            )
-        ).scalar_one_or_none()
-        if domain_user is not None and domain_user.auth_user_id is None:
-            domain_user.auth_user_id = auth_user.id
+    domain_user = await _find_or_create_domain_user_for_auth(auth_user, session)
 
     resolved_org_id = None
     resolved_role = None
     resolved_user_id = None
 
     if domain_user is not None:
-        memberships = (
-            await session.execute(
-                select(Membership.org_id, Membership.role, Membership.user_id)
-                .where(Membership.user_id == domain_user.id)
-                .order_by(Membership.id.asc())
-            )
-        ).all()
-        if memberships:
-            resolved_org_id = memberships[0][0]
-            resolved_role = memberships[0][1]
-            resolved_user_id = memberships[0][2]
-            if header_org_id is not None:
-                for org_id, role, user_id in memberships:
-                    if org_id == header_org_id:
-                        resolved_org_id = org_id
-                        resolved_role = role
-                        resolved_user_id = user_id
-                        break
-                else:
-                    return None  # org mismatch → caller returns 403
+        resolved_user_id = domain_user.id
+        membership_ctx = await _resolve_membership_context(domain_user.id, header_org_id, session)
+        if membership_ctx is None:
+            return None
+        resolved_org_id, resolved_role = membership_ctx
 
     await session.commit()
     return _AuthContext(
@@ -244,6 +280,67 @@ async def _resolve_session_auth(
         auth_user_id=auth_user.id,
         auth_is_admin=bool(auth_user.is_admin),
         auth_session_id=auth_session.id,
+    )
+
+
+async def _resolve_external_bearer_auth(
+    bearer_token: str,
+    header_org_id: int | None,
+    session,
+) -> _AuthContext | JSONResponse:
+    try:
+        identity = await external_auth.verify_bearer_token(bearer_token)
+    except external_auth.ExternalAuthInvalidToken:
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    except external_auth.ExternalAuthMisconfigured as exc:
+        logger.error("[auth] external auth misconfigured: %s", exc)
+        return JSONResponse(status_code=503, content={"detail": "External auth misconfigured"})
+    except external_auth.ExternalAuthUnavailable as exc:
+        logger.warning("[auth] external auth unavailable: %s", exc)
+        return JSONResponse(status_code=503, content={"detail": "External auth unavailable"})
+
+    auth_user = (
+        await session.execute(
+            select(AuthUser).where(func.lower(AuthUser.email) == identity.email.lower()).limit(1)
+        )
+    ).scalar_one_or_none()
+    if auth_user is None:
+        auth_user = AuthUser(email=identity.email, is_admin=False)
+        session.add(auth_user)
+        await session.flush()
+
+    if auth_user.is_disabled:
+        return JSONResponse(status_code=403, content={"detail": "Forbidden"})
+
+    domain_user = await _find_or_create_domain_user_for_auth(
+        auth_user,
+        session,
+        display_name_hint=identity.display_name,
+    )
+
+    resolved_org_id = None
+    resolved_role = None
+    if domain_user is not None:
+        membership_ctx = await _resolve_membership_context(domain_user.id, header_org_id, session)
+        if membership_ctx is None:
+            return JSONResponse(status_code=403, content={"detail": "Forbidden"})
+        resolved_org_id, resolved_role = membership_ctx
+
+    await session.commit()
+    return _AuthContext(
+        api_key_id=None,
+        org_id=resolved_org_id,
+        role=resolved_role,
+        actor_user_id=domain_user.id if domain_user is not None else None,
+        actor_email=auth_user.email,
+        api_key_prefix=None,
+        bootstrap_mode=False,
+        auth_user_id=auth_user.id,
+        auth_is_admin=bool(
+            auth_user.is_admin
+            or (external_auth.trust_admin_claims_enabled() and identity.is_admin)
+        ),
+        auth_session_id=None,
     )
 
 
@@ -454,6 +551,8 @@ async def api_key_middleware(request: Request, call_next):
 
     provided_key = request.headers.get("x-api-key", "").strip()
     provided_org_id = request.headers.get("x-org-id", "").strip()
+    authorization_header = request.headers.get("authorization", "").strip()
+    bearer_token = external_auth.extract_bearer_token(authorization_header)
     # X-User-Email impersonation is only valid in dev AND requires the explicit
     # ALLOW_EMAIL_IMPERSONATION=true flag to reduce accidental staging exposure.
     allow_impersonation = (
@@ -483,7 +582,17 @@ async def api_key_middleware(request: Request, call_next):
                 # Session was valid but org header didn't match any membership
                 return JSONResponse(status_code=403, content={"detail": "Forbidden"})
 
-        # ── 2. Count active keys (needed for bootstrap gate) ────────────────
+        # ── 2. External bearer-token auth (future auth service) ───────────
+        if authorization_header and external_auth.external_auth_enabled():
+            if bearer_token is None:
+                return JSONResponse(status_code=400, content={"detail": "Invalid Authorization header"})
+            result = await _resolve_external_bearer_auth(bearer_token, header_org_id, session)
+            if isinstance(result, JSONResponse):
+                return result
+            _apply_auth_context(request, result)
+            return await call_next(request)
+
+        # ── 3. Count active keys (needed for bootstrap gate) ────────────────
         active_key_count = (
             await session.execute(select(func.count(ApiKey.id)).where(ApiKey.revoked_at.is_(None)))
         ).scalar_one()
@@ -514,7 +623,7 @@ async def api_key_middleware(request: Request, call_next):
                 content={"detail": "Unauthorized"},
             )
 
-        # ── 3. Bootstrap mode (BOOTSTRAP_MODE=true + no keys) ───────────────
+        # ── 4. Bootstrap mode (BOOTSTRAP_MODE=true + no keys) ───────────────
         if active_key_count == 0 and BOOTSTRAP_MODE_ENABLED:
             if not provided_key:
                 logger.warning(
@@ -525,7 +634,7 @@ async def api_key_middleware(request: Request, call_next):
             _apply_auth_context(request, ctx)
             return await call_next(request)
 
-        # ── 4. API key auth ─────────────────────────────────────────────────
+        # ── 5. API key auth ─────────────────────────────────────────────────
         if not provided_key:
             return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
 

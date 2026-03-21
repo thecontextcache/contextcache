@@ -66,6 +66,15 @@ CORS_ORIGINS=https://thecontextcache.com
 NEXT_PUBLIC_API_BASE_URL=
 NEXT_PUBLIC_DOCS_URL=https://docs.thecontextcache.com
 
+# External auth bridge (optional; keep disabled unless the separate auth service exists)
+EXTERNAL_AUTH_ENABLED=false
+EXTERNAL_AUTH_INTROSPECTION_URL=
+EXTERNAL_AUTH_SERVICE_TOKEN=
+EXTERNAL_AUTH_AUDIENCE=contextcache-api
+EXTERNAL_AUTH_TIMEOUT_MS=1500
+EXTERNAL_AUTH_ALLOW_INSECURE_HTTP=false
+EXTERNAL_AUTH_TRUST_ADMIN_CLAIMS=false
+
 AWS_REGION=us-east-1
 AWS_ACCESS_KEY_ID=<from secrets>
 AWS_SECRET_ACCESS_KEY=<from secrets>
@@ -154,6 +163,17 @@ Worker job:
 
 Recommendation:
 - Start with `HEDGE_DELAY_MS=120`, then tune using observed `recall_timings` in production.
+
+### External auth deployment notes
+
+If you later split auth into a separate service:
+
+- keep ContextCache as the resource server for org membership and authorization
+- expose only a narrow token-introspection endpoint from the auth service
+- require TLS between services, or set `EXTERNAL_AUTH_ALLOW_INSECURE_HTTP=true`
+  only for trusted private-network development
+- do not turn on `EXTERNAL_AUTH_TRUST_ADMIN_CLAIMS` unless you intentionally want
+  the auth service to control ContextCache global-admin access
 
 ### CAG cache behavior
 

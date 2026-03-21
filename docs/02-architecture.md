@@ -214,6 +214,7 @@ Phase 2+ may add:
 - advanced re-ranking (RRF / learned ranking)
 - dedicated analyzer microservice
 - external auth providers (OIDC/SSO)
+- resource-server mode with a separate auth service and bearer-token introspection
 - multi-region deployment patterns
 
 Beta currently runs a private retrieval engine, Redis-backed limits, and optional worker jobs.

@@ -60,6 +60,7 @@ nav:
   - Operations:
     - Deployment: 06-deployment.md
     - Security Model: 07-security.md
+    - External Auth Bridge: 20-external-auth.md
     - Production Hardening: 13-production-hardening.md
     - Admin UX Guide: 14-admin-ux.md
     - Security Audit Log: 15-security-audit.md
