@@ -23,6 +23,7 @@ from .analyzer.cag import evaporate_pheromones, get_cag_cache_stats
 from .db import get_db
 from .emailer import send_invite_email, send_magic_link, send_waitlist_rejection_email
 from .models import (
+    AuditLog,
     AuthInvite,
     AuthLoginEvent,
     AuthMagicLink,
@@ -188,6 +189,72 @@ def _require_admin_auth(request: Request) -> int:
     if auth_user_id is None or not auth_is_admin:
         raise HTTPException(status_code=403, detail="Forbidden: Global admin access required")
     return auth_user_id
+
+
+async def _resolve_admin_audit_org_id(
+    db: AsyncSession,
+    request: Request,
+    *,
+    explicit_org_id: int | None = None,
+    target_auth_user_id: int | None = None,
+) -> int | None:
+    if explicit_org_id is not None:
+        return explicit_org_id
+
+    request_org_id = getattr(request.state, "org_id", None)
+    if request_org_id is not None:
+        return int(request_org_id)
+
+    if target_auth_user_id is None:
+        return None
+
+    return (
+        await db.execute(
+            select(Membership.org_id)
+            .join(User, User.id == Membership.user_id)
+            .where(User.auth_user_id == target_auth_user_id)
+            .order_by(Membership.created_at.asc(), Membership.id.asc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
+async def _write_admin_audit(
+    db: AsyncSession,
+    request: Request,
+    *,
+    action: str,
+    entity_type: str,
+    entity_id: int,
+    metadata: dict | None = None,
+    explicit_org_id: int | None = None,
+    target_auth_user_id: int | None = None,
+) -> None:
+    org_id = await _resolve_admin_audit_org_id(
+        db,
+        request,
+        explicit_org_id=explicit_org_id,
+        target_auth_user_id=target_auth_user_id,
+    )
+    if org_id is None:
+        return
+
+    metadata_json = dict(metadata or {})
+    actor_email = getattr(request.state, "actor_email", None)
+    if actor_email and "actor_email" not in metadata_json:
+        metadata_json["actor_email"] = actor_email
+
+    db.add(
+        AuditLog(
+            org_id=org_id,
+            actor_user_id=getattr(request.state, "actor_user_id", None),
+            api_key_prefix=getattr(request.state, "api_key_prefix", None),
+            action=action,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            metadata_json=metadata_json,
+        )
+    )
 
 
 @router.post("/auth/request-link", response_model=AuthRequestLinkOut)
@@ -500,6 +567,15 @@ async def create_invite(
         notes=payload.notes,
     )
     db.add(invite)
+    await db.flush()
+    await _write_admin_audit(
+        db,
+        request,
+        action="admin.invite.create",
+        entity_type="invite",
+        entity_id=invite.id,
+        metadata={"email": invite.email, "notes": invite.notes},
+    )
     sent, _send_status = send_invite_email(email)
     if not sent:
         await db.rollback()
@@ -579,6 +655,14 @@ async def revoke_invite(invite_id: int, request: Request, db: AsyncSession = Dep
     if invite is None:
         raise HTTPException(status_code=404, detail="Invite not found")
     invite.revoked_at = now_utc()
+    await _write_admin_audit(
+        db,
+        request,
+        action="admin.invite.revoke",
+        entity_type="invite",
+        entity_id=invite.id,
+        metadata={"email": invite.email},
+    )
     await db.commit()
     return {"status": "ok"}
 
@@ -637,6 +721,23 @@ async def disable_user(user_id: int, request: Request, db: AsyncSession = Depend
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
     user.is_disabled = True
+    sessions = (
+        await db.execute(
+            select(AuthSession).where(AuthSession.user_id == user_id, AuthSession.revoked_at.is_(None))
+        )
+    ).scalars().all()
+    revoked_at = now_utc()
+    for session in sessions:
+        session.revoked_at = revoked_at
+    await _write_admin_audit(
+        db,
+        request,
+        action="admin.user.disable",
+        entity_type="auth_user",
+        entity_id=user.id,
+        metadata={"email": user.email, "revoked_sessions": len(sessions)},
+        target_auth_user_id=user.id,
+    )
     await db.commit()
     return {"status": "ok"}
 
@@ -648,6 +749,15 @@ async def enable_user(user_id: int, request: Request, db: AsyncSession = Depends
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
     user.is_disabled = False
+    await _write_admin_audit(
+        db,
+        request,
+        action="admin.user.enable",
+        entity_type="auth_user",
+        entity_id=user.id,
+        metadata={"email": user.email},
+        target_auth_user_id=user.id,
+    )
     await db.commit()
     return {"status": "ok"}
 
@@ -659,6 +769,15 @@ async def grant_admin(user_id: int, request: Request, db: AsyncSession = Depends
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
     user.is_admin = True
+    await _write_admin_audit(
+        db,
+        request,
+        action="admin.user.grant_admin",
+        entity_type="auth_user",
+        entity_id=user.id,
+        metadata={"email": user.email},
+        target_auth_user_id=user.id,
+    )
     await db.commit()
     return {"status": "ok"}
 
@@ -674,6 +793,15 @@ async def revoke_admin(user_id: int, request: Request, db: AsyncSession = Depend
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
     user.is_admin = False
+    await _write_admin_audit(
+        db,
+        request,
+        action="admin.user.revoke_admin",
+        entity_type="auth_user",
+        entity_id=user.id,
+        metadata={"email": user.email},
+        target_auth_user_id=user.id,
+    )
     await db.commit()
     return {"status": "ok"}
 
@@ -692,6 +820,15 @@ async def revoke_sessions(user_id: int, request: Request, db: AsyncSession = Dep
     ).scalars().all()
     for session in sessions:
         session.revoked_at = now
+    await _write_admin_audit(
+        db,
+        request,
+        action="admin.user.revoke_sessions",
+        entity_type="auth_user",
+        entity_id=user.id,
+        metadata={"email": user.email, "revoked_sessions": len(sessions)},
+        target_auth_user_id=user.id,
+    )
     await db.commit()
     return {"status": "ok", "revoked": len(sessions)}
 
@@ -721,6 +858,15 @@ async def set_unlimited(
     if unlimited is None:
         unlimited = True
     user.is_unlimited = unlimited
+    await _write_admin_audit(
+        db,
+        request,
+        action="admin.user.set_unlimited",
+        entity_type="auth_user",
+        entity_id=user.id,
+        metadata={"email": user.email, "is_unlimited": unlimited},
+        target_auth_user_id=user.id,
+    )
     await db.commit()
     return {"status": "ok", "is_unlimited": unlimited}
 
@@ -762,6 +908,15 @@ async def set_user_plan(
         db.add(sub)
     else:
         sub.plan_code = code
+    await _write_admin_audit(
+        db,
+        request,
+        action="admin.user.set_plan",
+        entity_type="auth_user",
+        entity_id=user.id,
+        metadata={"email": user.email, "plan_code": code},
+        target_auth_user_id=user.id,
+    )
     await db.commit()
     return {"status": "ok", "user_id": user_id, "plan_code": code}
 
@@ -803,6 +958,15 @@ async def set_org_plan(
         db.add(sub)
     else:
         sub.plan_code = code
+    await _write_admin_audit(
+        db,
+        request,
+        action="admin.org.set_plan",
+        entity_type="org",
+        entity_id=org.id,
+        metadata={"name": org.name, "plan_code": code},
+        explicit_org_id=org.id,
+    )
     await db.commit()
     return {"status": "ok", "org_id": org_id, "plan_code": code}
 
@@ -1155,6 +1319,15 @@ async def approve_waitlist(
     entry.status = "approved"
     entry.reviewed_at = now
     entry.reviewed_by_admin_id = auth_user_id
+    await db.flush()
+    await _write_admin_audit(
+        db,
+        request,
+        action="admin.waitlist.approve",
+        entity_type="waitlist",
+        entity_id=entry.id,
+        metadata={"email": entry.email, "invite_id": invite.id},
+    )
 
     sent, _send_status = send_invite_email(entry.email)
     if not sent:
@@ -1197,6 +1370,14 @@ async def reject_waitlist(
     entry.status = "rejected"
     entry.reviewed_at = now
     entry.reviewed_by_admin_id = auth_user_id
+    await _write_admin_audit(
+        db,
+        request,
+        action="admin.waitlist.reject",
+        entity_type="waitlist",
+        entity_id=entry.id,
+        metadata={"email": entry.email},
+    )
 
     sent, _send_status = send_waitlist_rejection_email(entry.email)
     if not sent:

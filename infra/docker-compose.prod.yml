@@ -45,8 +45,8 @@ services:
       context: ../api
       dockerfile: Dockerfile
       target: runtime
-      args:
-        ENGINE_TOKEN: ${ENGINE_TOKEN:-}
+      secrets:
+        - engine_pat
     restart: always
     env_file:
       - ../.env
@@ -90,8 +90,8 @@ services:
       context: ../api
       dockerfile: Dockerfile
       target: runtime
-      args:
-        ENGINE_TOKEN: ${ENGINE_TOKEN:-}
+      secrets:
+        - engine_pat
     restart: always
     command: uv run --no-sync celery -A app.worker.celery_app worker --loglevel=info --concurrency=2
     env_file:
@@ -117,8 +117,8 @@ services:
       context: ../api
       dockerfile: Dockerfile
       target: runtime
-      args:
-        ENGINE_TOKEN: ${ENGINE_TOKEN:-}
+      secrets:
+        - engine_pat
     restart: always
     command: uv run --no-sync celery -A app.worker.celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule
     env_file:
@@ -156,3 +156,7 @@ volumes:
   prod-db-data:
   prod-redis-data:
   ollama_data:
+
+secrets:
+  engine_pat:
+    environment: ENGINE_TOKEN

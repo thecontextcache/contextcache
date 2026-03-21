@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import external_auth as external_auth_module
 from app.auth_utils import hash_token, now_utc
-from app.models import AuthInvite, AuthMagicLink, AuthSession, AuthUser, Membership, User, Waitlist
+from app.models import AuditLog, AuthInvite, AuthMagicLink, AuthSession, AuthUser, Membership, User, Waitlist
 from .conftest import Ctx, auth_headers
 
 pytestmark = pytest.mark.asyncio
@@ -374,3 +374,83 @@ async def test_session_cap_enforced(client, db_session: AsyncSession) -> None:
         )
     ).scalars().all()
     assert len(active_sessions) == 3
+
+
+async def test_admin_flows_write_audit_logs(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr("app.auth_routes.send_invite_email", lambda email: (True, "logged"))
+    monkeypatch.setattr("app.auth_routes.send_waitlist_rejection_email", lambda email: (True, "logged"))
+
+    admin_email = app_ctx.users["owner"]
+    admin_auth = AuthUser(email=admin_email, is_admin=True)
+    target_auth = AuthUser(email="audited-target@example.com", is_admin=False)
+    db_session.add_all([admin_auth, target_auth, Waitlist(email="audited-waitlist@example.com", status="pending")])
+    await db_session.flush()
+
+    db_session.add(
+        AuthMagicLink(
+            email=admin_email,
+            token_hash=hash_token("tok_audit_admin"),
+            expires_at=now_utc() + timedelta(minutes=10),
+            purpose="login",
+            send_status="logged",
+        )
+    )
+    await db_session.commit()
+
+    verify = await client.get("/auth/verify?token=tok_audit_admin")
+    assert verify.status_code == 200
+
+    create_invite = await client.post(
+        "/admin/invites",
+        json={"email": "audited-invite@example.com", "notes": "security regression"},
+    )
+    assert create_invite.status_code == 201
+
+    disable = await client.post(f"/admin/users/{target_auth.id}/disable")
+    assert disable.status_code == 200
+
+    enable = await client.post(f"/admin/users/{target_auth.id}/enable")
+    assert enable.status_code == 200
+
+    grant_admin = await client.post(f"/admin/users/{target_auth.id}/grant-admin")
+    assert grant_admin.status_code == 200
+
+    set_unlimited = await client.post(
+        f"/admin/users/{target_auth.id}/set-unlimited?unlimited=true"
+    )
+    assert set_unlimited.status_code == 200
+
+    set_plan = await client.post(f"/admin/users/{target_auth.id}/set-plan?plan_code=free")
+    assert set_plan.status_code == 200
+
+    approve_waitlist = await client.post("/admin/waitlist/1/approve")
+    assert approve_waitlist.status_code == 201
+
+    reject_seed = Waitlist(email="audited-reject@example.com", status="pending")
+    db_session.add(reject_seed)
+    await db_session.commit()
+
+    reject_waitlist = await client.post(f"/admin/waitlist/{reject_seed.id}/reject")
+    assert reject_waitlist.status_code == 200
+
+    actions = (
+        await db_session.execute(
+            select(AuditLog.action)
+            .where(AuditLog.org_id == app_ctx.org_id)
+            .order_by(AuditLog.id.asc())
+        )
+    ).scalars().all()
+
+    assert "admin.invite.create" in actions
+    assert "admin.user.disable" in actions
+    assert "admin.user.enable" in actions
+    assert "admin.user.grant_admin" in actions
+    assert "admin.user.set_unlimited" in actions
+    assert "admin.user.set_plan" in actions
+    assert "admin.waitlist.approve" in actions
+    assert "admin.waitlist.reject" in actions

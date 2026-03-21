@@ -30,6 +30,8 @@ Run:
 ```bash
 cd /Users/nd/Documents/contextcache
 ./scripts/check_bigint_preflight.sh
+# or, with artifact logging:
+./scripts/run_bigint_wave.sh preflight
 ```
 
 Gate to proceed:
@@ -177,9 +179,10 @@ Rollback:
 Use:
 - `/Users/nd/Documents/contextcache/scripts/db_fk_inventory.sql`
 - `/Users/nd/Documents/contextcache/scripts/check_bigint_preflight.sh`
+- `/Users/nd/Documents/contextcache/scripts/run_bigint_wave.sh`
 
 These provide:
 - FK graph and table-size ranking
 - remaining int PK/FK candidates
 - duplicate email safety checks
-
+- artifact-backed execution for preflight and existing cutover SQL

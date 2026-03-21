@@ -13,6 +13,9 @@ from .db import engine
 BASELINE_REVISION = os.getenv("ALEMBIC_BASELINE_REVISION", "20260212_0001").strip() or "20260212_0001"
 DB_WAIT_MAX_ATTEMPTS = int(os.getenv("DB_WAIT_MAX_ATTEMPTS", "30"))
 DB_WAIT_SECONDS = float(os.getenv("DB_WAIT_SECONDS", "2"))
+ALEMBIC_VERSION_COLUMN_MIN_LENGTH = int(
+    os.getenv("ALEMBIC_VERSION_COLUMN_MIN_LENGTH", "255")
+)
 
 
 def _import_real_alembic() -> tuple[object, type]:
@@ -93,6 +96,70 @@ async def _detect_schema_state() -> tuple[bool, bool, bool]:
     return core_table_exists, alembic_table_exists, has_version_row
 
 
+async def _ensure_alembic_version_table_shape() -> None:
+    async with engine.begin() as conn:
+        table_exists = bool(
+            (
+                await conn.execute(
+                    text("SELECT to_regclass('public.alembic_version') IS NOT NULL")
+                )
+            ).scalar_one()
+        )
+
+        if not table_exists:
+            print(
+                "[migrate] Creating alembic_version table with widened version_num column "
+                f"(varchar({ALEMBIC_VERSION_COLUMN_MIN_LENGTH}))"
+            )
+            await conn.execute(
+                text(
+                    f"""
+                    CREATE TABLE IF NOT EXISTS alembic_version (
+                        version_num VARCHAR({ALEMBIC_VERSION_COLUMN_MIN_LENGTH}) NOT NULL,
+                        CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
+                    )
+                    """
+                )
+            )
+            return
+
+        column = (
+            await conn.execute(
+                text(
+                    """
+                    SELECT data_type, character_maximum_length
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = 'alembic_version'
+                      AND column_name = 'version_num'
+                    """
+                )
+            )
+        ).first()
+
+        if column is None:
+            raise RuntimeError("alembic_version.version_num column is missing")
+
+        data_type, char_len = column
+        if data_type == "text":
+            return
+        if data_type == "character varying" and char_len is not None and char_len >= ALEMBIC_VERSION_COLUMN_MIN_LENGTH:
+            return
+
+        print(
+            "[migrate] Widening alembic_version.version_num column "
+            f"to varchar({ALEMBIC_VERSION_COLUMN_MIN_LENGTH})"
+        )
+        await conn.execute(
+            text(
+                f"""
+                ALTER TABLE alembic_version
+                ALTER COLUMN version_num TYPE VARCHAR({ALEMBIC_VERSION_COLUMN_MIN_LENGTH})
+                """
+            )
+        )
+
+
 async def run_migrations() -> None:
     last_error: Exception | None = None
     for attempt in range(1, DB_WAIT_MAX_ATTEMPTS + 1):
@@ -104,6 +171,8 @@ async def run_migrations() -> None:
                 f"alembic_table_exists={alembic_table_exists}, "
                 f"has_version_row={has_version_row}"
             )
+
+            await _ensure_alembic_version_table_shape()
 
             if core_exists and not has_version_row:
                 print("[migrate] Existing schema detected without Alembic version state")

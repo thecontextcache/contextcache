@@ -49,11 +49,14 @@ function FadeInSection({ children, className = '' }: { children: ReactNode; clas
 /* ── FAQ Accordion Item ─────────────────────────────────────── */
 function FaqItem({ q, a }: { q: string; a: string }) {
   const [open, setOpen] = useState(false);
+  const panelId = useId();
   return (
     <div className="border-b border-line">
       <button
         className="flex w-full items-center justify-between py-5 text-left"
         onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-controls={panelId}
       >
         <span className="text-sm font-medium text-ink sm:text-base">{q}</span>
         <ChevronDown
@@ -61,6 +64,7 @@ function FaqItem({ q, a }: { q: string; a: string }) {
         />
       </button>
       <div
+        id={panelId}
         className={`grid transition-all duration-200 ${open ? 'grid-rows-[1fr] pb-5' : 'grid-rows-[0fr]'}`}
       >
         <div className="overflow-hidden">

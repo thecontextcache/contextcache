@@ -7,7 +7,7 @@
 PROD_COMPOSE := --env-file .env -f infra/docker-compose.prod.yml
 DEV_COMPOSE  := --env-file .env -f docker-compose.yml
 
-.PHONY: help dev dev-down dev-logs prod-deploy prod-deploy-safe prod-deploy-hard prod-up prod-down prod-logs prod-db-logs prod-status prod-config-check prod-verify prod-db-backup prod-db-restore-verify
+.PHONY: help dev dev-down dev-logs prod-deploy prod-deploy-safe prod-deploy-hard prod-up prod-down prod-logs prod-db-logs prod-status prod-config-check prod-verify prod-db-backup prod-db-restore-verify prod-bigint-preflight
 
 help:               ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -27,7 +27,7 @@ dev-logs:           ## Tail local dev logs
 
 prod-deploy:        ## Low-downtime deploy: build first, recreate app services only
 	@echo "🔨  Building updated images..."
-	docker compose $(PROD_COMPOSE) build api worker beat web docs
+	DOCKER_BUILDKIT=1 docker compose $(PROD_COMPOSE) build api worker beat web docs
 	@echo "🚀  Recreating app services (db/redis stay up)..."
 	docker compose $(PROD_COMPOSE) up -d --no-deps api worker beat web docs
 	@echo "✅  Done — low-downtime deploy complete."
@@ -45,7 +45,7 @@ prod-deploy-hard:   ## Full clean-slate rebuild (includes downtime)
 	docker system prune -f
 	docker builder prune -f
 	@echo "🔨  Building images from scratch (no cache)..."
-	docker compose $(PROD_COMPOSE) build --no-cache
+	DOCKER_BUILDKIT=1 docker compose $(PROD_COMPOSE) build --no-cache
 	@echo "🚀  Starting production stack..."
 	docker compose $(PROD_COMPOSE) up -d
 	@echo "✅  Done — full clean-slate deploy is live."
@@ -82,3 +82,6 @@ prod-db-backup:     ## Create compressed production Postgres backup under ./back
 prod-db-restore-verify: ## Verify a backup can be restored to a temporary database (requires BACKUP=path.sql.gz)
 	test -n "$(BACKUP)"
 	./scripts/db_restore_verify.sh "$(BACKUP)"
+
+prod-bigint-preflight: ## Run BIGINT migration preflight probes and save artifact under ./artifacts/bigint
+	./scripts/run_bigint_wave.sh preflight

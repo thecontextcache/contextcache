@@ -25,6 +25,9 @@ Command:
 make prod-deploy
 ```
 
+If the private engine is part of the build, make sure `.env` contains
+`ENGINE_TOKEN`; production image builds now pass it as a BuildKit secret.
+
 Hard reset (downtime + cache prune) is still available:
 
 ```bash
@@ -65,6 +68,10 @@ Create an on-host compressed backup:
 ```bash
 ./scripts/db_backup.sh
 ```
+
+The backup/restore helpers resolve `POSTGRES_DB` and `POSTGRES_USER` from the
+running `db` container, so `.env` values containing spaces or shell-sensitive
+characters no longer break the scripts.
 
 Restore verification without touching the live database:
 

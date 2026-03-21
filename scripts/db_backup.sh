@@ -6,21 +6,17 @@ ENV_FILE=".env"
 BACKUP_DIR="${BACKUP_DIR:-backups}"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
-if [[ -f "$ENV_FILE" ]]; then
-  # shellcheck disable=SC1090
-  set -a
-  . "$ENV_FILE"
-  set +a
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/lib/compose_db_env.sh"
 
-DB_NAME="${POSTGRES_DB:-contextcache}"
-DB_USER="${POSTGRES_USER:-contextcache}"
+cc_resolve_db_env
 OUT_FILE="${BACKUP_DIR}/${DB_NAME}-${TIMESTAMP}.sql.gz"
 
 mkdir -p "$BACKUP_DIR"
 
 echo "Creating backup: $OUT_FILE"
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T db \
+cc_compose exec -T db \
   pg_dump -U "$DB_USER" -d "$DB_NAME" --clean --if-exists --no-owner --no-privileges \
   | gzip -c > "$OUT_FILE"
 

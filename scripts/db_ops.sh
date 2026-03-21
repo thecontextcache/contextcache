@@ -3,8 +3,9 @@ set -euo pipefail
 
 COMPOSE_FILE="infra/docker-compose.prod.yml"
 ENV_FILE=".env"
-DB_NAME="${POSTGRES_DB:-contextcache_dev}"
-DB_USER="${POSTGRES_USER:-contextcache}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/lib/compose_db_env.sh"
 
 usage() {
   cat <<EOF
@@ -28,10 +29,11 @@ fi
 
 case "$1" in
   logs)
-    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" logs -f db
+    cc_compose logs -f db
     ;;
   activity)
-    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T db \
+    cc_resolve_db_env
+    cc_compose exec -T db \
       psql -U "$DB_USER" -d "$DB_NAME" -c "
 SELECT pid, usename, application_name, state, wait_event_type, wait_event, query_start, left(query, 160) AS query
 FROM pg_stat_activity
@@ -40,7 +42,8 @@ ORDER BY query_start DESC NULLS LAST
 LIMIT 30;"
     ;;
   locks)
-    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T db \
+    cc_resolve_db_env
+    cc_compose exec -T db \
       psql -U "$DB_USER" -d "$DB_NAME" -c "
 SELECT blocked.pid AS blocked_pid,
        blocking.pid AS blocking_pid,
@@ -65,7 +68,8 @@ WHERE NOT blocked_locks.granted
 ORDER BY blocked.query_start DESC NULLS LAST;"
     ;;
   size)
-    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T db \
+    cc_resolve_db_env
+    cc_compose exec -T db \
       psql -U "$DB_USER" -d "$DB_NAME" -c "
 SELECT relname AS table_name,
        pg_size_pretty(pg_total_relation_size(relid)) AS total_size,
@@ -75,7 +79,8 @@ ORDER BY pg_total_relation_size(relid) DESC
 LIMIT 20;"
     ;;
   schema)
-    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T db \
+    cc_resolve_db_env
+    cc_compose exec -T db \
       psql -U "$DB_USER" -d "$DB_NAME" -c "
 SELECT table_name
 FROM information_schema.tables

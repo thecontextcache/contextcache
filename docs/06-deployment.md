@@ -262,7 +262,8 @@ docker compose --env-file .env -f infra/docker-compose.prod.yml config >/dev/nul
 ./scripts/db_backup.sh
 
 # 3. Build images
-docker compose --env-file .env -f infra/docker-compose.prod.yml build api web worker beat
+#    If the private engine must be fetched, set ENGINE_TOKEN in .env first.
+DOCKER_BUILDKIT=1 docker compose --env-file .env -f infra/docker-compose.prod.yml build api web worker beat
 
 # 4. Recreate app containers without restarting db/redis
 docker compose --env-file .env -f infra/docker-compose.prod.yml up -d --no-deps api web worker beat
@@ -288,6 +289,15 @@ Rollback rule:
 - `SameSite=Lax` is sufficient here — no cross-site POST needed.
 - If you ever route the frontend to call `api.thecontextcache.com` directly,
   switch to `SameSite=None; Secure` and set `Domain=.thecontextcache.com`.
+
+### Private engine build notes
+
+- Docker builds now consume `ENGINE_TOKEN` as a BuildKit secret instead of a
+  build arg, so the token does not appear in image history or compose output.
+- Local runtime/test imports fall back cleanly when the private engine package
+  is absent, but production images should still provide `ENGINE_TOKEN` so the
+  full engine is installed.
+- Use `DOCKER_BUILDKIT=1` for image builds that need secret mounts.
 
 ---
 

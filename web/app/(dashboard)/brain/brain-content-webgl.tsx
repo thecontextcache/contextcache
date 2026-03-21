@@ -356,12 +356,25 @@ export function BrainContentWebGL() {
   const clickStartRef = useRef<number>(0);
   const searchStartRef = useRef<number>(0);
   const perfRenderTsRef = useRef<number>(0);
+  const edgeLodHiddenRef = useRef<boolean | null>(null);
+  const cameraUpdateFrameRef = useRef<number | null>(null);
+  const pendingCameraStateRef = useRef<{ x: number; y: number; ratio: number } | null>(null);
   const [perfView, setPerfView] = useState({
     fps: 0,
     p95FrameMs: 0,
     clickLatencyMs: 0,
     searchFocusLatencyMs: 0,
   });
+
+  const flushCameraState = useCallback(() => {
+    if (cameraUpdateFrameRef.current !== null) return;
+    cameraUpdateFrameRef.current = requestAnimationFrame(() => {
+      cameraUpdateFrameRef.current = null;
+      if (pendingCameraStateRef.current) {
+        setCameraState(pendingCameraStateRef.current);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     activeTypesRef.current = activeTypes;
@@ -452,13 +465,45 @@ export function BrainContentWebGL() {
         graph.setNodeAttribute(node.id, 'hidden', !visible);
       }
     }
+    syncEdgeVisibility({ force: true });
+    if (sigmaRef.current?.refresh) sigmaRef.current.refresh();
+  }
+
+  function syncEdgeVisibility(options?: { force?: boolean; hideForLod?: boolean }) {
+    const graph = graphRef.current;
+    if (!graph) return;
+    const sigma = sigmaRef.current;
+    const camera = sigma?.getCamera?.();
+    const ratio =
+      options?.hideForLod === undefined
+        ? (typeof camera?.ratio === 'number' ? camera.ratio : cameraState.ratio)
+        : cameraState.ratio;
+    const hideForLod =
+      options?.hideForLod ?? (ratio > LOD_HIDE_EDGES_RATIO && edgesRef.current.length > LOD_EDGE_LIMIT);
+
+    if (!options?.force && edgeLodHiddenRef.current === hideForLod) {
+      return;
+    }
+
+    if (hideForLod) {
+      graph.forEachEdge((edgeId: string) => {
+        if (!graph.getEdgeAttribute(edgeId, 'hidden')) {
+          graph.setEdgeAttribute(edgeId, 'hidden', true);
+        }
+      });
+      edgeLodHiddenRef.current = true;
+      if (sigma?.refresh) sigma.refresh();
+      return;
+    }
+
     graph.forEachEdge((edgeId: string) => {
       const [source, target] = graph.extremities(edgeId);
       const sourceVisible = graph.hasNode(source) ? !graph.getNodeAttribute(source, 'hidden') : false;
       const targetVisible = graph.hasNode(target) ? !graph.getNodeAttribute(target, 'hidden') : false;
       graph.setEdgeAttribute(edgeId, 'hidden', !(sourceVisible && targetVisible));
     });
-    if (sigmaRef.current?.refresh) sigmaRef.current.refresh();
+    edgeLodHiddenRef.current = false;
+    if (sigma?.refresh) sigma.refresh();
   }
 
   function syncGraphToWorker() {
@@ -509,6 +554,7 @@ export function BrainContentWebGL() {
       }
     }
 
+    edgeLodHiddenRef.current = null;
     if (sigmaRef.current?.refresh) sigmaRef.current.refresh();
   }
 
@@ -1055,13 +1101,9 @@ export function BrainContentWebGL() {
         if (camera?.on) {
           camera.on('updated', () => {
             const ratio = typeof camera.ratio === 'number' ? camera.ratio : 1;
-            setCameraState({ x: camera.x ?? 0, y: camera.y ?? 0, ratio });
-            const hideEdges = ratio > LOD_HIDE_EDGES_RATIO && edgesRef.current.length > LOD_EDGE_LIMIT;
-            const graph = graphRef.current;
-            if (!graph) return;
-            graph.forEachEdge((edgeId: string) => {
-              graph.setEdgeAttribute(edgeId, 'hidden', hideEdges);
-            });
+            pendingCameraStateRef.current = { x: camera.x ?? 0, y: camera.y ?? 0, ratio };
+            flushCameraState();
+            syncEdgeVisibility({ hideForLod: ratio > LOD_HIDE_EDGES_RATIO && edgesRef.current.length > LOD_EDGE_LIMIT });
           });
         }
 
@@ -1079,6 +1121,10 @@ export function BrainContentWebGL() {
 
     return () => {
       disposed = true;
+      if (cameraUpdateFrameRef.current !== null) {
+        cancelAnimationFrame(cameraUpdateFrameRef.current);
+        cameraUpdateFrameRef.current = null;
+      }
       if (sigmaRef.current) {
         sigmaRef.current.kill();
         sigmaRef.current = null;
@@ -1090,7 +1136,7 @@ export function BrainContentWebGL() {
       graphRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [flushCameraState]);
 
   useEffect(() => {
     if (fatalError) return;
@@ -1366,6 +1412,7 @@ export function BrainContentWebGL() {
         <div className="mb-3">
           <div className="relative max-w-md">
             <Input
+              aria-label="Search graph nodes"
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);

@@ -38,6 +38,21 @@ async def test_me_requires_key_and_returns_context(client, app_ctx: Ctx) -> None
     assert body["actor_user_id"] is not None
 
 
+async def test_api_key_org_header_mismatch_returns_forbidden(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    other_org = Organization(name=f"Header Mismatch Org {uuid.uuid4().hex[:6]}")
+    db_session.add(other_org)
+    await db_session.commit()
+
+    headers = auth_headers(app_ctx, role="owner")
+    headers["X-Org-Id"] = str(other_org.id)
+    response = await client.get("/me", headers=headers)
+    assert response.status_code == 403
+
+
 async def test_me_orgs_lists_all_memberships_for_session_user(
     client,
     db_session: AsyncSession,
@@ -121,6 +136,21 @@ async def test_create_org_project_allowed_for_owner_admin(client, app_ctx: Ctx, 
     body = response.json()
     assert body["org_id"] == app_ctx.org_id
     assert body["name"] == f"Project by {role}"
+
+
+async def test_membership_routes_require_owner(client, app_ctx: Ctx) -> None:
+    forbidden = await client.get(
+        f"/orgs/{app_ctx.org_id}/memberships",
+        headers=auth_headers(app_ctx, role="member"),
+    )
+    assert forbidden.status_code == 403
+
+    allowed = await client.get(
+        f"/orgs/{app_ctx.org_id}/memberships",
+        headers=auth_headers(app_ctx, role="owner"),
+    )
+    assert allowed.status_code == 200
+    assert len(allowed.json()) >= 1
 
 
 @pytest.mark.parametrize("role", ["member", "owner"])

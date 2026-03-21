@@ -31,6 +31,7 @@ const sidebarItems = [
 export function DashboardShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const sidebarId = 'dashboard-sidebar';
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [user, setUser] = useState<{ email: string; is_admin: boolean } | null>(null);
 
@@ -66,6 +67,9 @@ export function DashboardShell({ children }: { children: ReactNode }) {
       <button
         className="fixed left-4 top-4 z-50 rounded-md border border-line bg-panel p-2 text-ink-2 lg:hidden"
         onClick={() => setSidebarOpen(!sidebarOpen)}
+        aria-label={sidebarOpen ? 'Close navigation menu' : 'Open navigation menu'}
+        aria-controls={sidebarId}
+        aria-expanded={sidebarOpen}
       >
         {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
       </button>
@@ -83,10 +87,12 @@ export function DashboardShell({ children }: { children: ReactNode }) {
 
       {/* Sidebar */}
       <aside
+        id={sidebarId}
         className={cn(
           'fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-line bg-bg-2 transition-transform duration-200 lg:static lg:translate-x-0',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         )}
+        aria-label="Dashboard navigation"
       >
         <div className="flex h-14 items-center justify-between border-b border-line px-6">
           <Link href="/" className="text-sm font-semibold text-brand">
@@ -128,6 +134,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
           )}
           <button
             onClick={handleLogout}
+            aria-label="Sign out"
             className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-ink-2 transition-colors hover:bg-bg/50 hover:text-ink"
           >
             <LogOut className="h-4 w-4" />

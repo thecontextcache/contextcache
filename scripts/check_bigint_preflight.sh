@@ -6,13 +6,19 @@ cd "$ROOT_DIR"
 
 COMPOSE_FILE="infra/docker-compose.prod.yml"
 ENV_FILE=".env"
-DB_NAME="${POSTGRES_DB:-contextcache_dev}"
-DB_USER="${POSTGRES_USER:-contextcache}"
+source "$ROOT_DIR/scripts/lib/compose_db_env.sh"
+read -r DB_NAME DB_USER < <(cc_resolve_db_env)
+ARTIFACT_DIR="${ROOT_DIR}/artifacts/bigint"
+mkdir -p "$ARTIFACT_DIR"
+STAMP="$(date +%Y%m%d-%H%M%S)"
+REPORT_PATH="${ARTIFACT_DIR}/preflight-${STAMP}.log"
 
 echo "[bigint-preflight] Using db=${DB_NAME} user=${DB_USER}"
 echo "[bigint-preflight] Running FK inventory + INT/BIGINT probes..."
+echo "[bigint-preflight] Writing report to ${REPORT_PATH}"
 
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T db \
-  psql -U "$DB_USER" -d "$DB_NAME" -f /dev/stdin < scripts/db_fk_inventory.sql
+cc_compose exec -T db \
+  psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -f /dev/stdin \
+  < scripts/db_fk_inventory.sql | tee "$REPORT_PATH"
 
 echo "[bigint-preflight] DONE"

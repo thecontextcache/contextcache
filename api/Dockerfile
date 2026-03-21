@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 FROM python:3.11-slim AS base
 
 WORKDIR /app
@@ -16,21 +17,25 @@ FROM base AS dev-deps
 RUN uv sync
 
 FROM base AS runtime-deps
-# Install runtime deps only — use HTTPS + token for private engine repo
-ARG ENGINE_TOKEN=""
-RUN set -eu; \
-    if [ -n "$ENGINE_TOKEN" ]; then \
-      git config --global url."https://${ENGINE_TOKEN}@github.com/thecontextcache/contextcache-engine.git".insteadOf "ssh://git@github.com/thecontextcache/contextcache-engine.git"; \
-      git config --global url."https://${ENGINE_TOKEN}@github.com/".insteadOf "ssh://git@github.com/"; \
-      git config --global url."https://${ENGINE_TOKEN}@github.com/".insteadOf "git+ssh://git@github.com/"; \
-      git config --global url."https://${ENGINE_TOKEN}@github.com/".insteadOf "git@github.com:"; \
+# Install runtime deps only. The private engine repo is fetched through a
+# BuildKit secret so the credential never appears in build ARG/ENV metadata.
+RUN --mount=type=secret,id=engine_pat,required=false \
+    set -eu; \
+    token=""; \
+    if [ -f /run/secrets/engine_pat ]; then \
+      token="$(tr -d '\r\n' < /run/secrets/engine_pat)"; \
+    fi; \
+    git_home="$(mktemp -d)"; \
+    export HOME="$git_home"; \
+    trap 'rm -rf "$git_home"' EXIT; \
+    if [ -n "$token" ]; then \
+      git config --global url."https://${token}@github.com/thecontextcache/contextcache-engine.git".insteadOf "ssh://git@github.com/thecontextcache/contextcache-engine.git"; \
+      git config --global url."https://${token}@github.com/".insteadOf "ssh://git@github.com/"; \
+      git config --global url."https://${token}@github.com/".insteadOf "git+ssh://git@github.com/"; \
+      git config --global url."https://${token}@github.com/".insteadOf "git@github.com:"; \
     fi; \
     uv sync --no-dev; \
-    /app/.venv/bin/python -c "import sqlalchemy, alembic, celery"; \
-    if [ -n "$ENGINE_TOKEN" ]; then \
-      git config --global --unset-all url."https://${ENGINE_TOKEN}@github.com/thecontextcache/contextcache-engine.git".insteadOf 2>/dev/null || true; \
-      git config --global --unset-all url."https://${ENGINE_TOKEN}@github.com/".insteadOf 2>/dev/null || true; \
-    fi
+    /app/.venv/bin/python -c "import sqlalchemy, alembic, celery"
 
 FROM runtime-deps AS runtime
 # Copy the application code

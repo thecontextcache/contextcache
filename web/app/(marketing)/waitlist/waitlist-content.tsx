@@ -125,7 +125,11 @@ export function WaitlistContent() {
           </div>
 
           {error && (
-            <p className="rounded-lg border border-err/20 bg-err/10 px-4 py-2.5 text-sm text-err">
+            <p
+              role="alert"
+              aria-live="assertive"
+              className="rounded-lg border border-err/20 bg-err/10 px-4 py-2.5 text-sm text-err"
+            >
               {error}
             </p>
           )}
