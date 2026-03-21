@@ -33,7 +33,7 @@ RUN --mount=type=secret,id=engine_pat,required=false \
       git config --global url."https://${token}@github.com/".insteadOf "git+ssh://git@github.com/"; \
       git config --global url."https://${token}@github.com/".insteadOf "git@github.com:"; \
       uv sync --frozen; \
-      /app/.venv/bin/pip install --no-deps "$(private-engine-spec)"; \
+      uv pip install --python /app/.venv/bin/python --no-deps "$(private-engine-spec)"; \
     else \
       strip-private-engine-lock; \
       uv sync --frozen; \
@@ -58,7 +58,7 @@ RUN --mount=type=secret,id=engine_pat,required=false \
       git config --global url."https://${token}@github.com/".insteadOf "git+ssh://git@github.com/"; \
       git config --global url."https://${token}@github.com/".insteadOf "git@github.com:"; \
       uv sync --frozen --no-dev; \
-      /app/.venv/bin/pip install --no-deps "$(private-engine-spec)"; \
+      uv pip install --python /app/.venv/bin/python --no-deps "$(private-engine-spec)"; \
     else \
       strip-private-engine-lock; \
       uv sync --frozen --no-dev; \
