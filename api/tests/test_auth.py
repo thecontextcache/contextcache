@@ -312,6 +312,34 @@ async def test_admin_cag_stats_requires_admin(client, db_session: AsyncSession, 
     assert forbidden.status_code == 403
 
 
+async def test_admin_cag_evaporate_writes_audit_without_org_header(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    admin_headers = await _login_session(
+        client,
+        db_session,
+        email=app_ctx.users["owner"],
+        is_admin=True,
+    )
+
+    response = await client.post("/admin/cag/evaporate", headers=admin_headers)
+    assert response.status_code == 200
+
+    audit_row = (
+        await db_session.execute(
+            select(AuditLog)
+            .where(AuditLog.action == "admin.cag.evaporate")
+            .order_by(AuditLog.id.desc())
+            .limit(1)
+        )
+    ).scalar_one()
+    assert audit_row.org_id == app_ctx.org_id
+    assert audit_row.entity_type == "cag_cache"
+    assert audit_row.entity_id == 0
+
+
 async def test_disabled_user_cannot_login(client, db_session: AsyncSession) -> None:
     db_session.add(
         AuthUser(
@@ -456,6 +484,9 @@ async def test_admin_flows_write_audit_logs(
     )
     assert set_org_plan.status_code == 200
 
+    evaporate = await client.post("/admin/cag/evaporate", headers=admin_headers)
+    assert evaporate.status_code == 200
+
     approve_waitlist = await client.post("/admin/waitlist/1/approve", headers=admin_headers)
     assert approve_waitlist.status_code == 201
 
@@ -484,5 +515,6 @@ async def test_admin_flows_write_audit_logs(
     assert "admin.user.set_unlimited" in actions
     assert "admin.user.set_plan" in actions
     assert "admin.org.set_plan" in actions
+    assert "admin.cag.evaporate" in actions
     assert "admin.waitlist.approve" in actions
     assert "admin.waitlist.reject" in actions

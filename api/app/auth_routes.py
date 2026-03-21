@@ -198,6 +198,17 @@ async def _resolve_admin_audit_org_id(
     explicit_org_id: int | None = None,
     target_auth_user_id: int | None = None,
 ) -> int | None:
+    async def _first_membership_org_id(auth_user_id: int) -> int | None:
+        return (
+            await db.execute(
+                select(Membership.org_id)
+                .join(User, User.id == Membership.user_id)
+                .where(User.auth_user_id == auth_user_id)
+                .order_by(Membership.created_at.asc(), Membership.id.asc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
     if explicit_org_id is not None:
         return explicit_org_id
 
@@ -205,18 +216,14 @@ async def _resolve_admin_audit_org_id(
     if request_org_id is not None:
         return int(request_org_id)
 
-    if target_auth_user_id is None:
+    if target_auth_user_id is not None:
+        return await _first_membership_org_id(target_auth_user_id)
+
+    actor_auth_user_id = getattr(request.state, "auth_user_id", None)
+    if actor_auth_user_id is None:
         return None
 
-    return (
-        await db.execute(
-            select(Membership.org_id)
-            .join(User, User.id == Membership.user_id)
-            .where(User.auth_user_id == target_auth_user_id)
-            .order_by(Membership.created_at.asc(), Membership.id.asc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+    return await _first_membership_org_id(int(actor_auth_user_id))
 
 
 async def _write_admin_audit(
@@ -1133,10 +1140,27 @@ async def admin_cag_cache_stats(request: Request) -> CagCacheStatsOut:
 
 
 @router.post("/admin/cag/evaporate", response_model=CagCacheStatsOut)
-async def admin_cag_evaporate(request: Request) -> CagCacheStatsOut:
+async def admin_cag_evaporate(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> CagCacheStatsOut:
     _require_admin_auth(request)
     evaporate_pheromones()
     stats = get_cag_cache_stats()
+    await _write_admin_audit(
+        db,
+        request,
+        action="admin.cag.evaporate",
+        entity_type="cag_cache",
+        entity_id=0,
+        metadata={
+            "cache_items": stats.get("cache_items", 0),
+            "total_evicted": stats.get("total_evicted", 0),
+            "avg_pheromone": stats.get("avg_pheromone", 0.0),
+            "mode": stats.get("mode"),
+        },
+    )
+    await db.commit()
     return CagCacheStatsOut(**stats)
 
 
