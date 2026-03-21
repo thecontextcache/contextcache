@@ -11,60 +11,8 @@ RUN apt-get update && \
 
 # Copy dependency metadata and lockfile (better layer caching)
 COPY pyproject.toml uv.lock /app/
-
-RUN set -eu; \
-    cat > /usr/local/bin/strip-private-engine-lock <<'EOF'
-#!/usr/bin/env python3
-from pathlib import Path
-
-
-def strip_contextcache_engine_block(lines: list[str]) -> list[str]:
-    out: list[str] = []
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        if line == "[package.optional-dependencies]\n":
-            block: list[str] = [line]
-            i += 1
-            while i < len(lines) and not lines[i].startswith("[") and not lines[i].startswith("[["):
-                block.append(lines[i])
-                i += 1
-            joined = "".join(block)
-            if 'private-engine = [\n    { name = "contextcache-engine" },\n]\n' in joined:
-                cleaned = joined.replace(
-                    'private-engine = [\n    { name = "contextcache-engine" },\n]\n',
-                    "",
-                )
-                if cleaned.strip():
-                    out.extend(cleaned.splitlines(keepends=True))
-            else:
-                out.extend(block)
-            continue
-
-        if line == "[package.metadata]\n":
-            out.append(line)
-            i += 1
-            while i < len(lines) and not lines[i].startswith("[") and not lines[i].startswith("[["):
-                if 'contextcache-engine' not in lines[i]:
-                    out.append(lines[i])
-                i += 1
-            continue
-
-        if line == "[[package]]\n" and i + 1 < len(lines) and lines[i + 1] == 'name = "contextcache-engine"\n':
-            i += 2
-            while i < len(lines) and not lines[i].startswith("[[package]]\n"):
-                i += 1
-            continue
-
-        out.append(line)
-        i += 1
-    return out
-
-
-lock_path = Path("/app/uv.lock")
-lock_path.write_text("".join(strip_contextcache_engine_block(lock_path.read_text().splitlines(keepends=True))))
-EOF
-    chmod +x /usr/local/bin/strip-private-engine-lock
+COPY scripts/strip_private_engine_lock.py /usr/local/bin/strip-private-engine-lock
+RUN chmod +x /usr/local/bin/strip-private-engine-lock
 
 FROM base AS dev-deps
 # Install all deps (including dev/test). The private engine is optional: when
