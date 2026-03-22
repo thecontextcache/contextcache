@@ -14,7 +14,7 @@ import math
 import os
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Mapping, Sequence
 
 from sqlalchemy import Float, bindparam, select
@@ -28,6 +28,14 @@ logger = logging.getLogger(__name__)
 TOKEN_RE = re.compile(r"[a-z0-9_]{2,}", re.IGNORECASE)
 DEFAULT_EMBEDDING_DIMS = int(os.getenv("EMBEDDING_DIMS", "1536"))
 DEFAULT_HILBERT_SEED = int(os.getenv("HILBERT_SEED", "1337"))
+LOCAL_RECALL_FALLBACK_MAX_MEMORIES = max(
+    1,
+    int(os.getenv("LOCAL_RECALL_FALLBACK_MAX_MEMORIES", "500")),
+)
+PRIVATE_ENGINE_FAILURE_COOLDOWN_SECONDS = max(
+    1,
+    int(os.getenv("PRIVATE_ENGINE_FAILURE_COOLDOWN_SECONDS", "60")),
+)
 
 
 @dataclass(frozen=True)
@@ -60,6 +68,13 @@ _private_score_memories_local = None
 _private_token_overlap_score = None
 _private_tokenize = None
 _private_build_pack = None
+_private_engine_circuit_open_until: datetime | None = None
+_private_engine_last_error_at: datetime | None = None
+_private_engine_last_error_type: str | None = None
+
+
+class RecallEngineUnavailableError(RuntimeError):
+    """Raised when a configured private recall engine is currently unavailable."""
 
 try:  # pragma: no cover - covered when the private engine is installed
     from contextcache_engine.algorithm import (  # type: ignore[import-untyped]
@@ -84,6 +99,55 @@ except Exception:  # pragma: no cover - defensive import guard
     logger.exception(
         "Private contextcache-engine package failed to import; using local ranking fallback."
     )
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _private_engine_circuit_is_open(now: datetime | None = None) -> bool:
+    now = now or _utc_now()
+    return _private_engine_circuit_open_until is not None and now < _private_engine_circuit_open_until
+
+
+def _mark_private_engine_failure(exc: Exception) -> None:
+    global _private_engine_circuit_open_until, _private_engine_last_error_at, _private_engine_last_error_type
+    now = _utc_now()
+    _private_engine_last_error_at = now
+    _private_engine_last_error_type = type(exc).__name__
+    _private_engine_circuit_open_until = now + timedelta(seconds=PRIVATE_ENGINE_FAILURE_COOLDOWN_SECONDS)
+
+
+def _clear_private_engine_circuit() -> None:
+    global _private_engine_circuit_open_until
+    _private_engine_circuit_open_until = None
+
+
+def reset_private_engine_runtime_state() -> None:
+    global _private_engine_circuit_open_until, _private_engine_last_error_at, _private_engine_last_error_type
+    _private_engine_circuit_open_until = None
+    _private_engine_last_error_at = None
+    _private_engine_last_error_type = None
+
+
+def get_private_engine_runtime_state() -> dict[str, Any]:
+    circuit_open = _private_engine_circuit_is_open()
+    if _private_run_hybrid_rag_recall is None:
+        mode = "local_fallback_only"
+    elif circuit_open:
+        mode = "circuit_open"
+    else:
+        mode = "private_engine"
+    return {
+        "configured": _private_run_hybrid_rag_recall is not None,
+        "mode": mode,
+        "circuit_open": circuit_open,
+        "circuit_open_until": _private_engine_circuit_open_until,
+        "last_error_at": _private_engine_last_error_at,
+        "last_error_type": _private_engine_last_error_type,
+        "cooldown_seconds": PRIVATE_ENGINE_FAILURE_COOLDOWN_SECONDS,
+        "fallback_max_memories": LOCAL_RECALL_FALLBACK_MAX_MEMORIES,
+    }
 
 
 def _sequence_values(vector: Sequence[float] | None) -> list[float]:
@@ -298,8 +362,14 @@ async def _run_hybrid_rag_recall_local(
             select(Memory)
             .where(Memory.project_id == project_id)
             .order_by(Memory.created_at.desc(), Memory.id.desc())
+            .limit(LOCAL_RECALL_FALLBACK_MAX_MEMORIES)
         )
     ).scalars().all()
+    base_score_details = {
+        "source": "local-fallback",
+        "candidate_count": len(memories),
+        "fallback_max_memories": LOCAL_RECALL_FALLBACK_MAX_MEMORIES,
+    }
 
     if not memories:
         return {
@@ -307,7 +377,7 @@ async def _run_hybrid_rag_recall_local(
             "input_ids": [],
             "ranked_ids": [],
             "scores": {},
-            "score_details": {"reason": "no_memories", "source": "local-fallback"},
+            "score_details": {**base_score_details, "reason": "no_memories"},
         }
 
     query_tokens = _tokenize_local(query_text)
@@ -321,7 +391,7 @@ async def _run_hybrid_rag_recall_local(
             "input_ids": [memory.id for memory in memories],
             "ranked_ids": [memory.id for memory in recent],
             "scores": {},
-            "score_details": {"reason": "no_hybrid_match", "source": "local-fallback"},
+            "score_details": {**base_score_details, "reason": "no_hybrid_match"},
         }
 
     ranked = _score_memories_local(
@@ -342,7 +412,7 @@ async def _run_hybrid_rag_recall_local(
             "ranked_ids": [memory.id for memory, _ in top],
             "scores": {memory.id: round(score, 6) for memory, score in top},
             "score_details": {
-                "source": "local-fallback",
+                **base_score_details,
                 "weights": {
                     "fts": config.fts_weight,
                     "vector": config.vector_weight,
@@ -357,7 +427,7 @@ async def _run_hybrid_rag_recall_local(
         "input_ids": [memory.id for memory in memories],
         "ranked_ids": [memory.id for memory in recent],
         "scores": {},
-        "score_details": {"reason": "no_hybrid_match", "source": "local-fallback"},
+        "score_details": {**base_score_details, "reason": "no_hybrid_match"},
     }
 
 
@@ -514,19 +584,30 @@ async def run_hybrid_rag_recall(
     config: HybridRecallConfig | None = None,
 ) -> dict[str, Any]:
     if _private_run_hybrid_rag_recall is not None:
+        if _private_engine_circuit_is_open():
+            raise RecallEngineUnavailableError("Recall engine temporarily unavailable")
         try:
-            return await _private_run_hybrid_rag_recall(
+            result = await _private_run_hybrid_rag_recall(
                 db,
                 project_id=project_id,
                 query_text=query_text,
                 limit=limit,
                 config=config,
             )
-        except Exception:
+        except Exception as exc:
+            _mark_private_engine_failure(exc)
             logger.exception(
-                "Private hybrid recall failed; using local ranking fallback.",
-                extra={"project_id": project_id, "limit": limit},
+                "Private hybrid recall failed; opening engine circuit and refusing degraded fallback.",
+                extra={
+                    "project_id": project_id,
+                    "limit": limit,
+                    "cooldown_seconds": PRIVATE_ENGINE_FAILURE_COOLDOWN_SECONDS,
+                    "error_type": type(exc).__name__,
+                },
             )
+            raise RecallEngineUnavailableError("Recall engine temporarily unavailable") from exc
+        _clear_private_engine_circuit()
+        return result
 
     return await _run_hybrid_rag_recall_local(
         db,
@@ -550,9 +631,12 @@ __all__ = [
     "compute_embedding",
     "compute_hilbert_index",
     "fetch_memories_by_ids",
+    "get_private_engine_runtime_state",
     "merge_hybrid_scores",
     "normalize_positive",
+    "RecallEngineUnavailableError",
     "recency_boost",
+    "reset_private_engine_runtime_state",
     "run_hybrid_rag_recall",
     "score_memories_local",
     "token_overlap_score",

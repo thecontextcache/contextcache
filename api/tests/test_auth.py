@@ -340,6 +340,39 @@ async def test_admin_cag_evaporate_writes_audit_without_org_header(
     assert audit_row.entity_id == 0
 
 
+async def test_admin_disable_orphan_auth_user_audits_to_actor_org(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    admin_headers = await _login_session(
+        client,
+        db_session,
+        email=app_ctx.users["owner"],
+        is_admin=True,
+    )
+
+    orphan = AuthUser(email="orphan-admin-target@example.com", is_admin=False)
+    db_session.add(orphan)
+    await db_session.commit()
+
+    response = await client.post(f"/admin/users/{orphan.id}/disable", headers=admin_headers)
+    assert response.status_code == 200
+
+    audit_row = (
+        await db_session.execute(
+            select(AuditLog)
+            .where(AuditLog.action == "admin.user.disable")
+            .where(AuditLog.entity_id == orphan.id)
+            .order_by(AuditLog.id.desc())
+            .limit(1)
+        )
+    ).scalar_one()
+    assert audit_row.org_id == app_ctx.org_id
+    assert audit_row.metadata_json["target_auth_user_id"] == orphan.id
+    assert audit_row.metadata_json["audit_org_resolution"] == "actor_fallback"
+
+
 async def test_disabled_user_cannot_login(client, db_session: AsyncSession) -> None:
     db_session.add(
         AuthUser(

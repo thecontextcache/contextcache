@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+import logging
 import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -19,6 +20,7 @@ from .auth_utils import (
     session_expiry,
     ua_hash,
 )
+from .analyzer.algorithm import get_private_engine_runtime_state
 from .analyzer.cag import evaporate_pheromones, get_cag_cache_stats
 from .db import get_db
 from .emailer import send_invite_email, send_magic_link, send_waitlist_rejection_email
@@ -45,6 +47,7 @@ from .schemas import (
     AdminInviteCreateIn,
     AdminInviteOut,
     CagCacheStatsOut,
+    AdminEngineStatusOut,
     AdminRecallLogOut,
     AdminUsageOut,
     AdminUserOut,
@@ -59,6 +62,7 @@ from .schemas import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 APP_PUBLIC_BASE_URL = os.getenv("APP_PUBLIC_BASE_URL", "http://localhost:3000").rstrip("/")
 APP_ENV = os.getenv("APP_ENV", "dev").strip().lower()
 # Belt-and-suspenders: treat as production if APP_ENV=prod OR ENVIRONMENT=production
@@ -191,39 +195,57 @@ def _require_admin_auth(request: Request) -> int:
     return auth_user_id
 
 
+async def _first_membership_org_id(db: AsyncSession, auth_user_id: int) -> int | None:
+    return (
+        await db.execute(
+            select(Membership.org_id)
+            .join(User, User.id == Membership.user_id)
+            .where(User.auth_user_id == auth_user_id)
+            .order_by(Membership.created_at.asc(), Membership.id.asc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
 async def _resolve_admin_audit_org_id(
     db: AsyncSession,
     request: Request,
     *,
     explicit_org_id: int | None = None,
     target_auth_user_id: int | None = None,
-) -> int | None:
-    async def _first_membership_org_id(auth_user_id: int) -> int | None:
-        return (
-            await db.execute(
-                select(Membership.org_id)
-                .join(User, User.id == Membership.user_id)
-                .where(User.auth_user_id == auth_user_id)
-                .order_by(Membership.created_at.asc(), Membership.id.asc())
-                .limit(1)
-            )
-        ).scalar_one_or_none()
+) -> tuple[int | None, str]:
 
     if explicit_org_id is not None:
-        return explicit_org_id
+        return explicit_org_id, "explicit"
 
     request_org_id = getattr(request.state, "org_id", None)
     if request_org_id is not None:
-        return int(request_org_id)
-
-    if target_auth_user_id is not None:
-        return await _first_membership_org_id(target_auth_user_id)
+        return int(request_org_id), "request"
 
     actor_auth_user_id = getattr(request.state, "auth_user_id", None)
-    if actor_auth_user_id is None:
-        return None
+    actor_org_id = None
+    if actor_auth_user_id is not None:
+        actor_org_id = await _first_membership_org_id(db, int(actor_auth_user_id))
 
-    return await _first_membership_org_id(int(actor_auth_user_id))
+    if target_auth_user_id is not None:
+        target_org_id = await _first_membership_org_id(db, target_auth_user_id)
+        if target_org_id is not None:
+            return target_org_id, "target_membership"
+        if actor_org_id is not None:
+            logger.warning(
+                "Target auth user has no memberships; falling back to actor org for admin audit.",
+                extra={"target_auth_user_id": target_auth_user_id, "actor_auth_user_id": actor_auth_user_id},
+            )
+            return actor_org_id, "actor_fallback"
+        logger.error(
+            "Could not resolve org for admin audit; target user has no memberships and actor has no org.",
+            extra={"target_auth_user_id": target_auth_user_id, "actor_auth_user_id": actor_auth_user_id},
+        )
+        return None, "unresolved"
+
+    if actor_org_id is not None:
+        return actor_org_id, "actor_membership"
+    return None, "unresolved"
 
 
 async def _write_admin_audit(
@@ -237,19 +259,32 @@ async def _write_admin_audit(
     explicit_org_id: int | None = None,
     target_auth_user_id: int | None = None,
 ) -> None:
-    org_id = await _resolve_admin_audit_org_id(
+    org_id, resolution = await _resolve_admin_audit_org_id(
         db,
         request,
         explicit_org_id=explicit_org_id,
         target_auth_user_id=target_auth_user_id,
     )
     if org_id is None:
+        logger.error(
+            "Skipping admin audit write because no org context could be resolved.",
+            extra={
+                "action": action,
+                "entity_type": entity_type,
+                "entity_id": entity_id,
+                "target_auth_user_id": target_auth_user_id,
+            },
+        )
         return
 
     metadata_json = dict(metadata or {})
     actor_email = getattr(request.state, "actor_email", None)
     if actor_email and "actor_email" not in metadata_json:
         metadata_json["actor_email"] = actor_email
+    if target_auth_user_id is not None and "target_auth_user_id" not in metadata_json:
+        metadata_json["target_auth_user_id"] = target_auth_user_id
+    if "audit_org_resolution" not in metadata_json:
+        metadata_json["audit_org_resolution"] = resolution
 
     db.add(
         AuditLog(
@@ -1200,6 +1235,12 @@ async def admin_llm_health(request: Request) -> AdminLlmHealthOut:
         ready=ready,
         notes=notes,
     )
+
+
+@router.get("/admin/system/engine-status", response_model=AdminEngineStatusOut)
+async def admin_engine_status(request: Request) -> AdminEngineStatusOut:
+    _require_admin_auth(request)
+    return AdminEngineStatusOut(**get_private_engine_runtime_state())
 
 
 # ---------------------------------------------------------------------------

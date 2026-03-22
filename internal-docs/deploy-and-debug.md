@@ -109,10 +109,23 @@ Symptom:
 - traceback from private `run_hybrid_rag_recall`
 
 Current expected behavior:
-- app falls back to local recall logic instead of returning 500
+- API returns `503 Service Unavailable` during the private-engine cooldown window
+- API does not silently degrade into an unbounded in-process recall scan
+- local fallback remains available only when the private engine is not configured at all
 
 Relevant file:
 - `/Users/nd/Documents/contextcache/api/app/analyzer/algorithm.py`
+
+Useful check:
+
+```bash
+docker compose --env-file .env -f infra/docker-compose.prod.yml logs -n 150 api | rg -n "Private hybrid recall failed|Recall engine temporarily unavailable"
+```
+
+If you have an admin session and need to inspect one API process directly:
+- `GET /admin/system/engine-status`
+- `mode=circuit_open` means the configured private engine failed recently
+- `mode=local_fallback_only` means this build has no private engine configured
 
 ### 4. Worker warns about running as root
 

@@ -170,6 +170,7 @@ Response for `GET /admin/users/{id}/stats`:
 | `GET`  | `/admin/cag/cache-stats` | CAG cache metrics (status, size, hit rate, capacity) |
 | `POST` | `/admin/cag/evaporate` | Trigger immediate cache maintenance pass |
 | `GET`  | `/admin/system/llm-health` | LLM extraction readiness (worker flag, Gemini key presence, SDK install status, model) |
+| `GET`  | `/admin/system/engine-status` | Process-local recall-engine diagnostics (configured mode, circuit state, last private-engine error, bounded fallback settings) |
 | `GET`  | `/me/usage` | Current user's today usage + configured limits |
 
 Example `GET /admin/recall/logs` item:
@@ -373,6 +374,11 @@ Response headers:
 These headers are the stable low-overhead observability surface for agents and
 CLI tools that need latency and strategy visibility without parsing admin logs.
 
+Failure mode:
+
+- If a configured private recall engine raises at runtime, the API returns `503 Service Unavailable` for recall requests during the cooldown window instead of silently degrading into an unbounded in-process ranking path.
+- If no private recall engine is configured, the API uses local fallback ranking with a bounded candidate set controlled by `LOCAL_RECALL_FALLBACK_MAX_MEMORIES`.
+
 ## Brain batch contract
 
 `POST /brain/batch` applies a batch action to a set of memory IDs.
@@ -425,7 +431,7 @@ Supported reversible actions:
 
 Undo window is controlled by `BRAIN_BATCH_UNDO_WINDOW_SECONDS`.
 
-- Recall ranking is implemented in a private proprietary engine.
+- Recall ranking is implemented in a private proprietary engine when available.
 - Public response shape, auth behavior, and endpoint contract are unchanged.
 - Strategy and score details are written to `recall_logs` and visible via admin endpoint.
 - Latency telemetry is written to `recall_timings` for operations tuning.
@@ -433,6 +439,7 @@ Undo window is controlled by `BRAIN_BATCH_UNDO_WINDOW_SECONDS`.
 - Recency fallback rows use `rank_score: null`.
 - CAG short-circuit responses return `items: []` and keep the same `memory_pack_text` format.
 - `memory_pack_text` remains grouped and paste-ready.
+- Local fallback remains available for non-private-engine builds, but it only ranks the newest bounded candidate set instead of scanning the full project.
 
 ## Plan limits (phase 1)
 

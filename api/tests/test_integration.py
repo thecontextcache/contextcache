@@ -252,35 +252,86 @@ async def test_recall_returns_rank_score_for_fts_matches(
     assert items[0]["rank_score"] is not None
 
 
-async def test_recall_falls_back_when_private_engine_raises(
+async def test_recall_returns_503_when_private_engine_raises(
     client,
     db_session: AsyncSession,
     app_ctx: Ctx,
     monkeypatch,
 ) -> None:
+    from app.analyzer import algorithm as analyzer_algorithm
+
+    analyzer_algorithm.reset_private_engine_runtime_state()
+
     async def _boom(*args, **kwargs):
         raise ValueError("ambiguous vector truthiness")
 
     monkeypatch.setattr("app.analyzer.algorithm._private_run_hybrid_rag_recall", _boom)
 
+    try:
+        owner_headers = await _login_org_member(client, db_session, app_ctx, role="owner")
+        create_resp = await client.post(
+            f"/projects/{app_ctx.project_id}/memories",
+            headers=owner_headers,
+            json={"type": "finding", "content": "Configured engine failures should fail closed."},
+        )
+        assert create_resp.status_code == 201
+
+        viewer_headers = await _login_org_member(client, db_session, app_ctx, role="viewer")
+        recall = await client.get(
+            f"/projects/{app_ctx.project_id}/recall",
+            headers=viewer_headers,
+            params={"query": "engine failure", "limit": 5},
+        )
+        assert recall.status_code == 503
+        assert "temporarily unavailable" in recall.json()["detail"].lower()
+
+        admin_headers = await _login_org_member(
+            client,
+            db_session,
+            app_ctx,
+            role="owner",
+            is_admin=True,
+        )
+        status_resp = await client.get("/admin/system/engine-status", headers=admin_headers)
+        assert status_resp.status_code == 200
+        status_body = status_resp.json()
+        assert status_body["configured"] is True
+        assert status_body["mode"] == "circuit_open"
+        assert status_body["circuit_open"] is True
+        assert status_body["last_error_type"] == "ValueError"
+    finally:
+        analyzer_algorithm.reset_private_engine_runtime_state()
+
+
+async def test_local_recall_fallback_caps_candidate_set(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+    monkeypatch,
+) -> None:
+    from app.analyzer import algorithm as analyzer_algorithm
+
+    analyzer_algorithm.reset_private_engine_runtime_state()
+    monkeypatch.setattr("app.analyzer.algorithm._private_run_hybrid_rag_recall", None)
+    monkeypatch.setattr("app.analyzer.algorithm.LOCAL_RECALL_FALLBACK_MAX_MEMORIES", 5)
+
     owner_headers = await _login_org_member(client, db_session, app_ctx, role="owner")
-    create_resp = await client.post(
-        f"/projects/{app_ctx.project_id}/memories",
-        headers=owner_headers,
-        json={"type": "finding", "content": "Fallback recall should still succeed."},
-    )
-    assert create_resp.status_code == 201
+    for idx in range(8):
+        create_resp = await client.post(
+            f"/projects/{app_ctx.project_id}/memories",
+            headers=owner_headers,
+            json={"type": "finding", "content": f"Important fallback detail {idx}"},
+        )
+        assert create_resp.status_code == 201
 
     viewer_headers = await _login_org_member(client, db_session, app_ctx, role="viewer")
     recall = await client.get(
         f"/projects/{app_ctx.project_id}/recall",
         headers=viewer_headers,
-        params={"query": "fallback recall succeed", "limit": 5},
+        params={"query": "important fallback", "limit": 5},
     )
     assert recall.status_code == 200
-    body = recall.json()
-    assert recall.headers["X-ContextCache-Recall-Strategy"] in {"hybrid", "recency"}
-    assert len(body["items"]) >= 1
+    assert len(recall.json()["items"]) >= 1
 
     recall_log = (
         await db_session.execute(
@@ -291,6 +342,9 @@ async def test_recall_falls_back_when_private_engine_raises(
         )
     ).scalar_one()
     assert recall_log.score_details_json["source"] == "local-fallback"
+    assert recall_log.score_details_json["candidate_count"] == 5
+    assert recall_log.score_details_json["fallback_max_memories"] == 5
+    assert len(recall_log.input_memory_ids) == 5
 
 
 async def test_recall_uses_recency_fallback_when_no_hybrid_match(

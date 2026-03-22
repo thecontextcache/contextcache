@@ -401,6 +401,17 @@ class AdminLlmHealthOut(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class AdminEngineStatusOut(BaseModel):
+    configured: bool
+    mode: str
+    circuit_open: bool
+    circuit_open_until: datetime | None = None
+    last_error_at: datetime | None = None
+    last_error_type: str | None = None
+    cooldown_seconds: int
+    fallback_max_memories: int
+
+
 # ---------------------------------------------------------------------------
 # Admin — usage
 # ---------------------------------------------------------------------------

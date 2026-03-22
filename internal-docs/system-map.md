@@ -36,8 +36,9 @@ Practical consequence:
 2. API resolves auth + org scope
 3. Recall path uses analyzer adapters under `/Users/nd/Documents/contextcache/api/app/analyzer/`
 4. Private engine may provide advanced ranking internals
-5. If the private engine is absent or raises at runtime, local fallback logic now keeps recall working
-6. Recall metadata and timings can be written for admin/debug views
+5. If the private engine is absent, API uses bounded local fallback ranking
+6. If the private engine is configured but raises at runtime, API opens a short circuit and returns `503` instead of silently degrading into an unbounded in-process scan
+7. Recall metadata and timings can be written for admin/debug views
 
 Private-engine touchpoints:
 - `/Users/nd/Documents/contextcache/api/app/analyzer/algorithm.py`
@@ -45,7 +46,8 @@ Private-engine touchpoints:
 - `/Users/nd/Documents/contextcache/api/app/analyzer/sfc.py`
 
 Operational consequence:
-- a private-engine regression should degrade recall quality, not take the endpoint down
+- a non-private-engine build can still serve recall through bounded local fallback
+- a configured private-engine regression should now fail closed briefly instead of turning into an invisible O(project size) latency path
 
 ### 3. Ingest / refinery flow
 
@@ -65,7 +67,7 @@ Core files:
 1. Admin endpoints live mainly in `/Users/nd/Documents/contextcache/api/app/auth_routes.py`
 2. Privileged actions should write `AuditLog`
 3. Some admin actions can happen without an explicit `X-Org-Id`
-4. Audit org resolution now falls back to the actor's first membership org so rows are not silently skipped
+4. Audit org resolution now falls back to the actor's first membership org so rows are not silently skipped, even for partially provisioned target auth users
 
 Recent example:
 - `POST /admin/cag/evaporate` now writes `admin.cag.evaporate`

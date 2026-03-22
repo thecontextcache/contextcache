@@ -53,6 +53,22 @@ After a healthy deploy:
 - `beat` should log `beat: Starting...`
 - no Celery `SecurityWarning` about running as root should appear
 
+If recall starts returning `503`, check the process-local engine diagnostics:
+
+```bash
+curl -fsS -H "Cookie: <admin-session-cookie>" \
+  http://127.0.0.1:8000/admin/system/engine-status
+```
+
+Expected meanings:
+
+- `mode=private_engine`: configured private engine is active
+- `mode=local_fallback_only`: no private engine is configured, bounded local fallback is in use
+- `mode=circuit_open`: configured private engine failed recently, recall is intentionally failing closed during cooldown
+
+The diagnostic response is process-local. It is useful for debugging a live API
+container, but it is not a cluster-wide health signal.
+
 ## Database observability on server
 
 Helper script:
@@ -116,6 +132,7 @@ The failure boundary matters:
 - code bug: rollback app
 - bad env/config: fix env and restart
 - destructive migration/data corruption: restore database
+- recall `503` with `mode=circuit_open`: inspect recent API logs for private-engine failures before considering rollback
 
 Do not restore the database just because a container failed to boot.
 

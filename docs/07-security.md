@@ -105,7 +105,7 @@ Behavior:
 
 ## Auditing and usage
 
-- Writes produce `audit_logs` with actor context and key prefix where available
+- Writes produce `audit_logs` with actor context and key prefix where available; admin writes resolve org context from explicit/request org first and fall back to the actor's org if the target user has no membership yet
 - `usage_events` tracks coarse telemetry with `ip_prefix` (not raw long-term IP)
 - No third-party analytics beacons or advertising trackers are embedded in the web UI.
 

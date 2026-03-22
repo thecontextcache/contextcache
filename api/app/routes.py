@@ -19,6 +19,7 @@ from sqlalchemy.orm import aliased
 
 from .analyzer.algorithm import (
     HybridRecallConfig,
+    RecallEngineUnavailableError,
     compute_embedding,
     compute_hilbert_index,
     fetch_memories_by_ids,
@@ -2003,19 +2004,22 @@ async def _run_rag_recall_with_timing(
     try:
         loop = asyncio.get_running_loop()
         started = loop.time()
-        result = await run_hybrid_rag_recall(
-            db,
-            project_id=project_id,
-            query_text=query_text,
-            limit=limit,
-            config=HybridRecallConfig(
-                fts_weight=RECALL_WEIGHT_FTS,
-                vector_weight=RECALL_WEIGHT_VECTOR,
-                recency_weight=RECALL_WEIGHT_RECENCY,
-                vector_min_score=RECALL_VECTOR_MIN_SCORE,
-                vector_candidates=RECALL_VECTOR_CANDIDATES,
-            ),
-        )
+        try:
+            result = await run_hybrid_rag_recall(
+                db,
+                project_id=project_id,
+                query_text=query_text,
+                limit=limit,
+                config=HybridRecallConfig(
+                    fts_weight=RECALL_WEIGHT_FTS,
+                    vector_weight=RECALL_WEIGHT_VECTOR,
+                    recency_weight=RECALL_WEIGHT_RECENCY,
+                    vector_min_score=RECALL_VECTOR_MIN_SCORE,
+                    vector_candidates=RECALL_VECTOR_CANDIDATES,
+                ),
+            )
+        except RecallEngineUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         elapsed = int((loop.time() - started) * 1000)
         return result, elapsed
     finally:
