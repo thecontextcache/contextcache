@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import external_auth as external_auth_module
+from app.auth_routes import _resolve_admin_audit_org_id
 from app.auth_utils import hash_token, now_utc
 from app.models import AuditLog, AuthInvite, AuthMagicLink, AuthSession, AuthUser, Membership, User, Waitlist
 from .conftest import Ctx, auth_headers, login_via_magic_link, session_auth_headers
@@ -370,7 +372,39 @@ async def test_admin_disable_orphan_auth_user_audits_to_actor_org(
     ).scalar_one()
     assert audit_row.org_id == app_ctx.org_id
     assert audit_row.metadata_json["target_auth_user_id"] == orphan.id
-    assert audit_row.metadata_json["audit_org_resolution"] == "actor_fallback"
+    assert audit_row.metadata_json["audit_org_resolution"] == "request"
+
+
+async def test_admin_audit_org_resolution_falls_back_to_actor_for_orphan_target(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    await _login_session(
+        client,
+        db_session,
+        email=app_ctx.users["owner"],
+        is_admin=True,
+    )
+    actor_auth = (
+        await db_session.execute(
+            select(AuthUser).where(AuthUser.email == app_ctx.users["owner"]).limit(1)
+        )
+    ).scalar_one()
+
+    orphan = AuthUser(email="orphan-admin-resolution@example.com", is_admin=False)
+    db_session.add(orphan)
+    await db_session.commit()
+
+    request = SimpleNamespace(state=SimpleNamespace(auth_user_id=actor_auth.id))
+    org_id, resolution = await _resolve_admin_audit_org_id(
+        db_session,
+        request,
+        target_auth_user_id=orphan.id,
+    )
+
+    assert org_id == app_ctx.org_id
+    assert resolution == "actor_fallback"
 
 
 async def test_disabled_user_cannot_login(client, db_session: AsyncSession) -> None:
