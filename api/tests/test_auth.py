@@ -13,7 +13,7 @@ from app import rate_limit as rate_limit_module
 from app import routes as routes_module
 from app.auth_routes import _resolve_admin_audit_org_id
 from app.auth_utils import hash_token, now_utc
-from app.models import AuditLog, AuthInvite, AuthMagicLink, AuthSession, AuthUser, Membership, UsageCounter, User, Waitlist
+from app.models import AuditLog, AuthInvite, AuthMagicLink, AuthSession, AuthUser, Membership, Organization, UsageCounter, User, Waitlist
 from .conftest import Ctx, auth_headers, login_via_magic_link, session_auth_headers
 
 pytestmark = pytest.mark.asyncio
