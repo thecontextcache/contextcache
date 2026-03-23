@@ -52,6 +52,25 @@ async def _login_org_member(
     return session_auth_headers(org_id=app_ctx.org_id if org_id is None else org_id)
 
 
+async def _login_session(
+    client,
+    db_session: AsyncSession,
+    *,
+    email: str,
+    is_admin: bool = False,
+    org_id: int | None = None,
+) -> dict[str, str]:
+    await client.post("/auth/logout")
+    verify = await login_via_magic_link(
+        client,
+        db_session,
+        email=email,
+        is_admin=is_admin,
+    )
+    assert verify.status_code == 200
+    return session_auth_headers(org_id=org_id)
+
+
 async def test_health_public(client) -> None:
     response = await client.get("/health")
     assert response.status_code == 200
