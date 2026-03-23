@@ -288,11 +288,10 @@ Response:
 
 ```json
 {
+  "status": "queued",
   "capture_id": 14,
-  "queued": true,
-  "duplicate": false,
-  "worker_enabled": true,
-  "processing_status": "queued"
+  "processing_status": "queued",
+  "duplicate": false
 }
 ```
 
@@ -307,6 +306,10 @@ Idempotency rules:
 1. same org + same `Idempotency-Key` returns the existing capture
 2. duplicate replay does not create a second `raw_captures` row
 3. refinery replay deletes prior `inbox_items` for that capture before rewriting
+
+Dispatch note:
+
+- When the raw capture row is stored successfully but worker dispatch fails, the response still returns the stable `capture_id` with `status: "failed"` and `processing_status: "failed"` so the caller can inspect or replay the capture instead of losing track of it.
 
 ### `GET /ingest/raw/{capture_id}`
 
@@ -334,6 +337,9 @@ Returns capture status for extension/agent polling:
 Allowed when the capture belongs to the caller's org and is in `failed` or
 `dead_letter` state. This resets status back to `queued` or `processing`
 depending on worker mode.
+
+Replay is rejected for captures already in `queued`, `processing`, or `processed`
+state to avoid duplicate worker fan-out and conflicting inline processing.
 
 Global admin API-key view:
 - `GET /admin/api-keys` — list API keys across all orgs (`org_id` filter optional; session admin only)

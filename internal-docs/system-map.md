@@ -55,7 +55,8 @@ Operational consequence:
 2. API writes `raw_captures`
 3. If `WORKER_ENABLED=true`, Celery worker processes extraction and follow-up work
 4. If worker mode is off, parts of the pipeline run inline
-5. Downstream artifacts include inbox items, embeddings/contextualization metadata, and retry/dead-letter state
+5. Worker dispatch failures now leave the capture visibly in `failed` state instead of pretending it is queued
+6. Downstream artifacts include inbox items, embeddings/contextualization metadata, and retry/dead-letter state
 
 Core files:
 - `/Users/nd/Documents/contextcache/api/app/ingest_routes.py`

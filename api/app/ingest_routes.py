@@ -37,6 +37,7 @@ _ALLOWED_SOURCES = {"chrome_ext", "cli", "mcp", "email"}
 _WORKER_ENABLED = os.getenv("WORKER_ENABLED", "false").strip().lower() == "true"
 _API_VERSION = os.getenv("API_VERSION", "2026-03-20").strip() or "2026-03-20"
 _INGEST_DEAD_LETTER_MAX_ATTEMPTS = int(os.getenv("INGEST_DEAD_LETTER_MAX_ATTEMPTS", "4"))
+_REPLAYABLE_CAPTURE_STATUSES = {"failed", "dead_letter"}
 
 
 def _capture_payload_bytes(payload: dict) -> int:
@@ -132,6 +133,37 @@ async def _run_refinery_inline(
         inserted,
     )
     return inserted
+
+
+async def _mark_worker_dispatch_failure(
+    db: AsyncSession,
+    *,
+    ctx: RequestContext,
+    capture: RawCapture,
+    mode: str,
+    exc: Exception,
+) -> None:
+    capture.processing_status = "failed"
+    capture.processing_started_at = None
+    capture.last_error = str(exc)[:2000]
+    capture.last_error_at = datetime.now(timezone.utc)
+    capture.dead_lettered_at = None
+    logger.error(
+        "[ingest] worker dispatch failed capture_id=%s mode=%s: %s",
+        capture.id,
+        mode,
+        exc,
+    )
+    await write_audit(
+        db,
+        ctx=ctx,
+        org_id=ctx.org_id,
+        action="ingest.capture_failed",
+        entity_type="raw_capture",
+        entity_id=capture.id,
+        metadata={"mode": mode, "error": capture.last_error},
+    )
+    await db.commit()
 
 
 @ingest_router.post("/raw", response_model=RawCaptureQueuedOut, status_code=202)
@@ -256,7 +288,22 @@ async def ingest_raw(
         # Async path: commit first, then hand off to Celery.
         await db.commit()
         from .worker.tasks import _enqueue_if_enabled, process_raw_capture_task
-        _enqueue_if_enabled(process_raw_capture_task, capture_id)
+        try:
+            _enqueue_if_enabled(process_raw_capture_task, capture_id)
+        except Exception as exc:
+            await _mark_worker_dispatch_failure(
+                db,
+                ctx=ctx,
+                capture=capture,
+                mode="worker-enqueue",
+                exc=exc,
+            )
+            _set_capture_headers(response, capture_id=capture_id, processing_status=capture.processing_status)
+            return RawCaptureQueuedOut(
+                status="failed",
+                capture_id=capture_id,
+                processing_status=capture.processing_status,
+            )
         logger.info("[ingest] capture_id=%s queued for worker", capture_id)
         _set_capture_headers(response, capture_id=capture_id, processing_status="queued")
     else:
@@ -330,6 +377,8 @@ async def replay_raw_capture(
     capture = await _get_capture_for_org(db, capture_id=capture_id, org_id=ctx.org_id)
     if capture.processing_status == "processed":
         raise HTTPException(status_code=409, detail="Capture is already processed")
+    if capture.processing_status not in _REPLAYABLE_CAPTURE_STATUSES:
+        raise HTTPException(status_code=409, detail="Capture can only be replayed from failed or dead_letter state")
     if capture.attempt_count >= _INGEST_DEAD_LETTER_MAX_ATTEMPTS and _WORKER_ENABLED:
         raise HTTPException(status_code=409, detail="Capture exceeded replay attempt limit")
 
@@ -352,7 +401,23 @@ async def replay_raw_capture(
         )
         await db.commit()
         from .worker.tasks import _enqueue_if_enabled, process_raw_capture_task
-        _enqueue_if_enabled(process_raw_capture_task, capture.id)
+        try:
+            _enqueue_if_enabled(process_raw_capture_task, capture.id)
+        except Exception as exc:
+            await _mark_worker_dispatch_failure(
+                db,
+                ctx=ctx,
+                capture=capture,
+                mode="worker-replay-enqueue",
+                exc=exc,
+            )
+            _set_capture_headers(response, capture_id=capture.id, processing_status=capture.processing_status)
+            return RawCaptureQueuedOut(
+                status="failed",
+                capture_id=capture.id,
+                processing_status=capture.processing_status,
+                duplicate=False,
+            )
     else:
         capture.attempt_count = int(capture.attempt_count or 0) + 1
         try:

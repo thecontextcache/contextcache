@@ -552,6 +552,128 @@ async def test_ingest_capture_status_and_replay(client, app_ctx: Ctx, db_session
     assert "ingest.capture_replayed" in audit_actions
 
 
+@pytest.mark.parametrize("status", ["queued", "processing"])
+async def test_ingest_replay_rejects_non_terminal_capture_status(
+    client,
+    app_ctx: Ctx,
+    db_session: AsyncSession,
+    status: str,
+) -> None:
+    capture = RawCapture(
+        org_id=app_ctx.org_id,
+        project_id=app_ctx.project_id,
+        source="cli",
+        payload={"text": f"status {status}"},
+        processing_status=status,
+        processing_started_at=now_utc() if status == "processing" else None,
+    )
+    db_session.add(capture)
+    await db_session.commit()
+
+    replay = await client.post(
+        f"/ingest/raw/{capture.id}/replay",
+        headers=auth_headers(app_ctx, role="owner"),
+    )
+    assert replay.status_code == 409
+    assert "failed or dead_letter" in replay.json()["detail"]
+
+
+async def test_ingest_worker_enqueue_failure_marks_capture_failed(
+    client,
+    app_ctx: Ctx,
+    db_session: AsyncSession,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr("app.ingest_routes._WORKER_ENABLED", True)
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("broker unavailable")
+
+    monkeypatch.setattr("app.worker.tasks._enqueue_if_enabled", _boom)
+
+    create = await client.post(
+        "/ingest/raw",
+        headers=auth_headers(app_ctx, role="owner"),
+        json={
+            "project_id": app_ctx.project_id,
+            "source": "cli",
+            "payload": {"text": "queue me"},
+        },
+    )
+    assert create.status_code == 202
+    body = create.json()
+    assert body["status"] == "failed"
+    assert body["processing_status"] == "failed"
+
+    capture = (
+        await db_session.execute(select(RawCapture).where(RawCapture.id == body["capture_id"]).limit(1))
+    ).scalar_one()
+    assert capture.processing_status == "failed"
+    assert "broker unavailable" in (capture.last_error or "")
+
+    failed_audit = (
+        await db_session.execute(
+            select(AuditLog)
+            .where(AuditLog.action == "ingest.capture_failed", AuditLog.entity_id == capture.id)
+            .order_by(AuditLog.id.desc())
+            .limit(1)
+        )
+    ).scalar_one()
+    assert failed_audit.metadata_json["mode"] == "worker-enqueue"
+
+
+async def test_replay_worker_enqueue_failure_marks_capture_failed(
+    client,
+    app_ctx: Ctx,
+    db_session: AsyncSession,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr("app.ingest_routes._WORKER_ENABLED", True)
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("broker unavailable")
+
+    monkeypatch.setattr("app.worker.tasks._enqueue_if_enabled", _boom)
+
+    capture = RawCapture(
+        org_id=app_ctx.org_id,
+        project_id=app_ctx.project_id,
+        source="cli",
+        payload={"text": "retry me"},
+        processing_status="failed",
+        attempt_count=1,
+        last_error="previous error",
+        last_error_at=now_utc(),
+    )
+    db_session.add(capture)
+    await db_session.commit()
+
+    replay = await client.post(
+        f"/ingest/raw/{capture.id}/replay",
+        headers=auth_headers(app_ctx, role="owner"),
+    )
+    assert replay.status_code == 202
+    body = replay.json()
+    assert body["status"] == "failed"
+    assert body["processing_status"] == "failed"
+
+    refreshed = (
+        await db_session.execute(select(RawCapture).where(RawCapture.id == capture.id).limit(1))
+    ).scalar_one()
+    assert refreshed.processing_status == "failed"
+    assert "broker unavailable" in (refreshed.last_error or "")
+
+    failed_audit = (
+        await db_session.execute(
+            select(AuditLog)
+            .where(AuditLog.action == "ingest.capture_failed", AuditLog.entity_id == capture.id)
+            .order_by(AuditLog.id.desc())
+            .limit(1)
+        )
+    ).scalar_one()
+    assert failed_audit.metadata_json["mode"] == "worker-replay-enqueue"
+
+
 async def test_ingest_capture_org_isolation_returns_not_found(
     client,
     db_session: AsyncSession,

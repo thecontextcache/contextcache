@@ -557,7 +557,14 @@ def process_raw_capture_task(self, capture_id: int) -> dict:
     from app.models import InboxItem, RawCapture
 
     async def _process(session):
-        capture = await session.get(RawCapture, capture_id)
+        capture = (
+            await session.execute(
+                select(RawCapture)
+                .where(RawCapture.id == capture_id)
+                .with_for_update()
+                .limit(1)
+            )
+        ).scalar_one_or_none()
         if capture is None:
             logger.warning("[worker] process_raw_capture_task capture not found id=%s", capture_id)
             return {"status": "not_found", "capture_id": capture_id}
@@ -613,6 +620,7 @@ def process_raw_capture_task(self, capture_id: int) -> dict:
                 capture_id,
                 exc,
             )
+            await session.commit()
             raise self.retry(exc=exc)
 
         existing_items = (
@@ -758,19 +766,25 @@ def retry_stale_raw_captures(self, stale_minutes: int = 60) -> dict:
     logger.info("[worker] retry_stale_raw_captures started stale_minutes=%s", stale_minutes)
 
     from datetime import datetime, timedelta, timezone
-    from sqlalchemy import select
+    from sqlalchemy import func, select
     from app.models import RawCapture
 
     async def _find_stale(session):
         cutoff = datetime.now(timezone.utc) - timedelta(minutes=int(stale_minutes))
+        activity_at = func.coalesce(
+            RawCapture.processing_started_at,
+            RawCapture.last_error_at,
+            RawCapture.captured_at,
+        )
         rows = (
             await session.execute(
                 select(RawCapture.id)
                 .where(
                     RawCapture.processed_at.is_(None),
                     RawCapture.processing_status.in_(["queued", "failed"]),
-                    RawCapture.captured_at < cutoff,
+                    activity_at < cutoff,
                 )
+                .order_by(activity_at.asc(), RawCapture.id.asc())
                 .limit(100)
             )
         ).scalars().all()

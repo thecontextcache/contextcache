@@ -138,7 +138,23 @@ Current expected behavior:
 If warning returns:
 - image is stale or runtime user change was bypassed
 
-### 5. Web looks stale after deploy
+### 5. Ingest capture stays failed right after submit
+
+Symptom:
+- `POST /ingest/raw` or `POST /ingest/raw/{id}/replay` returns a capture with `processing_status=failed`
+- `last_error` mentions broker or dispatch failure
+
+Current expected behavior:
+- API persisted the capture row
+- worker dispatch failed visibly instead of pretending the capture is queued
+- caller can inspect status or replay later using the returned `capture_id`
+
+Useful checks:
+- `docker compose --env-file .env -f infra/docker-compose.prod.yml logs -n 150 api worker redis`
+- look for `worker dispatch failed` in API logs
+- confirm Redis/broker reachability before replaying a backlog of failed captures
+
+### 6. Web looks stale after deploy
 
 Symptom:
 - old redirects, old middleware behavior, or old UI
