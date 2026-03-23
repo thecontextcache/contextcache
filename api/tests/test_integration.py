@@ -126,11 +126,8 @@ async def test_session_auth_org_header_mismatch_returns_forbidden(
 
 
 async def test_invalid_session_cookie_with_org_header_returns_401(client, app_ctx: Ctx) -> None:
-    response = await client.get(
-        "/me",
-        headers={"X-Org-Id": str(app_ctx.org_id)},
-        cookies={"contextcache_session": "not-a-real-session"},
-    )
+    client.cookies.set("contextcache_session", "not-a-real-session")
+    response = await client.get("/me", headers={"X-Org-Id": str(app_ctx.org_id)})
     assert response.status_code == 401
 
 

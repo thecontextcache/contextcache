@@ -481,6 +481,53 @@ async def test_admin_disable_orphan_auth_user_audits_to_actor_org(
     assert audit_row.metadata_json["audit_org_resolution"] == "request"
 
 
+async def test_admin_disable_member_of_other_org_audits_to_target_org(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    admin_headers = await _login_session(
+        client,
+        db_session,
+        email=app_ctx.users["owner"],
+        is_admin=True,
+    )
+
+    other_org = Organization(name="Target Audit Org")
+    db_session.add(other_org)
+    await db_session.flush()
+
+    target_auth = AuthUser(email="cross-org-target@example.com", is_admin=False)
+    db_session.add(target_auth)
+    await db_session.flush()
+
+    target_user = User(
+        email="cross-org-target@example.com",
+        display_name="Cross Org Target",
+        auth_user_id=target_auth.id,
+    )
+    db_session.add(target_user)
+    await db_session.flush()
+    db_session.add(Membership(org_id=other_org.id, user_id=target_user.id, role="member"))
+    await db_session.commit()
+
+    response = await client.post(f"/admin/users/{target_auth.id}/disable", headers=admin_headers)
+    assert response.status_code == 200
+
+    audit_row = (
+        await db_session.execute(
+            select(AuditLog)
+            .where(AuditLog.action == "admin.user.disable")
+            .where(AuditLog.entity_id == target_auth.id)
+            .order_by(AuditLog.id.desc())
+            .limit(1)
+        )
+    ).scalar_one()
+    assert audit_row.org_id == other_org.id
+    assert audit_row.metadata_json["audit_org_resolution"] == "target_membership"
+    assert audit_row.metadata_json["target_auth_user_id"] == target_auth.id
+
+
 async def test_admin_audit_org_resolution_falls_back_to_actor_for_orphan_target(
     client,
     db_session: AsyncSession,

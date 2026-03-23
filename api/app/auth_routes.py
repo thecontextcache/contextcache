@@ -218,10 +218,6 @@ async def _resolve_admin_audit_org_id(
     if explicit_org_id is not None:
         return explicit_org_id, "explicit"
 
-    request_org_id = getattr(request.state, "org_id", None)
-    if request_org_id is not None:
-        return int(request_org_id), "request"
-
     actor_auth_user_id = getattr(request.state, "auth_user_id", None)
     actor_org_id = None
     if actor_auth_user_id is not None:
@@ -231,6 +227,13 @@ async def _resolve_admin_audit_org_id(
         target_org_id = await _first_membership_org_id(db, target_auth_user_id)
         if target_org_id is not None:
             return target_org_id, "target_membership"
+        request_org_id = getattr(request.state, "org_id", None)
+        if request_org_id is not None:
+            logger.warning(
+                "Target auth user has no memberships; falling back to request org for admin audit.",
+                extra={"target_auth_user_id": target_auth_user_id, "request_org_id": request_org_id},
+            )
+            return int(request_org_id), "request"
         if actor_org_id is not None:
             logger.warning(
                 "Target auth user has no memberships; falling back to actor org for admin audit.",
@@ -242,6 +245,10 @@ async def _resolve_admin_audit_org_id(
             extra={"target_auth_user_id": target_auth_user_id, "actor_auth_user_id": actor_auth_user_id},
         )
         return None, "unresolved"
+
+    request_org_id = getattr(request.state, "org_id", None)
+    if request_org_id is not None:
+        return int(request_org_id), "request"
 
     if actor_org_id is not None:
         return actor_org_id, "actor_membership"
