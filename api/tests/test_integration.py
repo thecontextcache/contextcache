@@ -692,6 +692,53 @@ async def test_contextualize_endpoint_returns_queued(
     assert response.json()["status"] == "queued"
 
 
+async def test_contextualize_worker_is_idempotent_for_existing_context(
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+    monkeypatch,
+) -> None:
+    from app.worker.tasks import contextualize_memory_with_ollama
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return b'{"response":"Fresh context"}'
+
+    calls: list[str] = []
+
+    def _fake_urlopen(req, timeout=20):
+        calls.append(req.full_url)
+        return _FakeResponse()
+
+    monkeypatch.setattr("app.worker.tasks.WORKER_ENABLED", True)
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+
+    memory = Memory(
+        project_id=app_ctx.project_id,
+        type="note",
+        source="manual",
+        content="Context me once",
+        metadata_json={},
+    )
+    db_session.add(memory)
+    await db_session.commit()
+
+    first = contextualize_memory_with_ollama.run(memory.id)
+    assert first["status"] == "ok"
+
+    second = contextualize_memory_with_ollama.run(memory.id)
+    assert second["status"] == "already_contextualized"
+    assert calls == ["http://ollama:11434/api/generate"]
+
+    await db_session.refresh(memory)
+    assert memory.metadata_json["ollama_context"]["response"] == "Fresh context"
+
+
 async def test_integrations_list_returns_uploaded_memory(
     client,
     db_session: AsyncSession,

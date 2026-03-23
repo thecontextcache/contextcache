@@ -440,9 +440,30 @@ def contextualize_memory_with_ollama(self, memory_id: int) -> dict:
     from app.models import Memory, MemoryEmbedding
 
     async def _contextualize(session):
-        memory = await session.get(Memory, memory_id)
+        memory = (
+            await session.execute(
+                select(Memory).where(Memory.id == memory_id).with_for_update().limit(1)
+            )
+        ).scalar_one_or_none()
         if memory is None:
             return {"status": "not_found", "memory_id": memory_id}
+        emb_row = (
+            await session.execute(select(MemoryEmbedding).where(MemoryEmbedding.memory_id == memory_id).limit(1))
+        ).scalar_one_or_none()
+        mem_meta = dict(memory.metadata_json or {})
+        existing_context = mem_meta.get("ollama_context")
+        if (
+            isinstance(existing_context, dict)
+            and existing_context.get("model") == model
+            and str(existing_context.get("response") or "").strip()
+        ):
+            if emb_row is not None:
+                emb_meta = dict(emb_row.metadata_json or {})
+                emb_meta["contextualized"] = True
+                emb_meta["context_model"] = model
+                emb_row.metadata_json = emb_meta
+                emb_row.updated_at = datetime.now(timezone.utc)
+            return {"status": "already_contextualized", "memory_id": memory_id}
         prompt = (
             "Summarize this memory in one concise sentence and suggest up to 3 tags as JSON "
             '{"summary":"...","tags":["..."]}.\n\n'
@@ -461,13 +482,9 @@ def contextualize_memory_with_ollama(self, memory_id: int) -> dict:
         except Exception as exc:
             return {"status": "failed", "memory_id": memory_id, "detail": str(exc)}
 
-        mem_meta = dict(memory.metadata_json or {})
         mem_meta["ollama_context"] = {"model": model, "response": raw_response}
         memory.metadata_json = mem_meta
 
-        emb_row = (
-            await session.execute(select(MemoryEmbedding).where(MemoryEmbedding.memory_id == memory_id).limit(1))
-        ).scalar_one_or_none()
         if emb_row is not None:
             emb_meta = dict(emb_row.metadata_json or {})
             emb_meta["contextualized"] = True
