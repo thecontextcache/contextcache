@@ -657,11 +657,9 @@ async def test_replay_worker_enqueue_failure_marks_capture_failed(
     assert body["status"] == "failed"
     assert body["processing_status"] == "failed"
 
-    refreshed = (
-        await db_session.execute(select(RawCapture).where(RawCapture.id == capture.id).limit(1))
-    ).scalar_one()
-    assert refreshed.processing_status == "failed"
-    assert "broker unavailable" in (refreshed.last_error or "")
+    await db_session.refresh(capture)
+    assert capture.processing_status == "failed"
+    assert "broker unavailable" in (capture.last_error or "")
 
     failed_audit = (
         await db_session.execute(
