@@ -728,10 +728,10 @@ async def test_contextualize_worker_is_idempotent_for_existing_context(
     db_session.add(memory)
     await db_session.commit()
 
-    first = contextualize_memory_with_ollama.run(memory.id)
+    first = await asyncio.to_thread(contextualize_memory_with_ollama.run, memory.id)
     assert first["status"] == "ok"
 
-    second = contextualize_memory_with_ollama.run(memory.id)
+    second = await asyncio.to_thread(contextualize_memory_with_ollama.run, memory.id)
     assert second["status"] == "already_contextualized"
     assert calls == ["http://ollama:11434/api/generate"]
 
