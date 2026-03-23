@@ -214,6 +214,7 @@ Response for `GET /me/usage`:
 ```
 
 Daily + weekly limits are configured via environment variables (`DAILY_MAX_*`, `WEEKLY_MAX_*`). Set to `0` to disable. Users with `is_unlimited=true` bypass all limits regardless of global values.
+`GET /me/usage` returns effective limits for the current user, so unlimited users see `0` for all limit fields.
 
 ## Core org/project endpoints
 
@@ -452,6 +453,7 @@ Undo window is controlled by `BRAIN_BATCH_UNDO_WINDOW_SECONDS`.
 - User plan limits are enforced for organization creation.
 - Org plan limits are enforced for active API key creation.
 - Global session admins (`auth_users.is_admin=true`) bypass plan limits.
+- Admin plan changes take effect immediately for the next guarded create action.
 - Plan data is stored in:
   - `plan_catalog`
   - `user_subscriptions`

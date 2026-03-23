@@ -12,7 +12,20 @@ from app.analyzer.algorithm import build_vector_candidate_stmt
 from app.auth_utils import hash_token, now_utc
 from app.db import hash_api_key
 from app.ingestion.pipeline import IngestionConfig, ingest_path_incremental
-from app.models import ApiKey, AuditLog, AuthMagicLink, Membership, Memory, Organization, Project, RawCapture, RecallLog, User
+from app.models import (
+    ApiKey,
+    AuditLog,
+    AuthMagicLink,
+    AuthUser,
+    Membership,
+    Memory,
+    Organization,
+    Project,
+    RawCapture,
+    RecallLog,
+    UsageCounter,
+    User,
+)
 from app.seed import seed
 from .conftest import Ctx, auth_headers, login_via_magic_link, session_auth_headers
 
@@ -448,6 +461,150 @@ async def test_usage_includes_weekly_fields(client, db_session: AsyncSession, ap
     assert "weekly_memories_created" in body
     assert "weekly_recall_queries" in body
     assert "weekly_projects_created" in body
+
+
+async def test_usage_weekly_totals_are_derived_from_db_counters(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    owner_headers = await _login_org_member(client, db_session, app_ctx, role="owner")
+    owner_auth = (
+        await db_session.execute(
+            select(AuthUser).where(AuthUser.email == app_ctx.users["owner"]).limit(1)
+        )
+    ).scalar_one()
+
+    today = now_utc().date()
+    db_session.add_all(
+        [
+            UsageCounter(
+                user_id=owner_auth.id,
+                day=today,
+                memories_created=2,
+                recall_queries=1,
+                projects_created=1,
+            ),
+            UsageCounter(
+                user_id=owner_auth.id,
+                day=today - timedelta(days=1),
+                memories_created=3,
+                recall_queries=4,
+                projects_created=0,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    response = await client.get("/me/usage", headers=owner_headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["weekly_memories_created"] == 5
+    assert body["weekly_recall_queries"] == 5
+    assert body["weekly_projects_created"] == 1
+
+
+async def test_usage_limits_are_zeroed_for_unlimited_user(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    owner_headers = await _login_org_member(client, db_session, app_ctx, role="owner")
+    owner_auth = (
+        await db_session.execute(
+            select(AuthUser).where(AuthUser.email == app_ctx.users["owner"]).limit(1)
+        )
+    ).scalar_one()
+    owner_auth.is_unlimited = True
+    await db_session.commit()
+
+    response = await client.get("/me/usage", headers=owner_headers)
+    assert response.status_code == 200
+    assert response.json()["limits"] == {
+        "memories_per_day": 0,
+        "recalls_per_day": 0,
+        "projects_per_day": 0,
+        "memories_per_week": 0,
+        "recalls_per_week": 0,
+        "projects_per_week": 0,
+    }
+
+
+async def test_user_plan_change_applies_to_next_org_creation(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    admin_headers = await _login_org_member(client, db_session, app_ctx, role="owner", is_admin=True)
+    owner_auth = (
+        await db_session.execute(
+            select(AuthUser).where(AuthUser.email == app_ctx.users["owner"]).limit(1)
+        )
+    ).scalar_one()
+
+    upgrade = await client.post(
+        f"/admin/users/{owner_auth.id}/set-plan?plan_code=pro",
+        headers=admin_headers,
+    )
+    assert upgrade.status_code == 200
+
+    for idx in range(3):
+        create = await client.post(
+            "/orgs",
+            headers=admin_headers,
+            json={"name": f"Plan Org {idx}"},
+        )
+        assert create.status_code == 201
+
+    downgrade = await client.post(
+        f"/admin/users/{owner_auth.id}/set-plan?plan_code=free",
+        headers=admin_headers,
+    )
+    assert downgrade.status_code == 200
+
+    blocked = await client.post(
+        "/orgs",
+        headers=admin_headers,
+        json={"name": "Plan Org blocked"},
+    )
+    assert blocked.status_code == 403
+    assert "max 3 organizations" in blocked.json()["detail"]
+
+
+async def test_org_plan_change_applies_to_next_api_key_creation(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    admin_headers = await _login_org_member(client, db_session, app_ctx, role="owner", is_admin=True)
+
+    upgrade = await client.post(
+        f"/admin/orgs/{app_ctx.org_id}/set-plan?plan_code=team",
+        headers=admin_headers,
+    )
+    assert upgrade.status_code == 200
+
+    for idx in range(3):
+        create = await client.post(
+            f"/orgs/{app_ctx.org_id}/api-keys",
+            headers=admin_headers,
+            json={"name": f"extra-key-{idx}"},
+        )
+        assert create.status_code == 201
+
+    downgrade = await client.post(
+        f"/admin/orgs/{app_ctx.org_id}/set-plan?plan_code=free",
+        headers=admin_headers,
+    )
+    assert downgrade.status_code == 200
+
+    blocked = await client.post(
+        f"/orgs/{app_ctx.org_id}/api-keys",
+        headers=admin_headers,
+        json={"name": "blocked-key"},
+    )
+    assert blocked.status_code == 403
+    assert "max 3 active API keys" in blocked.json()["detail"]
 
 
 async def test_contextualize_endpoint_returns_queued(

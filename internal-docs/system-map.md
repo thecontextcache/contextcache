@@ -92,8 +92,11 @@ Used for:
 
 If Redis is unhealthy:
 - worker/beat will degrade or stop
-- rate limiting may fall back depending on code path
+- prod auth/write rate-limited routes may return `503`
 - recall p95 cache refresh becomes stale, but recall still has static-delay fallback
+
+Weekly user usage limits and `/me/usage` counters are derived from PostgreSQL
+`usage_counters`, not Redis.
 
 ## Build Modes
 

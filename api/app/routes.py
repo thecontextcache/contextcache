@@ -55,8 +55,6 @@ from .rate_limit import (
     check_recall_limits,
     check_write_limits,
     get_cached_hedge_p95_ms,
-    get_counter,
-    incr_counter,
 )
 from .schemas import (
     ApiKeyCreate,
@@ -389,14 +387,6 @@ def _weekly_anchor(today: _today_date) -> _today_date:
     return today - timedelta(days=today.weekday())
 
 
-def _redis_usage_key(auth_user_id: int, field: str, period: str, anchor: _today_date) -> str:
-    return f"usage:{period}:{anchor.isoformat()}:user:{auth_user_id}:{field}"
-
-
-def _period_ttl_seconds(period: str) -> int:
-    return 86400 * (8 if period == "week" else 2)
-
-
 def _period_limit_for_field(field: str, period: str) -> int:
     if period == "week":
         if field == "memories_created":
@@ -415,38 +405,71 @@ def _period_limit_for_field(field: str, period: str) -> int:
     return 0
 
 
+async def _get_usage_total(
+    db: AsyncSession,
+    auth_user_id: int,
+    field: str,
+    *,
+    start_day: _today_date,
+    end_day: _today_date,
+) -> int:
+    column = UsageCounter.__table__.c[field]
+    total = (
+        await db.execute(
+            select(func.coalesce(func.sum(column), 0)).where(
+                UsageCounter.user_id == auth_user_id,
+                UsageCounter.day >= start_day,
+                UsageCounter.day <= end_day,
+            )
+        )
+    ).scalar_one()
+    return int(total or 0)
+
+
+async def _get_auth_user_for_limits(db: AsyncSession, auth_user_id: int) -> AuthUser | None:
+    return (
+        await db.execute(select(AuthUser).where(AuthUser.id == auth_user_id).limit(1))
+    ).scalar_one_or_none()
+
+
+def _effective_usage_limit(limit: int, *, is_unlimited: bool) -> int:
+    return 0 if is_unlimited else limit
+
+
 async def _check_daily_limit(db: AsyncSession, auth_user_id: int | None, field: str, limit: int) -> None:
     """Raise HTTP 429 if the user has hit their daily limit for *field*.
 
     Skips the check when:
     - auth_user_id is None (API-key-only calls, no auth user)
-    - limit <= 0 (disabled globally)
     - auth_user.is_unlimited is True (per-user bypass)
     """
-    if auth_user_id is None or limit <= 0:
+    if auth_user_id is None:
         return
     # Per-user bypass check (one extra query, fine at alpha scale)
-    au = (await db.execute(select(AuthUser).where(AuthUser.id == auth_user_id).limit(1))).scalar_one_or_none()
+    au = await _get_auth_user_for_limits(db, auth_user_id)
     if au is not None and au.is_unlimited:
         return
-    counter = await _get_usage_counter(db, auth_user_id)
-    if counter is not None:
-        current = getattr(counter, field, 0) or 0
-        if current >= limit:
+    today = _today_date.today()
+    if limit > 0:
+        current_day = await _get_usage_total(db, auth_user_id, field, start_day=today, end_day=today)
+        if current_day >= limit:
             raise HTTPException(
                 status_code=429,
                 detail=f"Daily limit reached ({limit}). Resets at midnight UTC.",
             )
-    # Redis-backed distributed counters (day + week).
-    today = _today_date.today()
-    for period, anchor in (("day", today), ("week", _weekly_anchor(today))):
-        period_limit = _period_limit_for_field(field, period)
-        if period_limit <= 0:
-            continue
-        current = get_counter(_redis_usage_key(auth_user_id, field, period, anchor))
-        if current >= period_limit:
-            period_label = "Daily" if period == "day" else "Weekly"
-            raise HTTPException(status_code=429, detail=f"{period_label} limit reached ({period_limit}).")
+
+    week_limit = _period_limit_for_field(field, "week")
+    if week_limit > 0:
+        week_start = _weekly_anchor(today)
+        current_week = await _get_usage_total(
+            db,
+            auth_user_id,
+            field,
+            start_day=week_start,
+            end_day=today,
+        )
+        if current_week >= week_limit:
+            raise HTTPException(status_code=429, detail=f"Weekly limit reached ({week_limit}).")
 
 
 async def _increment_daily_counter(db: AsyncSession, auth_user_id: int | None, field: str) -> None:
@@ -469,16 +492,23 @@ async def _increment_daily_counter(db: AsyncSession, auth_user_id: int | None, f
         )
     )
     await db.execute(stmt)
+    day_limit = _period_limit_for_field(field, "day")
+    if day_limit > 0:
+        current_day = await _get_usage_total(db, auth_user_id, field, start_day=today, end_day=today)
+        if current_day > day_limit:
+            raise HTTPException(status_code=429, detail=f"Daily limit reached ({day_limit}).")
 
-    today = _today_date.today()
-    for period, anchor in (("day", today), ("week", _weekly_anchor(today))):
-        period_limit = _period_limit_for_field(field, period)
-        if period_limit <= 0:
-            continue
-        count = incr_counter(_redis_usage_key(auth_user_id, field, period, anchor), _period_ttl_seconds(period))
-        if count > period_limit:
-            period_label = "Daily" if period == "day" else "Weekly"
-            raise HTTPException(status_code=429, detail=f"{period_label} limit reached ({period_limit}).")
+    week_limit = _period_limit_for_field(field, "week")
+    if week_limit > 0:
+        current_week = await _get_usage_total(
+            db,
+            auth_user_id,
+            field,
+            start_day=_weekly_anchor(today),
+            end_day=today,
+        )
+        if current_week > week_limit:
+            raise HTTPException(status_code=429, detail=f"Weekly limit reached ({week_limit}).")
 
 
 async def _increment_usage_period(db: AsyncSession, auth_user_id: int | None, field: str, amount: int = 1) -> None:
@@ -608,26 +638,48 @@ async def get_my_usage(
     auth_user_id: int | None = getattr(request.state, "auth_user_id", None)
     if auth_user_id is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
+    auth_user = await _get_auth_user_for_limits(db, auth_user_id)
+    if auth_user is None:
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
     counter = await _get_usage_counter(db, auth_user_id)
     today = _today_date.today()
     week_anchor = _weekly_anchor(today)
+    is_unlimited = bool(auth_user.is_unlimited)
     return UsageOut(
         day=today.isoformat(),
         memories_created=counter.memories_created if counter else 0,
         recall_queries=counter.recall_queries if counter else 0,
         projects_created=counter.projects_created if counter else 0,
         week_start=week_anchor.isoformat(),
-        weekly_memories_created=get_counter(_redis_usage_key(auth_user_id, "memories_created", "week", week_anchor)),
-        weekly_recall_queries=get_counter(_redis_usage_key(auth_user_id, "recall_queries", "week", week_anchor)),
-        weekly_projects_created=get_counter(_redis_usage_key(auth_user_id, "projects_created", "week", week_anchor)),
+        weekly_memories_created=await _get_usage_total(
+            db,
+            auth_user_id,
+            "memories_created",
+            start_day=week_anchor,
+            end_day=today,
+        ),
+        weekly_recall_queries=await _get_usage_total(
+            db,
+            auth_user_id,
+            "recall_queries",
+            start_day=week_anchor,
+            end_day=today,
+        ),
+        weekly_projects_created=await _get_usage_total(
+            db,
+            auth_user_id,
+            "projects_created",
+            start_day=week_anchor,
+            end_day=today,
+        ),
         limits=UsageLimitsOut(
-            memories_per_day=DAILY_MEMORY_LIMIT,
-            recalls_per_day=DAILY_RECALL_LIMIT,
-            projects_per_day=DAILY_PROJECT_LIMIT,
-            memories_per_week=WEEKLY_MEMORY_LIMIT,
-            recalls_per_week=WEEKLY_RECALL_LIMIT,
-            projects_per_week=WEEKLY_PROJECT_LIMIT,
+            memories_per_day=_effective_usage_limit(DAILY_MEMORY_LIMIT, is_unlimited=is_unlimited),
+            recalls_per_day=_effective_usage_limit(DAILY_RECALL_LIMIT, is_unlimited=is_unlimited),
+            projects_per_day=_effective_usage_limit(DAILY_PROJECT_LIMIT, is_unlimited=is_unlimited),
+            memories_per_week=_effective_usage_limit(WEEKLY_MEMORY_LIMIT, is_unlimited=is_unlimited),
+            recalls_per_week=_effective_usage_limit(WEEKLY_RECALL_LIMIT, is_unlimited=is_unlimited),
+            projects_per_week=_effective_usage_limit(WEEKLY_PROJECT_LIMIT, is_unlimited=is_unlimited),
         ),
     )
 

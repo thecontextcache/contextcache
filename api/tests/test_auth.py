@@ -4,14 +4,16 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import external_auth as external_auth_module
 from app import rate_limit as rate_limit_module
+from app import routes as routes_module
 from app.auth_routes import _resolve_admin_audit_org_id
 from app.auth_utils import hash_token, now_utc
-from app.models import AuditLog, AuthInvite, AuthMagicLink, AuthSession, AuthUser, Membership, User, Waitlist
+from app.models import AuditLog, AuthInvite, AuthMagicLink, AuthSession, AuthUser, Membership, UsageCounter, User, Waitlist
 from .conftest import Ctx, auth_headers, login_via_magic_link, session_auth_headers
 
 pytestmark = pytest.mark.asyncio
@@ -304,6 +306,40 @@ async def test_write_limit_in_memory_fallback_uses_minute_window(monkeypatch) ->
     allowed, detail = rate_limit_module.check_write_limits("127.0.0.1", "")
     assert allowed is True
     assert detail is None
+
+
+async def test_weekly_limit_still_enforced_when_daily_limit_disabled(
+    db_session: AsyncSession,
+    monkeypatch,
+) -> None:
+    auth_user = AuthUser(email="weekly-only@example.com", is_admin=False)
+    db_session.add(auth_user)
+    await db_session.flush()
+
+    db_session.add(
+        UsageCounter(
+            user_id=auth_user.id,
+            day=now_utc().date(),
+            memories_created=5,
+            recall_queries=0,
+            projects_created=0,
+        )
+    )
+    await db_session.commit()
+
+    monkeypatch.setattr(routes_module, "DAILY_MEMORY_LIMIT", 0)
+    monkeypatch.setattr(routes_module, "WEEKLY_MEMORY_LIMIT", 5)
+
+    with pytest.raises(HTTPException) as excinfo:
+        await routes_module._check_daily_limit(
+            db_session,
+            auth_user.id,
+            "memories_created",
+            routes_module.DAILY_MEMORY_LIMIT,
+        )
+
+    assert excinfo.value.status_code == 429
+    assert "Weekly limit reached" in str(excinfo.value.detail)
 
 
 async def test_admin_invite_endpoints_require_admin(client, db_session: AsyncSession) -> None:

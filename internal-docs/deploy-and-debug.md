@@ -74,6 +74,7 @@ Healthy signs:
 - worker shows `celery@... ready.`
 - beat shows `beat: Starting...`
 - no Celery `SecurityWarning` about superuser/root
+- `/me/usage` weekly totals match the DB-backed `usage_counters` rows for the current week
 
 ## Failure Patterns
 
@@ -137,6 +138,19 @@ Current expected behavior:
 
 If warning returns:
 - image is stale or runtime user change was bypassed
+
+### 5. Usage or plan enforcement looks inconsistent
+
+Symptoms:
+- `/me/usage` weekly totals look wrong after a restart
+- unlimited users still appear capped in the UI
+- a just-changed user/org plan does not affect the next org or API-key create
+
+Current expected behavior:
+- daily and weekly usage enforcement are derived from PostgreSQL `usage_counters`
+- `/me/usage` shows effective limits, so unlimited users see zeroed limit fields
+- user plan changes affect the next org creation check
+- org plan changes affect the next active API key creation check
 
 ### 5. Ingest capture stays failed right after submit
 
