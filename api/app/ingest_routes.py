@@ -192,7 +192,8 @@ async def ingest_raw(
     account_key = str(ctx.org_id or "")
     allowed, rl_detail = check_ingest_limits(client_ip, account_key)
     if not allowed:
-        raise HTTPException(status_code=429, detail=rl_detail)
+        code = 503 if rl_detail and rl_detail.startswith("Service unavailable") else 429
+        raise HTTPException(status_code=code, detail=rl_detail)
 
     if ctx.org_id is None:
         raise HTTPException(status_code=400, detail="X-Org-Id required")

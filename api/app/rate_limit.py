@@ -45,11 +45,13 @@ def _get_redis_client():
 
 
 def _allow_redis(key: str, limit: int, ttl_seconds: int) -> bool:
+    if limit <= 0:
+        return True
     client = _get_redis_client()
     if client is None:
         if APP_ENV == "prod":
             return False
-        return _allow(key, limit)
+        return _allow(key, limit, ttl_seconds)
     try:
         count = int(client.incr(key))
         if count == 1:
@@ -58,7 +60,7 @@ def _allow_redis(key: str, limit: int, ttl_seconds: int) -> bool:
     except Exception:
         if APP_ENV == "prod":
             return False
-        return _allow(key, limit)
+        return _allow(key, limit, ttl_seconds)
 
 
 def get_counter(key: str) -> int:
@@ -111,13 +113,15 @@ def set_cached_hedge_p95_ms(org_id: int, delay_ms: int, ttl_seconds: int | None 
         return False
 
 
-def _window_start() -> datetime:
-    return datetime.now(timezone.utc) - timedelta(hours=1)
+def _backend_unavailable_for_active_limits(*limits: int) -> bool:
+    return APP_ENV == "prod" and any(limit > 0 for limit in limits) and _get_redis_client() is None
 
 
-def _allow(key: str, limit: int) -> bool:
+def _allow(key: str, limit: int, ttl_seconds: int) -> bool:
+    if limit <= 0:
+        return True
     now = datetime.now(timezone.utc)
-    window = _window_start()
+    window = now - timedelta(seconds=ttl_seconds)
     q = _REQUESTS[key]
     while q and q[0] < window:
         q.popleft()
@@ -128,35 +132,62 @@ def _allow(key: str, limit: int) -> bool:
 
 
 def check_request_link_limits(ip: str, email: str) -> tuple[bool, str | None]:
-    if APP_ENV == "prod" and _get_redis_client() is None:
+    if _backend_unavailable_for_active_limits(
+        AUTH_RATE_LIMIT_PER_IP_PER_HOUR,
+        AUTH_RATE_LIMIT_PER_EMAIL_PER_HOUR,
+    ):
         return False, "Service unavailable. Rate limiter backend is unavailable."
-    if not _allow_redis(f"rl:ip:{ip}", AUTH_RATE_LIMIT_PER_IP_PER_HOUR, 3600):
+    if AUTH_RATE_LIMIT_PER_IP_PER_HOUR > 0 and not _allow_redis(f"rl:ip:{ip}", AUTH_RATE_LIMIT_PER_IP_PER_HOUR, 3600):
         return False, "Too many login requests from this IP. Please try again later."
-    if not _allow_redis(f"rl:email:{email}", AUTH_RATE_LIMIT_PER_EMAIL_PER_HOUR, 3600):
+    if AUTH_RATE_LIMIT_PER_EMAIL_PER_HOUR > 0 and not _allow_redis(
+        f"rl:email:{email}",
+        AUTH_RATE_LIMIT_PER_EMAIL_PER_HOUR,
+        3600,
+    ):
         return False, "Too many login requests for this email. Please try again later."
     return True, None
 
 
 def check_verify_limits(ip: str) -> tuple[bool, str | None]:
-    if APP_ENV == "prod" and _get_redis_client() is None:
+    if _backend_unavailable_for_active_limits(AUTH_VERIFY_RATE_LIMIT_PER_IP_PER_HOUR):
         return False, "Service unavailable. Rate limiter backend is unavailable."
-    if not _allow_redis(f"verify:ip:{ip}", AUTH_VERIFY_RATE_LIMIT_PER_IP_PER_HOUR, 3600):
+    if AUTH_VERIFY_RATE_LIMIT_PER_IP_PER_HOUR > 0 and not _allow_redis(
+        f"verify:ip:{ip}",
+        AUTH_VERIFY_RATE_LIMIT_PER_IP_PER_HOUR,
+        3600,
+    ):
         return False, "Too many verification attempts. Please try again later."
     return True, None
 
 
 def check_recall_limits(ip: str, account_key: str) -> tuple[bool, str | None]:
-    if APP_ENV == "prod" and _get_redis_client() is None:
+    if _backend_unavailable_for_active_limits(
+        RECALL_RATE_LIMIT_PER_IP_PER_HOUR,
+        RECALL_RATE_LIMIT_PER_ACCOUNT_PER_HOUR,
+    ):
         return False, "Service unavailable. Rate limiter backend is unavailable."
-    if not _allow_redis(f"recall:ip:{ip}", RECALL_RATE_LIMIT_PER_IP_PER_HOUR, 3600):
+    if RECALL_RATE_LIMIT_PER_IP_PER_HOUR > 0 and not _allow_redis(
+        f"recall:ip:{ip}",
+        RECALL_RATE_LIMIT_PER_IP_PER_HOUR,
+        3600,
+    ):
         return False, "Too many recall requests from this IP. Please try again later."
-    if account_key and not _allow_redis(f"recall:acct:{account_key}", RECALL_RATE_LIMIT_PER_ACCOUNT_PER_HOUR, 3600):
+    if account_key and RECALL_RATE_LIMIT_PER_ACCOUNT_PER_HOUR > 0 and not _allow_redis(
+        f"recall:acct:{account_key}",
+        RECALL_RATE_LIMIT_PER_ACCOUNT_PER_HOUR,
+        3600,
+    ):
         return False, "Too many recall requests for this account. Please try again later."
     return True, None
 
 
 def check_write_limits(ip: str, account_key: str) -> tuple[bool, str | None]:
     """Burst rate limit for general write endpoints (projects, memories, orgs)."""
+    if _backend_unavailable_for_active_limits(
+        WRITE_RATE_LIMIT_PER_IP_PER_MINUTE,
+        WRITE_RATE_LIMIT_PER_ACCOUNT_PER_MINUTE,
+    ):
+        return False, "Service unavailable. Rate limiter backend is unavailable."
     if WRITE_RATE_LIMIT_PER_IP_PER_MINUTE > 0:
         if not _allow_redis(f"write:ip:{ip}", WRITE_RATE_LIMIT_PER_IP_PER_MINUTE, 60):
             return False, "Too many write requests from this IP. Please slow down."
@@ -168,6 +199,11 @@ def check_write_limits(ip: str, account_key: str) -> tuple[bool, str | None]:
 
 def check_ingest_limits(ip: str, account_key: str) -> tuple[bool, str | None]:
     """Burst rate limit for the /ingest/raw endpoint (higher volume, stricter limit)."""
+    if _backend_unavailable_for_active_limits(
+        INGEST_RATE_LIMIT_PER_IP_PER_MINUTE,
+        INGEST_RATE_LIMIT_PER_ACCOUNT_PER_MINUTE,
+    ):
+        return False, "Service unavailable. Rate limiter backend is unavailable."
     if INGEST_RATE_LIMIT_PER_IP_PER_MINUTE > 0:
         if not _allow_redis(f"ingest:ip:{ip}", INGEST_RATE_LIMIT_PER_IP_PER_MINUTE, 60):
             return False, "Too many ingest requests from this IP. Please slow down."

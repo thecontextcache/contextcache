@@ -93,6 +93,55 @@ async def test_session_auth_org_header_mismatch_returns_forbidden(
     assert response.status_code == 403
 
 
+async def test_invalid_session_cookie_with_org_header_returns_401(client, app_ctx: Ctx) -> None:
+    response = await client.get(
+        "/me",
+        headers={"X-Org-Id": str(app_ctx.org_id)},
+        cookies={"contextcache_session": "not-a-real-session"},
+    )
+    assert response.status_code == 401
+
+
+async def test_create_org_returns_503_when_write_limiter_backend_unavailable(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+    monkeypatch,
+) -> None:
+    headers = await _login_org_member(client, db_session, app_ctx, role="owner")
+    monkeypatch.setattr(
+        "app.routes.check_write_limits",
+        lambda *_args, **_kwargs: (False, "Service unavailable. Rate limiter backend is unavailable."),
+    )
+
+    response = await client.post("/orgs", headers=headers, json={"name": "Blocked Org"})
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Service unavailable. Rate limiter backend is unavailable."
+
+
+async def test_ingest_returns_503_when_limiter_backend_unavailable(
+    client,
+    app_ctx: Ctx,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.ingest_routes.check_ingest_limits",
+        lambda *_args, **_kwargs: (False, "Service unavailable. Rate limiter backend is unavailable."),
+    )
+
+    response = await client.post(
+        "/ingest/raw",
+        headers=auth_headers(app_ctx, role="owner"),
+        json={
+            "project_id": app_ctx.project_id,
+            "source": "cli",
+            "payload": {"text": "backend unavailable"},
+        },
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Service unavailable. Rate limiter backend is unavailable."
+
+
 async def test_me_orgs_lists_all_memberships_for_session_user(
     client,
     db_session: AsyncSession,

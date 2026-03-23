@@ -239,7 +239,7 @@ async def _resolve_session_auth(
     session_token: str,
     header_org_id: int | None,
     session,
-) -> _AuthContext | None:
+) -> _AuthContext | JSONResponse | None:
     """
     Validate a browser session cookie and return an auth context.
     Returns None if the session is invalid/expired.
@@ -275,7 +275,7 @@ async def _resolve_session_auth(
         resolved_user_id = domain_user.id
         membership_ctx = await _resolve_membership_context(domain_user.id, header_org_id, session)
         if membership_ctx is None:
-            return None
+            return JSONResponse(status_code=403, content={"detail": "Forbidden"})
         resolved_org_id, resolved_role = membership_ctx
 
     await session.commit()
@@ -585,12 +585,11 @@ async def api_key_middleware(request: Request, call_next):
         session_token = request.cookies.get(SESSION_COOKIE_NAME, "").strip()
         if session_token:
             ctx = await _resolve_session_auth(session_token, header_org_id, session)
+            if isinstance(ctx, JSONResponse):
+                return ctx
             if ctx is not None:
                 _apply_auth_context(request, ctx)
                 return await call_next(request)
-            elif header_org_id is not None:
-                # Session was valid but org header didn't match any membership
-                return JSONResponse(status_code=403, content={"detail": "Forbidden"})
 
         # ── 2. External bearer-token auth (future auth service) ───────────
         if authorization_header and external_auth.external_auth_enabled():

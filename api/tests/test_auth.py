@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import external_auth as external_auth_module
+from app import rate_limit as rate_limit_module
 from app.auth_routes import _resolve_admin_audit_org_id
 from app.auth_utils import hash_token, now_utc
 from app.models import AuditLog, AuthInvite, AuthMagicLink, AuthSession, AuthUser, Membership, User, Waitlist
@@ -234,6 +235,75 @@ async def test_rate_limit_triggers(client, db_session: AsyncSession) -> None:
         statuses.append(response.status_code)
 
     assert statuses[-1] == 429
+
+
+async def test_request_link_limits_allow_zero_to_disable(monkeypatch) -> None:
+    monkeypatch.setattr(rate_limit_module, "APP_ENV", "test")
+    monkeypatch.setattr(rate_limit_module, "_REDIS_CLIENT", None)
+    monkeypatch.setattr(rate_limit_module, "AUTH_RATE_LIMIT_PER_IP_PER_HOUR", 0)
+    monkeypatch.setattr(rate_limit_module, "AUTH_RATE_LIMIT_PER_EMAIL_PER_HOUR", 0)
+    rate_limit_module._REQUESTS.clear()
+
+    for _ in range(6):
+        allowed, detail = rate_limit_module.check_request_link_limits("127.0.0.1", "zero-limit@example.com")
+        assert allowed is True
+        assert detail is None
+
+
+async def test_verify_limits_allow_zero_to_disable(monkeypatch) -> None:
+    monkeypatch.setattr(rate_limit_module, "APP_ENV", "test")
+    monkeypatch.setattr(rate_limit_module, "_REDIS_CLIENT", None)
+    monkeypatch.setattr(rate_limit_module, "AUTH_VERIFY_RATE_LIMIT_PER_IP_PER_HOUR", 0)
+    rate_limit_module._REQUESTS.clear()
+
+    for _ in range(6):
+        allowed, detail = rate_limit_module.check_verify_limits("127.0.0.1")
+        assert allowed is True
+        assert detail is None
+
+
+async def test_recall_limits_allow_zero_to_disable(monkeypatch) -> None:
+    monkeypatch.setattr(rate_limit_module, "APP_ENV", "test")
+    monkeypatch.setattr(rate_limit_module, "_REDIS_CLIENT", None)
+    monkeypatch.setattr(rate_limit_module, "RECALL_RATE_LIMIT_PER_IP_PER_HOUR", 0)
+    monkeypatch.setattr(rate_limit_module, "RECALL_RATE_LIMIT_PER_ACCOUNT_PER_HOUR", 0)
+    rate_limit_module._REQUESTS.clear()
+
+    for _ in range(6):
+        allowed, detail = rate_limit_module.check_recall_limits("127.0.0.1", "acct-zero")
+        assert allowed is True
+        assert detail is None
+
+
+async def test_write_limits_return_503_when_backend_missing_in_prod(monkeypatch) -> None:
+    monkeypatch.setattr(rate_limit_module, "APP_ENV", "prod")
+    monkeypatch.setattr(rate_limit_module, "_REDIS_CLIENT", None)
+    monkeypatch.setattr(rate_limit_module, "_get_redis_client", lambda: None)
+    monkeypatch.setattr(rate_limit_module, "WRITE_RATE_LIMIT_PER_IP_PER_MINUTE", 1)
+    monkeypatch.setattr(rate_limit_module, "WRITE_RATE_LIMIT_PER_ACCOUNT_PER_MINUTE", 1)
+
+    allowed, detail = rate_limit_module.check_write_limits("127.0.0.1", "acct-1")
+    assert allowed is False
+    assert detail == "Service unavailable. Rate limiter backend is unavailable."
+
+
+async def test_write_limit_in_memory_fallback_uses_minute_window(monkeypatch) -> None:
+    monkeypatch.setattr(rate_limit_module, "APP_ENV", "test")
+    monkeypatch.setattr(rate_limit_module, "_REDIS_CLIENT", None)
+    monkeypatch.setattr(rate_limit_module, "_get_redis_client", lambda: None)
+    monkeypatch.setattr(rate_limit_module, "WRITE_RATE_LIMIT_PER_IP_PER_MINUTE", 1)
+    monkeypatch.setattr(rate_limit_module, "WRITE_RATE_LIMIT_PER_ACCOUNT_PER_MINUTE", 0)
+    rate_limit_module._REQUESTS.clear()
+
+    allowed, detail = rate_limit_module.check_write_limits("127.0.0.1", "")
+    assert allowed is True
+    assert detail is None
+
+    rate_limit_module._REQUESTS["write:ip:127.0.0.1"][0] = datetime.now(timezone.utc) - timedelta(seconds=61)
+
+    allowed, detail = rate_limit_module.check_write_limits("127.0.0.1", "")
+    assert allowed is True
+    assert detail is None
 
 
 async def test_admin_invite_endpoints_require_admin(client, db_session: AsyncSession) -> None:

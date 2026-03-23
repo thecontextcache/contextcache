@@ -659,7 +659,8 @@ async def create_org(
     account_key = str(ctx.org_id or ctx.actor_user_id or "")
     allowed, detail = check_write_limits(client_ip, account_key)
     if not allowed:
-        raise HTTPException(status_code=429, detail=detail)
+        code = 503 if detail and detail.startswith("Service unavailable") else 429
+        raise HTTPException(status_code=code, detail=detail)
     # Any authenticated user can create their own org; they become owner.
     if ctx.actor_user_id is None and not ctx.bootstrap_mode:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -1446,7 +1447,8 @@ async def create_project(
     account_key = str(ctx.org_id or "")
     allowed, detail = check_write_limits(client_ip, account_key)
     if not allowed:
-        raise HTTPException(status_code=429, detail=detail)
+        code = 503 if detail and detail.startswith("Service unavailable") else 429
+        raise HTTPException(status_code=code, detail=detail)
     return await create_org_project(org_id=ctx.org_id, payload=payload, request=request, db=db, ctx=ctx)
 
 
@@ -2054,7 +2056,8 @@ async def create_memory(
     account_key = str(ctx.org_id or "")
     allowed, detail = check_write_limits(client_ip, account_key)
     if not allowed:
-        raise HTTPException(status_code=429, detail=detail)
+        code = 503 if detail and detail.startswith("Service unavailable") else 429
+        raise HTTPException(status_code=code, detail=detail)
     project = await get_project_or_404(db, project_id, ctx)
 
     auth_user_id: int | None = getattr(request.state, "auth_user_id", None)
