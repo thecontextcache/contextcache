@@ -476,24 +476,37 @@ async def test_usage_weekly_totals_are_derived_from_db_counters(
     ).scalar_one()
 
     today = now_utc().date()
-    db_session.add_all(
-        [
+    week_start = today - timedelta(days=today.weekday())
+    db_session.add(
+        UsageCounter(
+            user_id=owner_auth.id,
+            day=today,
+            memories_created=2,
+            recall_queries=1,
+            projects_created=1,
+        )
+    )
+    if week_start != today:
+        db_session.add(
             UsageCounter(
                 user_id=owner_auth.id,
-                day=today,
-                memories_created=2,
-                recall_queries=1,
-                projects_created=1,
-            ),
-            UsageCounter(
-                user_id=owner_auth.id,
-                day=today - timedelta(days=1),
+                day=week_start,
                 memories_created=3,
                 recall_queries=4,
                 projects_created=0,
-            ),
-        ]
-    )
+            )
+        )
+    else:
+        current = (
+            await db_session.execute(
+                select(UsageCounter)
+                .where(UsageCounter.user_id == owner_auth.id, UsageCounter.day == today)
+                .limit(1)
+            )
+        ).scalar_one()
+        current.memories_created = 5
+        current.recall_queries = 5
+        current.projects_created = 1
     await db_session.commit()
 
     response = await client.get("/me/usage", headers=owner_headers)
@@ -535,12 +548,18 @@ async def test_user_plan_change_applies_to_next_org_creation(
     db_session: AsyncSession,
     app_ctx: Ctx,
 ) -> None:
-    admin_headers = await _login_org_member(client, db_session, app_ctx, role="owner", is_admin=True)
+    owner_headers = await _login_org_member(client, db_session, app_ctx, role="owner")
     owner_auth = (
         await db_session.execute(
             select(AuthUser).where(AuthUser.email == app_ctx.users["owner"]).limit(1)
         )
     ).scalar_one()
+    admin_headers = await _login_session(
+        client,
+        db_session,
+        email="plan-admin@example.com",
+        is_admin=True,
+    )
 
     upgrade = await client.post(
         f"/admin/users/{owner_auth.id}/set-plan?plan_code=pro",
@@ -548,13 +567,22 @@ async def test_user_plan_change_applies_to_next_org_creation(
     )
     assert upgrade.status_code == 200
 
+    owner_headers = await _login_org_member(client, db_session, app_ctx, role="owner")
+
     for idx in range(3):
         create = await client.post(
             "/orgs",
-            headers=admin_headers,
+            headers=owner_headers,
             json={"name": f"Plan Org {idx}"},
         )
         assert create.status_code == 201
+
+    admin_headers = await _login_session(
+        client,
+        db_session,
+        email="plan-admin@example.com",
+        is_admin=True,
+    )
 
     downgrade = await client.post(
         f"/admin/users/{owner_auth.id}/set-plan?plan_code=free",
@@ -562,9 +590,11 @@ async def test_user_plan_change_applies_to_next_org_creation(
     )
     assert downgrade.status_code == 200
 
+    owner_headers = await _login_org_member(client, db_session, app_ctx, role="owner")
+
     blocked = await client.post(
         "/orgs",
-        headers=admin_headers,
+        headers=owner_headers,
         json={"name": "Plan Org blocked"},
     )
     assert blocked.status_code == 403
@@ -576,7 +606,12 @@ async def test_org_plan_change_applies_to_next_api_key_creation(
     db_session: AsyncSession,
     app_ctx: Ctx,
 ) -> None:
-    admin_headers = await _login_org_member(client, db_session, app_ctx, role="owner", is_admin=True)
+    admin_headers = await _login_session(
+        client,
+        db_session,
+        email="plan-admin@example.com",
+        is_admin=True,
+    )
 
     upgrade = await client.post(
         f"/admin/orgs/{app_ctx.org_id}/set-plan?plan_code=team",
@@ -584,13 +619,22 @@ async def test_org_plan_change_applies_to_next_api_key_creation(
     )
     assert upgrade.status_code == 200
 
+    owner_headers = await _login_org_member(client, db_session, app_ctx, role="owner")
+
     for idx in range(3):
         create = await client.post(
             f"/orgs/{app_ctx.org_id}/api-keys",
-            headers=admin_headers,
+            headers=owner_headers,
             json={"name": f"extra-key-{idx}"},
         )
         assert create.status_code == 201
+
+    admin_headers = await _login_session(
+        client,
+        db_session,
+        email="plan-admin@example.com",
+        is_admin=True,
+    )
 
     downgrade = await client.post(
         f"/admin/orgs/{app_ctx.org_id}/set-plan?plan_code=free",
@@ -598,9 +642,11 @@ async def test_org_plan_change_applies_to_next_api_key_creation(
     )
     assert downgrade.status_code == 200
 
+    owner_headers = await _login_org_member(client, db_session, app_ctx, role="owner")
+
     blocked = await client.post(
         f"/orgs/{app_ctx.org_id}/api-keys",
-        headers=admin_headers,
+        headers=owner_headers,
         json={"name": "blocked-key"},
     )
     assert blocked.status_code == 403
