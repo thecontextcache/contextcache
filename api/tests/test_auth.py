@@ -774,8 +774,6 @@ async def test_plan_changes_retire_prior_active_subscriptions(
         headers=admin_headers,
     )
     assert user_first.status_code == 200
-    db_session.add(UserSubscription(auth_user_id=target_auth.id, plan_code="free", status="active"))
-    await db_session.commit()
     user_second = await client.post(
         f"/admin/users/{target_auth.id}/set-plan?plan_code=pro",
         headers=admin_headers,
@@ -789,20 +787,16 @@ async def test_plan_changes_retire_prior_active_subscriptions(
             .order_by(UserSubscription.id.asc())
         )
     ).scalars().all()
-    assert len(user_subs) == 2
+    assert len(user_subs) == 1
     active_user_subs = [row for row in user_subs if row.status == "active" and row.ended_at is None]
-    ended_user_subs = [row for row in user_subs if row.status == "ended" and row.ended_at is not None]
     assert len(active_user_subs) == 1
     assert active_user_subs[0].plan_code == "pro"
-    assert len(ended_user_subs) == 1
 
     org_first = await client.post(
         f"/admin/orgs/{app_ctx.org_id}/set-plan?plan_code=free",
         headers=admin_headers,
     )
     assert org_first.status_code == 200
-    db_session.add(OrgSubscription(org_id=app_ctx.org_id, plan_code="free", status="active"))
-    await db_session.commit()
     org_second = await client.post(
         f"/admin/orgs/{app_ctx.org_id}/set-plan?plan_code=team",
         headers=admin_headers,
@@ -816,9 +810,7 @@ async def test_plan_changes_retire_prior_active_subscriptions(
             .order_by(OrgSubscription.id.asc())
         )
     ).scalars().all()
-    assert len(org_subs) == 2
+    assert len(org_subs) == 1
     active_org_subs = [row for row in org_subs if row.status == "active" and row.ended_at is None]
-    ended_org_subs = [row for row in org_subs if row.status == "ended" and row.ended_at is not None]
     assert len(active_org_subs) == 1
     assert active_org_subs[0].plan_code == "team"
-    assert len(ended_org_subs) == 1

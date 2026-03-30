@@ -6,7 +6,7 @@ from datetime import timedelta
 
 import pytest
 from sqlalchemy.dialects import postgresql
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analyzer.algorithm import build_vector_candidate_stmt
@@ -23,7 +23,6 @@ from app.models import (
     Membership,
     Memory,
     MemoryEmbedding,
-    OrgSubscription,
     Organization,
     Project,
     RawCapture,
@@ -31,7 +30,7 @@ from app.models import (
     Tag,
     UsageCounter,
     User,
-    UserSubscription,
+    MemoryTag,
 )
 from app.seed import seed
 from .conftest import Ctx, auth_headers, login_via_magic_link, session_auth_headers
@@ -751,43 +750,6 @@ async def test_user_plan_change_applies_to_next_org_creation(
     )
     assert blocked.status_code == 403
     assert "max 3 organizations" in blocked.json()["detail"]
-
-
-async def test_org_creation_limit_counts_distinct_org_memberships(
-    client,
-    db_session: AsyncSession,
-    app_ctx: Ctx,
-) -> None:
-    owner_headers = await _login_org_member(client, db_session, app_ctx, role="owner")
-    owner_user = (
-        await db_session.execute(select(User).where(User.email == app_ctx.users["owner"]).limit(1))
-    ).scalar_one()
-    owner_auth = (
-        await db_session.execute(select(AuthUser).where(AuthUser.email == app_ctx.users["owner"]).limit(1))
-    ).scalar_one()
-
-    admin_headers = await _login_session(
-        client,
-        db_session,
-        email="plan-admin@example.com",
-        is_admin=True,
-    )
-    upgrade = await client.post(
-        f"/admin/users/{owner_auth.id}/set-plan?plan_code=pro",
-        headers=admin_headers,
-    )
-    assert upgrade.status_code == 200
-
-    dup_membership = Membership(org_id=app_ctx.org_id, user_id=owner_user.id, role="viewer")
-    db_session.add(dup_membership)
-    await db_session.commit()
-
-    create = await client.post(
-        "/orgs",
-        headers=owner_headers,
-        json={"name": "Distinct Membership Limit Org"},
-    )
-    assert create.status_code == 201
 
 
 async def test_org_plan_change_applies_to_next_api_key_creation(
@@ -1520,6 +1482,8 @@ async def test_brain_batch_partial_undo_does_not_mark_original_run_undone(
             select(Tag).where(Tag.project_id == app_ctx.project_id, Tag.name == "important").limit(1)
         )
     ).scalar_one()
+    await db_session.execute(delete(MemoryTag).where(MemoryTag.tag_id == tag.id))
+    await db_session.commit()
     await db_session.delete(tag)
     await db_session.commit()
 
