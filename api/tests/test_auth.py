@@ -26,6 +26,16 @@ def patch_email_sender(monkeypatch):
     monkeypatch.setattr("app.auth_routes.send_waitlist_rejection_email", lambda email: (True, "logged"))
 
 
+@pytest.fixture(autouse=True)
+def isolate_rate_limiter(monkeypatch):
+    monkeypatch.setattr(rate_limit_module, "APP_ENV", "test")
+    monkeypatch.setattr(rate_limit_module, "_REDIS_CLIENT", None)
+    monkeypatch.setattr(rate_limit_module, "_get_redis_client", lambda: None)
+    rate_limit_module._REQUESTS.clear()
+    yield
+    rate_limit_module._REQUESTS.clear()
+
+
 async def _login_session(
     client,
     db_session: AsyncSession,
