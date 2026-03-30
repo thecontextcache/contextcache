@@ -565,10 +565,12 @@ async def test_cleanup_old_usage_counters_rejects_non_positive_retention(
     db_session: AsyncSession,
     app_ctx: Ctx,
     monkeypatch,
+    client,
 ) -> None:
     from app.worker.tasks import cleanup_old_usage_counters
 
     monkeypatch.setattr("app.worker.tasks.WORKER_ENABLED", True)
+    await _login_org_member(client, db_session, app_ctx, role="owner")
 
     owner_auth = (
         await db_session.execute(

@@ -2301,6 +2301,7 @@ async def update_memory(
     ctx: RequestContext = Depends(get_actor_context),
 ) -> MemoryOut:
     from app.worker.tasks import compute_memory_embedding, _enqueue_if_enabled
+    from app.models import MemoryEmbedding
 
     require_role(ctx, "member")
     project = await get_project_or_404(db, project_id, ctx)
