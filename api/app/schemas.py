@@ -364,6 +364,55 @@ class AdminRecallLogOut(BaseModel):
     created_at: datetime
 
 
+class AdminCaptureFailureOut(BaseModel):
+    id: int
+    project_id: int | None = None
+    processing_status: str
+    attempt_count: int
+    last_error: str | None = None
+    last_error_at: datetime | None = None
+    dead_lettered_at: datetime | None = None
+
+
+class AdminOpsSummaryOut(BaseModel):
+    worker_enabled: bool
+    stale_minutes: int
+    queued_count: int
+    processing_count: int
+    failed_count: int
+    dead_letter_count: int
+    stale_capture_count: int
+    recent_capture_failures: list[AdminCaptureFailureOut] = Field(default_factory=list)
+
+
+class AdminRecallEvalOut(BaseModel):
+    lookback_days: int
+    total_queries: int
+    empty_query_count: int
+    no_result_count: int
+    strategy_counts: Dict[str, int] = Field(default_factory=dict)
+    served_by_counts: Dict[str, int] = Field(default_factory=dict)
+    source_counts: Dict[str, int] = Field(default_factory=dict)
+    avg_ranked_results: float | None = None
+    avg_total_duration_ms: float | None = None
+    avg_cag_duration_ms: float | None = None
+    avg_rag_duration_ms: float | None = None
+    max_total_duration_ms: int | None = None
+
+
+class AdminSecurityPostureOut(BaseModel):
+    app_env: str
+    is_prod: bool
+    worker_enabled: bool
+    session_cookie_secure: bool
+    magic_link_log_fallback_enabled: bool
+    integration_signing_secret_configured: bool
+    integration_signature_mode: str
+    integration_signature_max_age_seconds: int
+    private_engine_configured: bool
+    notes: list[str] = Field(default_factory=list)
+
+
 class CagCacheEntryOut(BaseModel):
     source: str
     hit_count: int

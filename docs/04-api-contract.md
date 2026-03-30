@@ -167,10 +167,13 @@ Response for `GET /admin/users/{id}/stats`:
 | `GET`  | `/admin/usage` | Usage summary across all users |
 | `POST` | `/admin/orgs/{org_id}/set-plan?plan_code=free\|pro\|team\|super` | Set org subscription plan |
 | `GET`  | `/admin/recall/logs` | Last recall decision logs (`limit`, `offset`, `project_id`) |
+| `GET`  | `/admin/recall/eval` | Aggregated recall quality + latency summary (`lookback_days`, `project_id`) |
+| `GET`  | `/admin/ops/summary` | Raw-capture backlog / stale / failure summary (`stale_minutes`, `recent_limit`) |
 | `GET`  | `/admin/cag/cache-stats` | CAG cache metrics (status, size, hit rate, capacity) |
 | `POST` | `/admin/cag/evaporate` | Trigger immediate cache maintenance pass |
 | `GET`  | `/admin/system/llm-health` | LLM extraction readiness (worker flag, Gemini key presence, SDK install status, model) |
 | `GET`  | `/admin/system/engine-status` | Process-local recall-engine diagnostics (configured mode, circuit state, last private-engine error, bounded fallback settings) |
+| `GET`  | `/admin/security/posture` | Runtime security posture summary for signing, cookies, worker, and private-engine config |
 | `GET`  | `/me/usage` | Current user's today usage + configured limits |
 
 Example `GET /admin/recall/logs` item:
@@ -479,7 +482,10 @@ It is functionally equivalent to `POST /projects/{project_id}/memories` and keep
 
 Optional signing header for inbound integrations:
 - `X-Integration-Signature: sha256=<hex-hmac>`
-- HMAC is computed over raw request body with `INTEGRATION_SIGNING_SECRET`.
+- Legacy mode: HMAC is computed over raw request body with `INTEGRATION_SIGNING_SECRET`.
+- Timestamped mode: send `X-Integration-Timestamp: <unix-seconds>` and compute HMAC over `<timestamp>.<raw-request-body>`.
+- Timestamped signatures are rejected when older than `INTEGRATION_SIGNATURE_MAX_AGE_SECONDS` or too far ahead of server time.
+- Set `INTEGRATION_ALLOW_LEGACY_SIGNATURE=false` to require timestamped signatures and enable replay protection.
 - If `INTEGRATION_SIGNING_SECRET` is unset, signature checking is skipped.
 
 `GET /integrations/memories` returns recent ingested memories:

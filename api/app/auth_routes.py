@@ -33,7 +33,9 @@ from .models import (
     AuthUser,
     Membership,
     Organization,
+    RawCapture,
     RecallLog,
+    RecallTiming,
     PlanCatalog,
     UserSubscription,
     OrgSubscription,
@@ -48,7 +50,11 @@ from .schemas import (
     AdminInviteOut,
     CagCacheStatsOut,
     AdminEngineStatusOut,
+    AdminOpsSummaryOut,
+    AdminCaptureFailureOut,
     AdminRecallLogOut,
+    AdminRecallEvalOut,
+    AdminSecurityPostureOut,
     AdminUsageOut,
     AdminUserOut,
     AdminUserStatsOut,
@@ -1206,6 +1212,171 @@ async def admin_recall_logs(
     ]
 
 
+@router.get("/admin/ops/summary", response_model=AdminOpsSummaryOut)
+async def admin_ops_summary(
+    request: Request,
+    stale_minutes: int = Query(default=60, ge=1, le=24 * 60),
+    recent_limit: int = Query(default=10, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+) -> AdminOpsSummaryOut:
+    _require_admin_auth(request)
+    org_id = getattr(request.state, "org_id", None)
+    if org_id is None:
+        raise HTTPException(status_code=400, detail="X-Org-Id required")
+
+    cutoff = now_utc() - timedelta(minutes=stale_minutes)
+    activity_at = func.coalesce(
+        RawCapture.processing_started_at,
+        RawCapture.last_error_at,
+        RawCapture.captured_at,
+    )
+
+    async def _count(status: str) -> int:
+        return int(
+            (
+                await db.execute(
+                    select(func.count(RawCapture.id)).where(
+                        RawCapture.org_id == org_id,
+                        RawCapture.processed_at.is_(None),
+                        RawCapture.processing_status == status,
+                    )
+                )
+            ).scalar_one()
+            or 0
+        )
+
+    queued_count, processing_count, failed_count, dead_letter_count = (
+        await _count("queued"),
+        await _count("processing"),
+        await _count("failed"),
+        await _count("dead_letter"),
+    )
+    stale_capture_count = int(
+        (
+            await db.execute(
+                select(func.count(RawCapture.id)).where(
+                    RawCapture.org_id == org_id,
+                    RawCapture.processed_at.is_(None),
+                    RawCapture.processing_status.in_(["queued", "processing", "failed"]),
+                    activity_at < cutoff,
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+    recent_rows = (
+        await db.execute(
+            select(RawCapture)
+            .where(
+                RawCapture.org_id == org_id,
+                RawCapture.processed_at.is_(None),
+                RawCapture.processing_status.in_(["failed", "dead_letter"]),
+            )
+            .order_by(
+                func.coalesce(
+                    RawCapture.dead_lettered_at,
+                    RawCapture.last_error_at,
+                    RawCapture.captured_at,
+                ).desc(),
+                RawCapture.id.desc(),
+            )
+            .limit(recent_limit)
+        )
+    ).scalars().all()
+    worker_enabled = os.getenv("WORKER_ENABLED", "false").strip().lower() == "true"
+    return AdminOpsSummaryOut(
+        worker_enabled=worker_enabled,
+        stale_minutes=stale_minutes,
+        queued_count=queued_count,
+        processing_count=processing_count,
+        failed_count=failed_count,
+        dead_letter_count=dead_letter_count,
+        stale_capture_count=stale_capture_count,
+        recent_capture_failures=[
+            AdminCaptureFailureOut(
+                id=row.id,
+                project_id=row.project_id,
+                processing_status=row.processing_status,
+                attempt_count=row.attempt_count,
+                last_error=row.last_error,
+                last_error_at=row.last_error_at,
+                dead_lettered_at=row.dead_lettered_at,
+            )
+            for row in recent_rows
+        ],
+    )
+
+
+@router.get("/admin/recall/eval", response_model=AdminRecallEvalOut)
+async def admin_recall_eval(
+    request: Request,
+    lookback_days: int = Query(default=7, ge=1, le=90),
+    project_id: int | None = Query(default=None, ge=1),
+    db: AsyncSession = Depends(get_db),
+) -> AdminRecallEvalOut:
+    _require_admin_auth(request)
+    org_id = getattr(request.state, "org_id", None)
+    if org_id is None:
+        raise HTTPException(status_code=400, detail="X-Org-Id required")
+
+    cutoff = now_utc() - timedelta(days=lookback_days)
+    log_stmt = select(RecallLog).where(RecallLog.org_id == org_id, RecallLog.created_at >= cutoff)
+    timing_stmt = select(RecallTiming).where(RecallTiming.org_id == org_id, RecallTiming.created_at >= cutoff)
+    if project_id is not None:
+        log_stmt = log_stmt.where(RecallLog.project_id == project_id)
+        timing_stmt = timing_stmt.where(RecallTiming.project_id == project_id)
+
+    logs = (await db.execute(log_stmt.order_by(RecallLog.created_at.desc(), RecallLog.id.desc()))).scalars().all()
+    timings = (
+        await db.execute(timing_stmt.order_by(RecallTiming.created_at.desc(), RecallTiming.id.desc()))
+    ).scalars().all()
+
+    strategy_counts: dict[str, int] = {}
+    source_counts: dict[str, int] = {}
+    empty_query_count = 0
+    no_result_count = 0
+    ranked_result_total = 0
+
+    for row in logs:
+        strategy_counts[row.strategy] = strategy_counts.get(row.strategy, 0) + 1
+        if not row.query_text.strip():
+            empty_query_count += 1
+        ranked_ids = list(row.ranked_memory_ids or [])
+        ranked_result_total += len(ranked_ids)
+        if row.query_text.strip() and row.strategy != "cag" and not ranked_ids:
+            no_result_count += 1
+        source = (row.score_details_json or {}).get("source")
+        if isinstance(source, str) and source.strip():
+            source_counts[source] = source_counts.get(source, 0) + 1
+
+    served_by_counts: dict[str, int] = {}
+    total_durations = [int(row.total_duration_ms) for row in timings]
+    cag_durations = [int(row.cag_duration_ms) for row in timings if row.cag_duration_ms is not None]
+    rag_durations = [int(row.rag_duration_ms) for row in timings if row.rag_duration_ms is not None]
+    for row in timings:
+        served_by_counts[row.served_by] = served_by_counts.get(row.served_by, 0) + 1
+
+    def _avg(values: list[int]) -> float | None:
+        if not values:
+            return None
+        return round(sum(values) / len(values), 2)
+
+    return AdminRecallEvalOut(
+        lookback_days=lookback_days,
+        total_queries=len(logs),
+        empty_query_count=empty_query_count,
+        no_result_count=no_result_count,
+        strategy_counts=strategy_counts,
+        served_by_counts=served_by_counts,
+        source_counts=source_counts,
+        avg_ranked_results=round(ranked_result_total / len(logs), 2) if logs else None,
+        avg_total_duration_ms=_avg(total_durations),
+        avg_cag_duration_ms=_avg(cag_durations),
+        avg_rag_duration_ms=_avg(rag_durations),
+        max_total_duration_ms=max(total_durations) if total_durations else None,
+    )
+
+
 @router.get("/admin/cag/cache-stats", response_model=CagCacheStatsOut)
 async def admin_cag_cache_stats(request: Request) -> CagCacheStatsOut:
     _require_admin_auth(request)
@@ -1280,6 +1451,47 @@ async def admin_llm_health(request: Request) -> AdminLlmHealthOut:
 async def admin_engine_status(request: Request) -> AdminEngineStatusOut:
     _require_admin_auth(request)
     return AdminEngineStatusOut(**get_private_engine_runtime_state())
+
+
+@router.get("/admin/security/posture", response_model=AdminSecurityPostureOut)
+async def admin_security_posture(request: Request) -> AdminSecurityPostureOut:
+    _require_admin_auth(request)
+    integration_secret_configured = bool(os.getenv("INTEGRATION_SIGNING_SECRET", "").strip())
+    allow_legacy_signature = os.getenv("INTEGRATION_ALLOW_LEGACY_SIGNATURE", "true").strip().lower() == "true"
+    signature_max_age_seconds = int(os.getenv("INTEGRATION_SIGNATURE_MAX_AGE_SECONDS", "300"))
+    worker_enabled = os.getenv("WORKER_ENABLED", "false").strip().lower() == "true"
+    private_engine = get_private_engine_runtime_state()
+    if not integration_secret_configured:
+        signature_mode = "disabled"
+    elif allow_legacy_signature:
+        signature_mode = "optional_timestamp"
+    else:
+        signature_mode = "strict_timestamp"
+
+    notes: list[str] = []
+    if MAGIC_LINK_ALLOW_LOG_FALLBACK:
+        notes.append("Magic-link log fallback is enabled.")
+    if signature_mode == "disabled":
+        notes.append("Integration signing secret is not configured.")
+    elif signature_mode == "optional_timestamp":
+        notes.append("Timestamped signatures are supported, but legacy body-only signatures are still accepted.")
+    else:
+        notes.append("Integration signatures require a fresh timestamp header.")
+    if not private_engine.get("configured", False):
+        notes.append("Private engine package is not configured; protected extraction paths will fail closed.")
+
+    return AdminSecurityPostureOut(
+        app_env=APP_ENV,
+        is_prod=IS_PROD,
+        worker_enabled=worker_enabled,
+        session_cookie_secure=IS_PROD,
+        magic_link_log_fallback_enabled=MAGIC_LINK_ALLOW_LOG_FALLBACK,
+        integration_signing_secret_configured=integration_secret_configured,
+        integration_signature_mode=signature_mode,
+        integration_signature_max_age_seconds=signature_max_age_seconds,
+        private_engine_configured=bool(private_engine.get("configured", False)),
+        notes=notes,
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
+import json
 import uuid
 from datetime import timedelta
 
@@ -1637,6 +1640,169 @@ async def test_admin_recall_logs_returns_recent_entries(
     assert len(logs) >= 1
     assert logs[0]["project_id"] == app_ctx.project_id
     assert logs[0]["strategy"] in {"hybrid", "recency", "cag"}
+
+
+async def test_admin_ops_summary_reports_capture_backlog_and_failures(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    admin_headers = await _login_org_member(
+        client,
+        db_session,
+        app_ctx,
+        role="owner",
+        is_admin=True,
+    )
+    stale_time = now_utc() - timedelta(hours=2)
+    queued = RawCapture(
+        org_id=app_ctx.org_id,
+        project_id=app_ctx.project_id,
+        source="cli",
+        payload={"text": "queued"},
+        processing_status="queued",
+        captured_at=stale_time,
+    )
+    failed = RawCapture(
+        org_id=app_ctx.org_id,
+        project_id=app_ctx.project_id,
+        source="cli",
+        payload={"text": "failed"},
+        processing_status="failed",
+        attempt_count=2,
+        last_error="boom",
+        last_error_at=stale_time,
+    )
+    dead = RawCapture(
+        org_id=app_ctx.org_id,
+        project_id=app_ctx.project_id,
+        source="cli",
+        payload={"text": "dead"},
+        processing_status="dead_letter",
+        attempt_count=3,
+        last_error="still broken",
+        last_error_at=stale_time,
+        dead_lettered_at=stale_time,
+    )
+    db_session.add_all([queued, failed, dead])
+    await db_session.commit()
+
+    response = await client.get(
+        "/admin/ops/summary",
+        headers=admin_headers,
+        params={"stale_minutes": 60, "recent_limit": 10},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["queued_count"] >= 1
+    assert body["failed_count"] >= 1
+    assert body["dead_letter_count"] >= 1
+    assert body["stale_capture_count"] >= 2
+    assert any(row["id"] == dead.id for row in body["recent_capture_failures"])
+
+
+async def test_admin_recall_eval_aggregates_recent_quality_metrics(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    admin_headers = await _login_org_member(
+        client,
+        db_session,
+        app_ctx,
+        role="owner",
+        is_admin=True,
+    )
+    create_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=admin_headers,
+        json={"type": "decision", "content": "Recall evaluation target memory"},
+    )
+    assert create_resp.status_code == 201
+
+    query_resp = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=admin_headers,
+        params={"query": "evaluation target", "limit": 5},
+    )
+    assert query_resp.status_code == 200
+    empty_resp = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=admin_headers,
+        params={"query": "", "limit": 5},
+    )
+    assert empty_resp.status_code == 200
+
+    response = await client.get(
+        "/admin/recall/eval",
+        headers=admin_headers,
+        params={"lookback_days": 7, "project_id": app_ctx.project_id},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total_queries"] >= 2
+    assert body["empty_query_count"] >= 1
+    assert body["avg_total_duration_ms"] is not None
+    assert body["max_total_duration_ms"] is not None
+    assert body["served_by_counts"]
+    assert body["strategy_counts"]
+
+
+async def test_integration_signature_rejects_stale_timestamp_when_legacy_disabled(
+    client,
+    app_ctx: Ctx,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("INTEGRATION_SIGNING_SECRET", "super-secret")
+    monkeypatch.setenv("INTEGRATION_ALLOW_LEGACY_SIGNATURE", "false")
+    payload = {
+        "project_id": app_ctx.project_id,
+        "type": "note",
+        "source": "api",
+        "content": "signed integration capture",
+        "metadata": {},
+        "tags": [],
+    }
+    body = json.dumps(payload).encode("utf-8")
+    stale_timestamp = str(int((now_utc() - timedelta(minutes=10)).timestamp()))
+    digest = hmac.new(
+        b"super-secret",
+        stale_timestamp.encode("utf-8") + b"." + body,
+        hashlib.sha256,
+    ).hexdigest()
+    headers = auth_headers(app_ctx, role="owner")
+    headers["Content-Type"] = "application/json"
+    headers["X-Integration-Timestamp"] = stale_timestamp
+    headers["X-Integration-Signature"] = f"sha256={digest}"
+
+    response = await client.post("/integrations/memories", headers=headers, content=body)
+    assert response.status_code == 401
+    assert "stale" in response.json()["detail"].lower()
+
+
+async def test_admin_security_posture_reports_strict_timestamp_mode(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("INTEGRATION_SIGNING_SECRET", "super-secret")
+    monkeypatch.setenv("INTEGRATION_ALLOW_LEGACY_SIGNATURE", "false")
+    monkeypatch.setenv("INTEGRATION_SIGNATURE_MAX_AGE_SECONDS", "120")
+    admin_headers = await _login_org_member(
+        client,
+        db_session,
+        app_ctx,
+        role="owner",
+        is_admin=True,
+    )
+
+    response = await client.get("/admin/security/posture", headers=admin_headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["integration_signing_secret_configured"] is True
+    assert body["integration_signature_mode"] == "strict_timestamp"
+    assert body["integration_signature_max_age_seconds"] == 120
 
 
 async def test_admin_api_keys_requires_global_admin_session(

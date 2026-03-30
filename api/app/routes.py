@@ -1976,6 +1976,27 @@ def _check_integration_signature(request: Request, body_bytes: bytes) -> None:
     if not provided:
         raise HTTPException(status_code=401, detail="Missing integration signature")
     provided_hash = provided.split("=", 1)[1] if provided.startswith("sha256=") else provided
+    timestamp_raw = request.headers.get("x-integration-timestamp", "").strip()
+    allow_legacy_signature = os.getenv("INTEGRATION_ALLOW_LEGACY_SIGNATURE", "true").strip().lower() == "true"
+    if timestamp_raw:
+        try:
+            timestamp_value = int(timestamp_raw)
+        except ValueError as exc:
+            raise HTTPException(status_code=401, detail="Invalid integration timestamp") from exc
+        now_ts = int(datetime.now(timezone.utc).timestamp())
+        max_age_seconds = int(os.getenv("INTEGRATION_SIGNATURE_MAX_AGE_SECONDS", "300"))
+        max_future_skew_seconds = int(os.getenv("INTEGRATION_SIGNATURE_MAX_FUTURE_SKEW_SECONDS", "30"))
+        if timestamp_value < now_ts - max_age_seconds:
+            raise HTTPException(status_code=401, detail="Stale integration signature")
+        if timestamp_value > now_ts + max_future_skew_seconds:
+            raise HTTPException(status_code=401, detail="Integration timestamp is too far in the future")
+        signed_payload = timestamp_raw.encode("utf-8") + b"." + body_bytes
+        expected_hash = hmac.new(secret.encode("utf-8"), signed_payload, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(provided_hash, expected_hash):
+            raise HTTPException(status_code=401, detail="Invalid integration signature")
+        return
+    if not allow_legacy_signature:
+        raise HTTPException(status_code=401, detail="Missing integration timestamp")
     expected_hash = hmac.new(secret.encode("utf-8"), body_bytes, hashlib.sha256).hexdigest()
     if not hmac.compare_digest(provided_hash, expected_hash):
         raise HTTPException(status_code=401, detail="Invalid integration signature")
