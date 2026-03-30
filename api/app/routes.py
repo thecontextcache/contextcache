@@ -1704,6 +1704,7 @@ async def _resolve_project_tag(
     *,
     project_id: int,
     tag_spec: str | None,
+    create_if_missing: bool = True,
 ) -> Tag | None:
     if tag_spec is None:
         return None
@@ -1715,6 +1716,13 @@ async def _resolve_project_tag(
         return (
             await db.execute(
                 select(Tag).where(Tag.id == int(clean), Tag.project_id == project_id).limit(1)
+            )
+        ).scalar_one_or_none()
+
+    if not create_if_missing:
+        return (
+            await db.execute(
+                select(Tag).where(Tag.project_id == project_id, func.lower(Tag.name) == clean.lower()).limit(1)
             )
         ).scalar_one_or_none()
 
@@ -1836,7 +1844,12 @@ async def _run_brain_batch_action(
         if action_type == "add_tag":
             tag = tag_cache.get(memory.project_id)
             if tag is None and memory.project_id not in tag_cache:
-                tag = await _resolve_project_tag(db, project_id=memory.project_id, tag_spec=payload.action.tagId)
+                tag = await _resolve_project_tag(
+                    db,
+                    project_id=memory.project_id,
+                    tag_spec=payload.action.tagId,
+                    create_if_missing=False,
+                )
                 tag_cache[memory.project_id] = tag
             if tag is None:
                 results.append(
