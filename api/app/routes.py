@@ -1848,7 +1848,6 @@ async def _run_brain_batch_action(
                     db,
                     project_id=memory.project_id,
                     tag_spec=payload.action.tagId,
-                    create_if_missing=False,
                 )
                 tag_cache[memory.project_id] = tag
             if tag is None:
@@ -1876,7 +1875,12 @@ async def _run_brain_batch_action(
         if action_type == "remove_tag":
             tag = tag_cache.get(memory.project_id)
             if tag is None and memory.project_id not in tag_cache:
-                tag = await _resolve_project_tag(db, project_id=memory.project_id, tag_spec=payload.action.tagId)
+                tag = await _resolve_project_tag(
+                    db,
+                    project_id=memory.project_id,
+                    tag_spec=payload.action.tagId,
+                    create_if_missing=False,
+                )
                 tag_cache[memory.project_id] = tag
             if tag is None:
                 results.append(
