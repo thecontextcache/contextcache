@@ -459,7 +459,7 @@ async def test_recall_cag_toon_format_returns_pack_without_crashing(
 ) -> None:
     from app.analyzer.cag import CAGAnswer
 
-    monkeypatch.setattr("app.routes.is_local_cag", True)
+    monkeypatch.setattr("app.routes.is_local_cag", lambda: True)
     monkeypatch.setattr(
         "app.routes.maybe_answer_from_cache",
         lambda query: CAGAnswer(
