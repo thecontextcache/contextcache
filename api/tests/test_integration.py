@@ -451,6 +451,39 @@ async def test_recall_uses_recency_fallback_when_no_hybrid_match(
     assert items[0]["rank_score"] is None
 
 
+async def test_recall_cag_toon_format_returns_pack_without_crashing(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+    monkeypatch,
+) -> None:
+    from app.analyzer.cag import CAGAnswer
+
+    monkeypatch.setattr("app.routes.is_local_cag", True)
+    monkeypatch.setattr(
+        "app.routes.maybe_answer_from_cache",
+        lambda query: CAGAnswer(
+            source="test-cache",
+            score=0.97,
+            snippets=["First cached snippet", "Second cached snippet"],
+            kv_cache_id="kv-test-123",
+            memory_matrix=[[0.1, 0.2]],
+        ),
+    )
+
+    viewer_headers = await _login_org_member(client, db_session, app_ctx, role="viewer")
+    recall = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=viewer_headers,
+        params={"query": "cached answer", "limit": 5, "format": "toon"},
+    )
+    assert recall.status_code == 200
+    assert recall.headers["X-ContextCache-Recall-Served-By"] == "cag"
+    body = recall.json()
+    assert body["memory_pack_text"].startswith("Memories[2] { type, content }:")
+    assert body["global_kv_cache_id"] == "kv-test-123"
+
+
 async def test_create_memory_persists_embedding_vectors(
     client,
     app_ctx: Ctx,

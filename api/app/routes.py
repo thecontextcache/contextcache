@@ -2691,7 +2691,8 @@ async def recall(
                 score_details = {
                     "source": cag_answer.source,
                     "score": cag_answer.score,
-                    "snippets": len(cag_answer.snippets),
+                    "snippets": list(cag_answer.snippets),
+                    "snippet_count": len(cag_answer.snippets),
                 }
                 cag_pack = build_memory_pack(query_clean, [("doc", snippet) for snippet in cag_answer.snippets])
             else:
@@ -2726,7 +2727,8 @@ async def recall(
                         score_details = {
                             "source": cag_answer.source,
                             "score": cag_answer.score,
-                            "snippets": len(cag_answer.snippets),
+                            "snippets": list(cag_answer.snippets),
+                            "snippet_count": len(cag_answer.snippets),
                         }
                         cag_pack = build_memory_pack(query_clean, [("doc", snippet) for snippet in cag_answer.snippets])
                     else:
@@ -2775,7 +2777,8 @@ async def recall(
                             score_details = {
                                 "source": cag_answer.source,
                                 "score": cag_answer.score,
-                                "snippets": len(cag_answer.snippets),
+                                "snippets": list(cag_answer.snippets),
+                                "snippet_count": len(cag_answer.snippets),
                             }
                             cag_pack = build_memory_pack(query_clean, [("doc", snippet) for snippet in cag_answer.snippets])
                             if rag_task is not None and not rag_task.done():
