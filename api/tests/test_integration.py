@@ -20,6 +20,7 @@ from app.models import (
     AuthUser,
     Membership,
     Memory,
+    MemoryEmbedding,
     Organization,
     Project,
     RawCapture,
@@ -500,6 +501,98 @@ async def test_create_memory_persists_embedding_vectors(
     memory = (await db_session.execute(select(Memory).where(Memory.id == memory_id).limit(1))).scalar_one()
     assert memory.search_vector is not None
     assert memory.embedding_vector is not None
+
+
+async def test_update_memory_clears_contextualization_and_requeues_embedding(
+    client,
+    app_ctx: Ctx,
+    db_session: AsyncSession,
+    monkeypatch,
+) -> None:
+    queued: list[int] = []
+
+    def _record_enqueue(task_fn, *args, **kwargs):
+        queued.append(args[0])
+        return None
+
+    monkeypatch.setattr("app.worker.tasks._enqueue_if_enabled", _record_enqueue)
+
+    create = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=auth_headers(app_ctx, role="owner"),
+        json={"type": "finding", "title": "Before", "content": "Original content"},
+    )
+    assert create.status_code == 201
+    memory_id = create.json()["id"]
+    queued.clear()
+
+    memory = (await db_session.execute(select(Memory).where(Memory.id == memory_id).limit(1))).scalar_one()
+    memory.metadata_json = {"ollama_context": {"model": "llama3.1", "response": "stale"}}
+    db_session.add(
+        MemoryEmbedding(
+            memory_id=memory_id,
+            model="text-embedding-3-small",
+            model_name="text-embedding-3-small",
+            model_version="v1",
+            confidence=1.0,
+            dims=3,
+            metadata_json={"contextualized": True, "context_model": "llama3.1", "provider": "local"},
+        )
+    )
+    await db_session.commit()
+
+    update = await client.patch(
+        f"/projects/{app_ctx.project_id}/memories/{memory_id}",
+        headers=auth_headers(app_ctx, role="owner"),
+        json={"title": "After", "content": "Updated content"},
+    )
+    assert update.status_code == 200
+    body = update.json()
+    assert "ollama_context" not in body["metadata"]
+
+    refreshed = (await db_session.execute(select(Memory).where(Memory.id == memory_id).limit(1))).scalar_one()
+    assert "ollama_context" not in (refreshed.metadata_json or {})
+
+    emb_row = (
+        await db_session.execute(select(MemoryEmbedding).where(MemoryEmbedding.memory_id == memory_id).limit(1))
+    ).scalar_one()
+    assert "contextualized" not in (emb_row.metadata_json or {})
+    assert "context_model" not in (emb_row.metadata_json or {})
+    assert queued == [memory_id]
+
+
+async def test_cleanup_old_usage_counters_rejects_non_positive_retention(
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+    monkeypatch,
+) -> None:
+    from app.worker.tasks import cleanup_old_usage_counters
+
+    monkeypatch.setattr("app.worker.tasks.WORKER_ENABLED", True)
+
+    owner_auth = (
+        await db_session.execute(
+            select(AuthUser).where(AuthUser.email == app_ctx.users["owner"]).limit(1)
+        )
+    ).scalar_one()
+    old_row = UsageCounter(
+        user_id=owner_auth.id,
+        day=now_utc().date() - timedelta(days=120),
+        memories_created=7,
+        recall_queries=3,
+        projects_created=1,
+    )
+    db_session.add(old_row)
+    await db_session.commit()
+
+    result = await asyncio.to_thread(cleanup_old_usage_counters.run, 0)
+    assert result["status"] == "invalid"
+    assert result["retain_days"] == 0
+
+    still_present = (
+        await db_session.execute(select(UsageCounter).where(UsageCounter.id == old_row.id).limit(1))
+    ).scalar_one_or_none()
+    assert still_present is not None
 
 
 async def test_usage_includes_weekly_fields(client, db_session: AsyncSession, app_ctx: Ctx) -> None:

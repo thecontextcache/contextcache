@@ -2300,6 +2300,8 @@ async def update_memory(
     db: AsyncSession = Depends(get_db),
     ctx: RequestContext = Depends(get_actor_context),
 ) -> MemoryOut:
+    from app.worker.tasks import compute_memory_embedding, _enqueue_if_enabled
+
     require_role(ctx, "member")
     project = await get_project_or_404(db, project_id, ctx)
     memory = (
@@ -2312,21 +2314,26 @@ async def update_memory(
     if memory is None:
         raise HTTPException(status_code=404, detail="Memory not found")
 
+    content_fields_changed = False
     if payload.type is not None:
         memory.type = payload.type
     if payload.source is not None:
         memory.source = payload.source
     if payload.title is not None:
         memory.title = payload.title
+        content_fields_changed = True
     if payload.content is not None:
         clean_content = payload.content.strip()
         if not clean_content:
             raise HTTPException(status_code=422, detail="content must not be empty")
         memory.content = clean_content
+        content_fields_changed = True
     if payload.metadata is not None:
         memory.metadata_json = payload.metadata
 
-    if payload.title is not None or payload.content is not None:
+    if content_fields_changed:
+        memory.metadata_json = dict(memory.metadata_json or {})
+        memory.metadata_json.pop("ollama_context", None)
         embedding_text = " ".join(
             part for part in [memory.title or "", memory.content or ""] if part
         ).strip()
@@ -2335,6 +2342,15 @@ async def update_memory(
         memory.embedding_vector = embedding
         memory.hilbert_index = compute_hilbert_index(embedding)
         memory.content_hash = _content_hash(memory.content)
+        embedding_row = (
+            await db.execute(select(MemoryEmbedding).where(MemoryEmbedding.memory_id == memory.id).limit(1))
+        ).scalar_one_or_none()
+        if embedding_row is not None:
+            emb_meta = dict(embedding_row.metadata_json or {})
+            emb_meta.pop("contextualized", None)
+            emb_meta.pop("context_model", None)
+            embedding_row.metadata_json = emb_meta
+            embedding_row.updated_at = datetime.now(timezone.utc)
 
     if payload.tags is not None:
         existing_links = (
@@ -2357,6 +2373,8 @@ async def update_memory(
     )
     await db.commit()
     await db.refresh(memory)
+    if content_fields_changed:
+        _enqueue_if_enabled(compute_memory_embedding, memory.id)
     tag_map = await _load_tag_names(db, [memory.id])
     return _memory_to_out(memory, tag_map.get(memory.id, []))
 

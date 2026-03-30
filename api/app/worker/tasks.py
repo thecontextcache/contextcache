@@ -52,6 +52,17 @@ def _skip_if_disabled(task_name: str) -> dict | None:
     return {"status": "skipped", "reason": "WORKER_ENABLED=false"}
 
 
+def _validate_retain_days(task_name: str, retain_days: int) -> dict | None:
+    if retain_days >= 1:
+        return None
+    logger.warning("[worker] %s skipped invalid retain_days=%s", task_name, retain_days)
+    return {
+        "status": "invalid",
+        "reason": "retain_days must be >= 1",
+        "retain_days": retain_days,
+    }
+
+
 # ---------------------------------------------------------------------------
 # DB helper — async session within a sync Celery task
 # ---------------------------------------------------------------------------
@@ -153,6 +164,9 @@ def cleanup_old_usage_counters(self, retain_days: int = 90) -> dict:
     skipped = _skip_if_disabled("cleanup_old_usage_counters")
     if skipped is not None:
         return skipped
+    invalid = _validate_retain_days("cleanup_old_usage_counters", retain_days)
+    if invalid is not None:
+        return invalid
     logger.info("[worker] cleanup_old_usage_counters started retain_days=%s", retain_days)
 
     from sqlalchemy import delete as sa_delete
@@ -188,6 +202,9 @@ def cleanup_old_login_events(self, retain_days: int = 90) -> dict:
     skipped = _skip_if_disabled("cleanup_old_login_events")
     if skipped is not None:
         return skipped
+    invalid = _validate_retain_days("cleanup_old_login_events", retain_days)
+    if invalid is not None:
+        return invalid
     logger.info("[worker] cleanup_old_login_events started retain_days=%s", retain_days)
 
     from sqlalchemy import delete as sa_delete
@@ -219,6 +236,9 @@ def cleanup_old_waitlist_entries(self, retain_days: int = 90) -> dict:
     skipped = _skip_if_disabled("cleanup_old_waitlist_entries")
     if skipped is not None:
         return skipped
+    invalid = _validate_retain_days("cleanup_old_waitlist_entries", retain_days)
+    if invalid is not None:
+        return invalid
     logger.info("[worker] cleanup_old_waitlist_entries started retain_days=%s", retain_days)
 
     from sqlalchemy import delete as sa_delete
@@ -254,6 +274,15 @@ def cleanup_old_activity_logs(
     skipped = _skip_if_disabled("cleanup_old_activity_logs")
     if skipped is not None:
         return skipped
+    for task_name, retain_days in (
+        ("cleanup_old_activity_logs.audit", audit_retain_days),
+        ("cleanup_old_activity_logs.recall", recall_retain_days),
+        ("cleanup_old_activity_logs.timing", timing_retain_days),
+        ("cleanup_old_activity_logs.usage", usage_retain_days),
+    ):
+        invalid = _validate_retain_days(task_name, retain_days)
+        if invalid is not None:
+            return invalid
     logger.info(
         "[worker] cleanup_old_activity_logs started audit=%s recall=%s timing=%s usage=%s",
         audit_retain_days,
