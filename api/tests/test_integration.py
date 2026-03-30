@@ -18,6 +18,7 @@ from app.models import (
     AuditLog,
     AuthMagicLink,
     AuthUser,
+    InboxItem,
     Membership,
     Memory,
     MemoryEmbedding,
@@ -1414,6 +1415,14 @@ async def test_delete_org_requires_removing_other_members_first(
     app_ctx: Ctx,
 ) -> None:
     owner_headers = await _login_org_member(client, db_session, app_ctx, role="owner")
+
+    project = (
+        await db_session.execute(
+            select(Project).where(Project.id == app_ctx.project_id).limit(1)
+        )
+    ).scalar_one()
+    await db_session.delete(project)
+    await db_session.commit()
 
     outsider = User(email=f"other-member-{uuid.uuid4().hex[:6]}@local")
     db_session.add(outsider)
