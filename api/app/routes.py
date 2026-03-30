@@ -822,6 +822,19 @@ async def delete_org(
             status_code=409,
             detail=f"Cannot delete organisation: {project_count} project(s) still exist. Delete all projects first.",
         )
+    other_member_count = (
+        await db.execute(
+            select(func.count(Membership.id)).where(
+                Membership.org_id == org_id,
+                Membership.user_id != ctx.actor_user_id,
+            )
+        )
+    ).scalar_one()
+    if other_member_count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete organisation: {other_member_count} other membership(s) still exist. Remove all other members first.",
+        )
 
     await write_audit(
         db, ctx=ctx, org_id=org_id, action="org.delete",

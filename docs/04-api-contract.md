@@ -223,7 +223,7 @@ Daily + weekly limits are configured via environment variables (`DAILY_MAX_*`, `
 - `POST /orgs` — create organisation
 - `GET /orgs` — list organisations visible to caller
 - `PATCH /orgs/{org_id}` — rename organisation (requires `admin`)
-- `DELETE /orgs/{org_id}` — delete organisation, blocked if projects exist (requires `owner`; returns 409 if projects remain)
+- `DELETE /orgs/{org_id}` — delete organisation, blocked if projects or other memberships exist (requires `owner`; returns `409` until the org is empty except for the caller)
 - `POST /orgs/{org_id}/projects`
 - `GET /orgs/{org_id}/projects`
 - `POST /orgs/{org_id}/api-keys` — create org API key (requires org `admin`/`owner`; global session admin allowed)
@@ -259,9 +259,9 @@ Response:
 ```json
 {
   "api_version": "2026-03-20",
-  "auth_modes": ["session", "api_key", "bearer_optional"],
-  "ingest_sources": ["extension", "api", "cli", "agent"],
-  "recall_formats": ["memory_pack_text", "items"],
+  "auth_modes": ["session", "api_key", "bearer"],
+  "ingest_sources": ["chrome_ext", "cli", "mcp", "email"],
+  "recall_formats": ["text", "toon"],
   "brain_batch_max_targets": 1000,
   "supports_idempotency": true,
   "supports_ingest_replay": true,
@@ -494,6 +494,7 @@ Optional signing header for inbound integrations:
 - The web app uses `X-Org-Id` on org-scoped requests so users can switch orgs without re-login.
 
 `POST /integrations/memories/{memory_id}/contextualize` queues an Ollama contextualization worker task.
+`POST /inbox/{item_id}/reject` writes an `inbox.reject` audit log entry and marks the draft rejected without creating a memory.
 
 ## Worker/Redis health
 

@@ -870,6 +870,46 @@ async def test_contextualize_worker_is_idempotent_for_existing_context(
     assert memory.metadata_json["ollama_context"]["response"] == "Fresh context"
 
 
+async def test_cag_hit_short_circuits_before_rag_in_hedged_mode(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+    monkeypatch,
+) -> None:
+    from app.analyzer.cag import CAGAnswer
+
+    monkeypatch.setattr("app.routes.is_local_cag", lambda: False)
+    monkeypatch.setattr("app.routes._resolve_hedge_delay_ms", lambda org_id: 250)
+
+    async def _fast_cag(_query_text: str):
+        return (
+            CAGAnswer(
+                source="hedged-cache",
+                score=0.88,
+                snippets=["Fast snippet"],
+                kv_cache_id="kv-fast",
+                memory_matrix=None,
+            ),
+            5,
+        )
+
+    async def _boom_rag(*args, **kwargs):
+        raise AssertionError("RAG should not run when CAG answers within hedge delay")
+
+    monkeypatch.setattr("app.routes._timed_cag_lookup", _fast_cag)
+    monkeypatch.setattr("app.routes._run_rag_recall", _boom_rag)
+
+    viewer_headers = await _login_org_member(client, db_session, app_ctx, role="viewer")
+    recall = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=viewer_headers,
+        params={"query": "hedged cache hit", "limit": 5},
+    )
+    assert recall.status_code == 200
+    assert recall.headers["X-ContextCache-Recall-Served-By"] == "cag"
+    assert recall.json()["global_kv_cache_id"] == "kv-fast"
+
+
 async def test_integrations_list_returns_uploaded_memory(
     client,
     db_session: AsyncSession,
@@ -914,7 +954,10 @@ async def test_integrations_capabilities_returns_stable_contract(
     assert response.status_code == 200
     body = response.json()
     assert body["api_version"]
-    assert "cli" in body["ingest_sources"]
+    assert body["auth_modes"] == ["session", "api_key", "bearer"]
+    assert body["ingest_sources"] == ["chrome_ext", "cli", "mcp", "email"]
+    assert body["recall_formats"] == ["text", "toon"]
+    assert body["supports_batch_undo"] == ["add_tag", "pin", "remove_tag", "unpin"]
     assert body["supports_idempotency"] is True
     assert body["supports_ingest_replay"] is True
 
@@ -1363,6 +1406,69 @@ async def test_brain_batch_org_isolation_returns_not_found(client, db_session: A
     body = response.json()
     assert body["failed"] == 1
     assert body["results"][0]["errorCode"] == "NOT_FOUND"
+
+
+async def test_delete_org_requires_removing_other_members_first(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    owner_headers = await _login_org_member(client, db_session, app_ctx, role="owner")
+
+    outsider = User(email=f"other-member-{uuid.uuid4().hex[:6]}@local")
+    db_session.add(outsider)
+    await db_session.flush()
+    db_session.add(Membership(org_id=app_ctx.org_id, user_id=outsider.id, role="viewer"))
+    await db_session.commit()
+
+    response = await client.delete(f"/orgs/{app_ctx.org_id}", headers=owner_headers)
+    assert response.status_code == 409
+    assert "other membership" in response.json()["detail"].lower()
+
+
+async def test_reject_inbox_item_writes_audit_log(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    owner_headers = await _login_org_member(client, db_session, app_ctx, role="owner")
+
+    capture = RawCapture(
+        org_id=app_ctx.org_id,
+        project_id=app_ctx.project_id,
+        source="cli",
+        payload={"text": "reject me"},
+        processing_status="processed",
+        processed_at=now_utc(),
+    )
+    db_session.add(capture)
+    await db_session.flush()
+    inbox = InboxItem(
+        project_id=app_ctx.project_id,
+        raw_capture_id=capture.id,
+        suggested_type="note",
+        suggested_title="Review me",
+        suggested_content="Reject this suggestion",
+        confidence_score=0.4,
+        status="pending",
+    )
+    db_session.add(inbox)
+    await db_session.commit()
+
+    reject = await client.post(f"/inbox/{inbox.id}/reject", headers=owner_headers)
+    assert reject.status_code == 200
+
+    audit_row = (
+        await db_session.execute(
+            select(AuditLog)
+            .where(AuditLog.action == "inbox.reject")
+            .where(AuditLog.entity_id == inbox.id)
+            .order_by(AuditLog.id.desc())
+            .limit(1)
+        )
+    ).scalar_one()
+    assert audit_row.org_id == app_ctx.org_id
+    assert audit_row.entity_type == "inbox_item"
 
 
 async def test_admin_recall_logs_returns_recent_entries(

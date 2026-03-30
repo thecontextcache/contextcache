@@ -255,6 +255,18 @@ async def reject_inbox_item(
 
     item.status = "rejected"
     item.reviewed_at = datetime.now(timezone.utc)
+    project = (
+        await db.execute(select(Project).where(Project.id == item.project_id).limit(1))
+    ).scalar_one()
+    await write_audit(
+        db,
+        ctx=ctx,
+        org_id=project.org_id,
+        action="inbox.reject",
+        entity_type="inbox_item",
+        entity_id=item.id,
+        metadata={"project_id": item.project_id},
+    )
     await db.commit()
     await db.refresh(item)
     return _item_to_out(item)
