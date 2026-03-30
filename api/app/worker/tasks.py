@@ -600,7 +600,7 @@ def process_raw_capture_task(self, capture_id: int) -> dict:
 
     from datetime import datetime, timezone
     from sqlalchemy import select
-    from app.models import InboxItem, RawCapture
+    from app.models import InboxItem, Project, RawCapture
 
     async def _process(session):
         capture = (
@@ -639,6 +639,25 @@ def process_raw_capture_task(self, capture_id: int) -> dict:
             capture.last_error_at = now
             capture.dead_lettered_at = now
             return {"status": "skipped_no_project", "capture_id": capture_id}
+        project = (
+            await session.execute(
+                select(Project.id)
+                .where(Project.id == project_id, Project.org_id == capture.org_id)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if project is None:
+            logger.warning(
+                "[worker] process_raw_capture_task project missing or cross-org id=%s project_id=%s org_id=%s",
+                capture_id,
+                project_id,
+                capture.org_id,
+            )
+            capture.processing_status = "dead_letter"
+            capture.last_error = "invalid project_id for capture org"
+            capture.last_error_at = now
+            capture.dead_lettered_at = now
+            return {"status": "skipped_invalid_project", "capture_id": capture_id}
 
         # LLM extraction (stub by default; real call goes here).
         try:
@@ -676,11 +695,18 @@ def process_raw_capture_task(self, capture_id: int) -> dict:
             await session.delete(item)
 
         inserted = 0
+        if not isinstance(drafts, list):
+            drafts = []
         for draft in drafts:
+            if not isinstance(draft, dict):
+                continue
             suggested_type = str(draft.get("type", "note"))[:50]
             suggested_title = str(draft.get("title", ""))[:500] or None
             suggested_content = str(draft.get("content", "")).strip()
-            confidence = float(draft.get("confidence_score", 0.8))
+            try:
+                confidence = float(draft.get("confidence_score", 0.8))
+            except (TypeError, ValueError):
+                confidence = 0.8
 
             if not suggested_content:
                 continue

@@ -17,6 +17,7 @@ import logging
 import os
 import json
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import select
@@ -24,9 +25,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import get_db
-from .models import InboxItem, RawCapture
+from .models import InboxItem, Project, RawCapture
 from .rate_limit import check_ingest_limits
-from .routes import RequestContext, _extract_client_ip, get_actor_context, require_role, write_audit
+from .routes import (
+    RequestContext,
+    _extract_client_ip,
+    get_actor_context,
+    require_role,
+    write_audit,
+)
 from .schemas import IntegrationsCapabilitiesOut, RawCaptureIn, RawCaptureOut, RawCaptureQueuedOut
 
 logger = logging.getLogger(__name__)
@@ -42,6 +49,35 @@ _REPLAYABLE_CAPTURE_STATUSES = {"failed", "dead_letter"}
 
 def _capture_payload_bytes(payload: dict) -> int:
     return len(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+
+
+def _coerce_refinery_drafts(drafts: Any) -> list[dict[str, Any]]:
+    if not isinstance(drafts, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    for draft in drafts:
+        if isinstance(draft, dict):
+            normalized.append(draft)
+    return normalized
+
+
+def _safe_confidence(value: Any, default: float = 0.8) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(0.0, min(1.0, parsed))
+
+
+async def _project_belongs_to_org(db: AsyncSession, *, project_id: int | None, org_id: int) -> bool:
+    if project_id is None:
+        return False
+    project = (
+        await db.execute(
+            select(Project.id).where(Project.id == project_id, Project.org_id == org_id).limit(1)
+        )
+    ).scalar_one_or_none()
+    return project is not None
 
 
 def _set_capture_headers(response: Response, *, capture_id: int, processing_status: str) -> None:
@@ -91,7 +127,7 @@ async def _run_refinery_inline(
     """
     from .worker.tasks import refine_content_with_llm
 
-    drafts = refine_content_with_llm(capture.payload)
+    drafts = _coerce_refinery_drafts(refine_content_with_llm(capture.payload))
 
     existing_items = (
         await db.execute(select(InboxItem).where(InboxItem.raw_capture_id == capture.id))
@@ -104,7 +140,7 @@ async def _run_refinery_inline(
         suggested_type = str(draft.get("type", "note"))[:50]
         suggested_title = str(draft.get("title", ""))[:500] or None
         suggested_content = str(draft.get("content", "")).strip()
-        confidence = float(draft.get("confidence_score", 0.8))
+        confidence = _safe_confidence(draft.get("confidence_score", 0.8))
 
         if not suggested_content:
             continue
@@ -203,6 +239,8 @@ async def ingest_raw(
             status_code=422,
             detail=f"source must be one of {sorted(_ALLOWED_SOURCES)}",
         )
+    if not await _project_belongs_to_org(db, project_id=payload.project_id, org_id=ctx.org_id):
+        raise HTTPException(status_code=404, detail="Project not found")
 
     idempotency_key = request.headers.get("Idempotency-Key", "").strip() or None
     if idempotency_key:
@@ -376,6 +414,8 @@ async def replay_raw_capture(
         raise HTTPException(status_code=400, detail="X-Org-Id required")
 
     capture = await _get_capture_for_org(db, capture_id=capture_id, org_id=ctx.org_id)
+    if not await _project_belongs_to_org(db, project_id=capture.project_id, org_id=ctx.org_id):
+        raise HTTPException(status_code=409, detail="Capture project is missing or inaccessible")
     if capture.processing_status == "processed":
         raise HTTPException(status_code=409, detail="Capture is already processed")
     if capture.processing_status not in _REPLAYABLE_CAPTURE_STATUSES:

@@ -276,7 +276,9 @@ async def _enforce_org_creation_limit(
     if plan is None or plan.max_orgs is None or plan.max_orgs <= 0 or actor_user_id is None:
         return plan_code
     org_count = (
-        await db.execute(select(func.count(Membership.id)).where(Membership.user_id == actor_user_id))
+        await db.execute(
+            select(func.count(func.distinct(Membership.org_id))).where(Membership.user_id == actor_user_id)
+        )
     ).scalar_one()
     if org_count >= plan.max_orgs:
         raise HTTPException(
@@ -2554,6 +2556,7 @@ async def undo_brain_batch(
 
     response = await _run_brain_batch_action(payload=inverse_payload, db=db, ctx=ctx)
 
+    inverse_status = "completed" if response.failed == 0 else "partial"
     db.add(
         BatchActionRun(
             org_id=ctx.org_id,
@@ -2562,16 +2565,17 @@ async def undo_brain_batch(
             idempotency_key=idempotency_key,
             request_hash=request_hash,
             action_type=inverse_payload.action.type,
-            status="completed",
+            status=inverse_status,
             request_json=inverse_payload.model_dump(mode="json"),
             response_json=response.model_dump(mode="json"),
         )
     )
-    existing.status = "undone"
-    existing.response_json = {
-        **(existing.response_json or {}),
-        "undone_by_action_id": inverse_payload.actionId,
-    }
+    if response.failed == 0:
+        existing.status = "undone"
+        existing.response_json = {
+            **(existing.response_json or {}),
+            "undone_by_action_id": inverse_payload.actionId,
+        }
     await write_audit(
         db,
         ctx=ctx,
@@ -2585,6 +2589,7 @@ async def undo_brain_batch(
             "target_total": response.total,
             "succeeded": response.succeeded,
             "failed": response.failed,
+            "status": inverse_status,
         },
     )
     await db.commit()

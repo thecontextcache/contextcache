@@ -955,8 +955,24 @@ async def set_user_plan(
     if sub is None:
         sub = UserSubscription(auth_user_id=user_id, plan_code=code, status="active")
         db.add(sub)
+        await db.flush()
     else:
         sub.plan_code = code
+    now = now_utc()
+    prior_active = (
+        await db.execute(
+            select(UserSubscription)
+            .where(
+                UserSubscription.auth_user_id == user_id,
+                UserSubscription.status == "active",
+                UserSubscription.ended_at.is_(None),
+                UserSubscription.id != sub.id,
+            )
+        )
+    ).scalars().all()
+    for row in prior_active:
+        row.status = "ended"
+        row.ended_at = now
     await _write_admin_audit(
         db,
         request,
@@ -1005,8 +1021,24 @@ async def set_org_plan(
     if sub is None:
         sub = OrgSubscription(org_id=org_id, plan_code=code, status="active")
         db.add(sub)
+        await db.flush()
     else:
         sub.plan_code = code
+    now = now_utc()
+    prior_active = (
+        await db.execute(
+            select(OrgSubscription)
+            .where(
+                OrgSubscription.org_id == org_id,
+                OrgSubscription.status == "active",
+                OrgSubscription.ended_at.is_(None),
+                OrgSubscription.id != sub.id,
+            )
+        )
+    ).scalars().all()
+    for row in prior_active:
+        row.status = "ended"
+        row.ended_at = now
     await _write_admin_audit(
         db,
         request,

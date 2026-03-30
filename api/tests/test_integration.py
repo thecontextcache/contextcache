@@ -18,16 +18,20 @@ from app.models import (
     AuditLog,
     AuthMagicLink,
     AuthUser,
+    BatchActionRun,
     InboxItem,
     Membership,
     Memory,
     MemoryEmbedding,
+    OrgSubscription,
     Organization,
     Project,
     RawCapture,
     RecallLog,
+    Tag,
     UsageCounter,
     User,
+    UserSubscription,
 )
 from app.seed import seed
 from .conftest import Ctx, auth_headers, login_via_magic_link, session_auth_headers
@@ -749,6 +753,43 @@ async def test_user_plan_change_applies_to_next_org_creation(
     assert "max 3 organizations" in blocked.json()["detail"]
 
 
+async def test_org_creation_limit_counts_distinct_org_memberships(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    owner_headers = await _login_org_member(client, db_session, app_ctx, role="owner")
+    owner_user = (
+        await db_session.execute(select(User).where(User.email == app_ctx.users["owner"]).limit(1))
+    ).scalar_one()
+    owner_auth = (
+        await db_session.execute(select(AuthUser).where(AuthUser.email == app_ctx.users["owner"]).limit(1))
+    ).scalar_one()
+
+    admin_headers = await _login_session(
+        client,
+        db_session,
+        email="plan-admin@example.com",
+        is_admin=True,
+    )
+    upgrade = await client.post(
+        f"/admin/users/{owner_auth.id}/set-plan?plan_code=pro",
+        headers=admin_headers,
+    )
+    assert upgrade.status_code == 200
+
+    dup_membership = Membership(org_id=app_ctx.org_id, user_id=owner_user.id, role="viewer")
+    db_session.add(dup_membership)
+    await db_session.commit()
+
+    create = await client.post(
+        "/orgs",
+        headers=owner_headers,
+        json={"name": "Distinct Membership Limit Org"},
+    )
+    assert create.status_code == 201
+
+
 async def test_org_plan_change_applies_to_next_api_key_creation(
     client,
     db_session: AsyncSession,
@@ -1200,6 +1241,73 @@ async def test_ingest_capture_org_isolation_returns_not_found(
     assert replay.status_code == 404
 
 
+async def test_ingest_rejects_cross_org_project_reference(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    other_org = Organization(name=f"Ingest Cross Org {uuid.uuid4().hex[:6]}")
+    db_session.add(other_org)
+    await db_session.flush()
+    outsider = User(email=f"ingest-cross-org-{uuid.uuid4().hex[:6]}@example.com", display_name="Cross Org")
+    db_session.add(outsider)
+    await db_session.flush()
+    db_session.add(Membership(org_id=other_org.id, user_id=outsider.id, role="owner"))
+    isolated_project = Project(name="Cross Org Project", org_id=other_org.id, created_by_user_id=outsider.id)
+    db_session.add(isolated_project)
+    await db_session.commit()
+
+    response = await client.post(
+        "/ingest/raw",
+        headers=auth_headers(app_ctx, role="owner"),
+        json={
+            "project_id": isolated_project.id,
+            "source": "cli",
+            "payload": {"text": "should be rejected"},
+        },
+    )
+    assert response.status_code == 404
+
+
+async def test_ingest_inline_skips_malformed_refinery_drafts(
+    client,
+    app_ctx: Ctx,
+    db_session: AsyncSession,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr("app.ingest_routes._WORKER_ENABLED", False)
+    monkeypatch.setattr(
+        "app.worker.tasks.refine_content_with_llm",
+        lambda _payload: [
+            "not-a-dict",
+            {"type": "note", "title": "Bad confidence", "content": "still valid", "confidence_score": "bad"},
+            {"type": "note", "title": "Empty", "content": "   "},
+        ],
+    )
+
+    create = await client.post(
+        "/ingest/raw",
+        headers=auth_headers(app_ctx, role="owner"),
+        json={
+            "project_id": app_ctx.project_id,
+            "source": "cli",
+            "payload": {"text": "malformed draft handling"},
+        },
+    )
+    assert create.status_code == 202
+
+    capture = (
+        await db_session.execute(select(RawCapture).where(RawCapture.id == create.json()["capture_id"]).limit(1))
+    ).scalar_one()
+    assert capture.processing_status == "processed"
+
+    inbox_items = (
+        await db_session.execute(select(InboxItem).where(InboxItem.raw_capture_id == capture.id))
+    ).scalars().all()
+    assert len(inbox_items) == 1
+    assert inbox_items[0].suggested_content == "still valid"
+
+
 async def test_integrations_memory_endpoints_are_org_scoped(
     client,
     db_session: AsyncSession,
@@ -1381,6 +1489,55 @@ async def test_brain_batch_limit_and_undo(client, app_ctx: Ctx, db_session: Asyn
     ).scalars().all()
     assert "brain.batch" in audit_actions
     assert "brain.batch.undo" in audit_actions
+
+
+async def test_brain_batch_partial_undo_does_not_mark_original_run_undone(
+    client,
+    app_ctx: Ctx,
+    db_session: AsyncSession,
+) -> None:
+    create_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=auth_headers(app_ctx, role="owner"),
+        json={"type": "note", "content": "tag undo memory"},
+    )
+    assert create_resp.status_code == 201
+    memory_id = create_resp.json()["id"]
+
+    add_tag = await client.post(
+        "/brain/batch",
+        headers=auth_headers(app_ctx, role="owner"),
+        json={
+            "actionId": "batch-add-tag-partial",
+            "action": {"type": "add_tag", "targetIds": [f"mem-{memory_id}"], "tagId": "important"},
+        },
+    )
+    assert add_tag.status_code == 200
+    assert add_tag.json()["failed"] == 0
+
+    tag = (
+        await db_session.execute(
+            select(Tag).where(Tag.project_id == app_ctx.project_id, Tag.name == "important").limit(1)
+        )
+    ).scalar_one()
+    await db_session.delete(tag)
+    await db_session.commit()
+
+    undo = await client.post(
+        "/brain/batch/batch-add-tag-partial/undo",
+        headers=auth_headers(app_ctx, role="owner"),
+    )
+    assert undo.status_code == 200
+    assert undo.json()["failed"] == 1
+
+    original = (
+        await db_session.execute(
+            select(BatchActionRun)
+            .where(BatchActionRun.org_id == app_ctx.org_id, BatchActionRun.action_id == "batch-add-tag-partial")
+            .limit(1)
+        )
+    ).scalar_one()
+    assert original.status == "completed"
 
 
 async def test_brain_batch_org_isolation_returns_not_found(client, db_session: AsyncSession, app_ctx: Ctx) -> None:

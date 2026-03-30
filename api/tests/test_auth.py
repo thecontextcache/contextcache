@@ -13,7 +13,7 @@ from app import rate_limit as rate_limit_module
 from app import routes as routes_module
 from app.auth_routes import _resolve_admin_audit_org_id
 from app.auth_utils import hash_token, now_utc
-from app.models import AuditLog, AuthInvite, AuthMagicLink, AuthSession, AuthUser, Membership, Organization, UsageCounter, User, Waitlist
+from app.models import AuditLog, AuthInvite, AuthMagicLink, AuthSession, AuthUser, Membership, OrgSubscription, Organization, UsageCounter, User, UserSubscription, Waitlist
 from .conftest import Ctx, auth_headers, login_via_magic_link, session_auth_headers
 
 pytestmark = pytest.mark.asyncio
@@ -748,3 +748,77 @@ async def test_admin_flows_write_audit_logs(
     assert "admin.cag.evaporate" in actions
     assert "admin.waitlist.approve" in actions
     assert "admin.waitlist.reject" in actions
+
+
+async def test_plan_changes_retire_prior_active_subscriptions(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    admin_email = app_ctx.users["owner"]
+    admin_auth = AuthUser(email=admin_email, is_admin=True)
+    target_auth = AuthUser(email="plan-target@example.com", is_admin=False)
+    db_session.add_all([admin_auth, target_auth])
+    await db_session.commit()
+
+    admin_headers = await _login_session(
+        client,
+        db_session,
+        email=admin_email,
+        is_admin=True,
+        org_id=app_ctx.org_id,
+    )
+
+    user_first = await client.post(
+        f"/admin/users/{target_auth.id}/set-plan?plan_code=free",
+        headers=admin_headers,
+    )
+    assert user_first.status_code == 200
+    db_session.add(UserSubscription(auth_user_id=target_auth.id, plan_code="free", status="active"))
+    await db_session.commit()
+    user_second = await client.post(
+        f"/admin/users/{target_auth.id}/set-plan?plan_code=pro",
+        headers=admin_headers,
+    )
+    assert user_second.status_code == 200
+
+    user_subs = (
+        await db_session.execute(
+            select(UserSubscription)
+            .where(UserSubscription.auth_user_id == target_auth.id)
+            .order_by(UserSubscription.id.asc())
+        )
+    ).scalars().all()
+    assert len(user_subs) == 2
+    active_user_subs = [row for row in user_subs if row.status == "active" and row.ended_at is None]
+    ended_user_subs = [row for row in user_subs if row.status == "ended" and row.ended_at is not None]
+    assert len(active_user_subs) == 1
+    assert active_user_subs[0].plan_code == "pro"
+    assert len(ended_user_subs) == 1
+
+    org_first = await client.post(
+        f"/admin/orgs/{app_ctx.org_id}/set-plan?plan_code=free",
+        headers=admin_headers,
+    )
+    assert org_first.status_code == 200
+    db_session.add(OrgSubscription(org_id=app_ctx.org_id, plan_code="free", status="active"))
+    await db_session.commit()
+    org_second = await client.post(
+        f"/admin/orgs/{app_ctx.org_id}/set-plan?plan_code=team",
+        headers=admin_headers,
+    )
+    assert org_second.status_code == 200
+
+    org_subs = (
+        await db_session.execute(
+            select(OrgSubscription)
+            .where(OrgSubscription.org_id == app_ctx.org_id)
+            .order_by(OrgSubscription.id.asc())
+        )
+    ).scalars().all()
+    assert len(org_subs) == 2
+    active_org_subs = [row for row in org_subs if row.status == "active" and row.ended_at is None]
+    ended_org_subs = [row for row in org_subs if row.status == "ended" and row.ended_at is not None]
+    assert len(active_org_subs) == 1
+    assert active_org_subs[0].plan_code == "team"
+    assert len(ended_org_subs) == 1
