@@ -550,12 +550,14 @@ async def test_update_memory_clears_contextualization_and_requeues_embedding(
     body = update.json()
     assert "ollama_context" not in body["metadata"]
 
-    refreshed = (await db_session.execute(select(Memory).where(Memory.id == memory_id).limit(1))).scalar_one()
+    await db_session.refresh(memory)
+    refreshed = memory
     assert "ollama_context" not in (refreshed.metadata_json or {})
 
     emb_row = (
         await db_session.execute(select(MemoryEmbedding).where(MemoryEmbedding.memory_id == memory_id).limit(1))
     ).scalar_one()
+    await db_session.refresh(emb_row)
     assert "contextualized" not in (emb_row.metadata_json or {})
     assert "context_model" not in (emb_row.metadata_json or {})
     assert queued == [memory_id]
