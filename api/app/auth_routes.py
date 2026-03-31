@@ -31,6 +31,7 @@ from .models import (
     AuthMagicLink,
     AuthSession,
     AuthUser,
+    ContextCompilation,
     Membership,
     Organization,
     RawCapture,
@@ -45,6 +46,7 @@ from .models import (
 )
 from .rate_limit import check_request_link_limits, check_verify_limits
 from .schemas import (
+    AdminContextCompilationOut,
     AdminLlmHealthOut,
     AdminInviteCreateIn,
     AdminInviteOut,
@@ -1206,6 +1208,55 @@ async def admin_recall_logs(
             ranked_memory_ids=row.ranked_memory_ids or [],
             weights=row.weights_json or {},
             score_details=row.score_details_json or {},
+            created_at=row.created_at,
+        )
+        for row in rows
+    ]
+
+
+@router.get("/admin/recall/compilations", response_model=list[AdminContextCompilationOut])
+async def admin_recall_compilations(
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    project_id: int | None = Query(default=None, ge=1),
+    target_format: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> list[AdminContextCompilationOut]:
+    _require_admin_auth(request)
+    org_id = getattr(request.state, "org_id", None)
+    if org_id is None:
+        raise HTTPException(status_code=400, detail="X-Org-Id required")
+
+    stmt = select(ContextCompilation).where(ContextCompilation.org_id == org_id)
+    if project_id is not None:
+        stmt = stmt.where(ContextCompilation.project_id == project_id)
+    if target_format is not None:
+        normalized_format = target_format.strip().lower()
+        if normalized_format:
+            stmt = stmt.where(ContextCompilation.target_format == normalized_format)
+
+    rows = (
+        await db.execute(
+            stmt
+            .order_by(ContextCompilation.created_at.desc(), ContextCompilation.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+    ).scalars().all()
+    return [
+        AdminContextCompilationOut(
+            id=row.id,
+            org_id=row.org_id,
+            project_id=row.project_id,
+            actor_user_id=row.actor_user_id,
+            query_text=row.query_text,
+            target_format=row.target_format,
+            renderer=(row.compilation_json or {}).get("renderer"),
+            served_by=row.served_by,
+            status=row.status,
+            latency_ms=row.latency_ms,
+            item_count=len((row.compilation_json or {}).get("items") or []),
             created_at=row.created_at,
         )
         for row in rows

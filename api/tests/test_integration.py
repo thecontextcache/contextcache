@@ -1695,6 +1695,105 @@ async def test_recall_persists_context_compilation_with_item_provenance(
     assert any(row.source_kind in {"decision", "fact", "artifact", "next_hop", "unknown"} for row in item_rows)
 
 
+async def test_recall_persists_text_context_compilation_with_mir_json(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    viewer_headers = await _login_org_member(client, db_session, app_ctx, role="viewer")
+    create_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=auth_headers(app_ctx, role="owner"),
+        json={"type": "finding", "content": "Default text compiler persistence memory"},
+    )
+    assert create_resp.status_code == 201
+
+    recall_resp = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=viewer_headers,
+        params={"query": "default text compiler", "limit": 5},
+    )
+    assert recall_resp.status_code == 200
+    body = recall_resp.json()
+    assert body["renderer"] == "recall-pack/v1"
+    assert body["mir"]["version"] == "mir/1"
+    assert body["mir"]["renderer"] == "recall-pack/v1"
+
+    compilation = (
+        await db_session.execute(
+            select(ContextCompilation)
+            .where(
+                ContextCompilation.project_id == app_ctx.project_id,
+                ContextCompilation.query_text == "default text compiler",
+            )
+            .order_by(ContextCompilation.id.desc())
+            .limit(1)
+        )
+    ).scalar_one()
+    assert compilation.target_format == "text"
+    assert compilation.compilation_json["version"] == "mir/1"
+    assert compilation.compilation_json["renderer"] == "recall-pack/v1"
+    assert compilation.compilation_text == body["memory_pack_text"]
+
+
+async def test_admin_recall_compilations_returns_recent_entries(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    admin_headers = await _login_org_member(
+        client,
+        db_session,
+        app_ctx,
+        role="owner",
+        is_admin=True,
+    )
+    create_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=admin_headers,
+        json={"type": "decision", "content": "Compilation listing memory"},
+    )
+    assert create_resp.status_code == 201
+
+    text_resp = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=admin_headers,
+        params={"query": "compilation listing", "limit": 5},
+    )
+    assert text_resp.status_code == 200
+    toonx_resp = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=admin_headers,
+        params={"query": "compilation listing", "limit": 5, "format": "toonx"},
+    )
+    assert toonx_resp.status_code == 200
+
+    response = await client.get(
+        "/admin/recall/compilations",
+        headers=admin_headers,
+        params={"limit": 20, "offset": 0, "project_id": app_ctx.project_id},
+    )
+    assert response.status_code == 200
+    rows = response.json()
+    assert len(rows) >= 2
+    assert rows[0]["project_id"] == app_ctx.project_id
+    assert {row["target_format"] for row in rows} >= {"text", "toonx"}
+    assert {row["renderer"] for row in rows if row["renderer"] is not None} >= {"recall-pack/v1", "toon-x/v1"}
+    matching_rows = [row for row in rows if row["query_text"] == "compilation listing"]
+    assert len(matching_rows) >= 2
+    assert all(row["item_count"] >= 1 for row in matching_rows)
+
+    toonx_only = await client.get(
+        "/admin/recall/compilations",
+        headers=admin_headers,
+        params={"limit": 20, "offset": 0, "project_id": app_ctx.project_id, "target_format": "toonx"},
+    )
+    assert toonx_only.status_code == 200
+    toonx_rows = toonx_only.json()
+    assert toonx_rows
+    assert all(row["target_format"] == "toonx" for row in toonx_rows)
+
+
 async def test_admin_ops_summary_reports_capture_backlog_and_failures(
     client,
     db_session: AsyncSession,

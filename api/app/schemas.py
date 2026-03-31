@@ -368,6 +368,21 @@ class AdminRecallLogOut(BaseModel):
     created_at: datetime
 
 
+class AdminContextCompilationOut(BaseModel):
+    id: int
+    org_id: int
+    project_id: int
+    actor_user_id: int | None = None
+    query_text: str
+    target_format: str
+    renderer: str | None = None
+    served_by: str | None = None
+    status: str
+    latency_ms: int | None = None
+    item_count: int = 0
+    created_at: datetime
+
+
 class AdminCaptureFailureOut(BaseModel):
     id: int
     project_id: int | None = None
