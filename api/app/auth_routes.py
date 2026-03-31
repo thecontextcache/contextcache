@@ -39,6 +39,7 @@ from .models import (
     RawCapture,
     RecallLog,
     RecallTiming,
+    RetrievalFeedback,
     PlanCatalog,
     UserSubscription,
     OrgSubscription,
@@ -52,6 +53,8 @@ from .schemas import (
     AdminContextCompilationItemOut,
     AdminContextCompilationOut,
     AdminLlmHealthOut,
+    AdminQueryProfileDetailOut,
+    AdminRecallFeedbackOut,
     AdminInviteCreateIn,
     AdminInviteOut,
     CagCacheStatsOut,
@@ -1274,6 +1277,7 @@ async def admin_recall_compilations(
 async def admin_recall_compilation_detail(
     compilation_id: int,
     request: Request,
+    feedback_limit: int = Query(default=20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ) -> AdminContextCompilationDetailOut:
     _require_admin_auth(request)
@@ -1305,6 +1309,14 @@ async def admin_recall_compilation_detail(
             .limit(1)
         )
     ).scalar_one_or_none()
+    feedback_rows = (
+        await db.execute(
+            select(RetrievalFeedback)
+            .where(RetrievalFeedback.compilation_id == compilation.id)
+            .order_by(RetrievalFeedback.created_at.desc(), RetrievalFeedback.id.desc())
+            .limit(feedback_limit)
+        )
+    ).scalars().all()
     compilation_json = compilation.compilation_json or {}
     return AdminContextCompilationDetailOut(
         id=compilation.id,
@@ -1322,6 +1334,7 @@ async def admin_recall_compilation_detail(
         compilation_text=compilation.compilation_text,
         compilation_json=compilation_json,
         item_count=len(item_rows),
+        feedback_count=len(feedback_rows),
         items=[
             AdminContextCompilationItemOut(
                 id=row.id,
@@ -1335,9 +1348,78 @@ async def admin_recall_compilation_detail(
             )
             for row in item_rows
         ],
+        recent_feedback=[
+            AdminRecallFeedbackOut(
+                id=row.id,
+                org_id=row.org_id,
+                project_id=row.project_id,
+                compilation_id=row.compilation_id,
+                query_profile_id=row.query_profile_id,
+                actor_user_id=row.actor_user_id,
+                entity_type=row.entity_type,
+                entity_id=row.entity_id,
+                label=row.label,
+                note=row.note,
+                metadata=row.metadata_json or {},
+                created_at=row.created_at,
+            )
+            for row in feedback_rows
+        ],
         query_profile_id=query_profile_id,
         created_at=compilation.created_at,
     )
+
+
+@router.get("/admin/recall/feedback", response_model=list[AdminRecallFeedbackOut])
+async def admin_recall_feedback(
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    project_id: int | None = Query(default=None, ge=1),
+    compilation_id: int | None = Query(default=None, ge=1),
+    label: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> list[AdminRecallFeedbackOut]:
+    _require_admin_auth(request)
+    org_id = getattr(request.state, "org_id", None)
+    if org_id is None:
+        raise HTTPException(status_code=400, detail="X-Org-Id required")
+
+    stmt = select(RetrievalFeedback).where(RetrievalFeedback.org_id == org_id)
+    if project_id is not None:
+        stmt = stmt.where(RetrievalFeedback.project_id == project_id)
+    if compilation_id is not None:
+        stmt = stmt.where(RetrievalFeedback.compilation_id == compilation_id)
+    if label is not None:
+        normalized_label = label.strip().lower()
+        if normalized_label:
+            stmt = stmt.where(RetrievalFeedback.label == normalized_label)
+
+    rows = (
+        await db.execute(
+            stmt
+            .order_by(RetrievalFeedback.created_at.desc(), RetrievalFeedback.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+    ).scalars().all()
+    return [
+        AdminRecallFeedbackOut(
+            id=row.id,
+            org_id=row.org_id,
+            project_id=row.project_id,
+            compilation_id=row.compilation_id,
+            query_profile_id=row.query_profile_id,
+            actor_user_id=row.actor_user_id,
+            entity_type=row.entity_type,
+            entity_id=row.entity_id,
+            label=row.label,
+            note=row.note,
+            metadata=row.metadata_json or {},
+            created_at=row.created_at,
+        )
+        for row in rows
+    ]
 
 
 @router.get("/admin/ops/summary", response_model=AdminOpsSummaryOut)
@@ -1450,17 +1532,27 @@ async def admin_recall_eval(
     cutoff = now_utc() - timedelta(days=lookback_days)
     log_stmt = select(RecallLog).where(RecallLog.org_id == org_id, RecallLog.created_at >= cutoff)
     timing_stmt = select(RecallTiming).where(RecallTiming.org_id == org_id, RecallTiming.created_at >= cutoff)
+    feedback_stmt = select(RetrievalFeedback).where(RetrievalFeedback.org_id == org_id, RetrievalFeedback.created_at >= cutoff)
+    query_profile_stmt = select(QueryProfile).where(QueryProfile.org_id == org_id)
     if project_id is not None:
         log_stmt = log_stmt.where(RecallLog.project_id == project_id)
         timing_stmt = timing_stmt.where(RecallTiming.project_id == project_id)
+        feedback_stmt = feedback_stmt.where(RetrievalFeedback.project_id == project_id)
+        query_profile_stmt = query_profile_stmt.where(QueryProfile.project_id == project_id)
 
     logs = (await db.execute(log_stmt.order_by(RecallLog.created_at.desc(), RecallLog.id.desc()))).scalars().all()
     timings = (
         await db.execute(timing_stmt.order_by(RecallTiming.created_at.desc(), RecallTiming.id.desc()))
     ).scalars().all()
+    feedback_rows = (
+        await db.execute(feedback_stmt.order_by(RetrievalFeedback.created_at.desc(), RetrievalFeedback.id.desc()))
+    ).scalars().all()
+    query_profiles = (await db.execute(query_profile_stmt.order_by(QueryProfile.id.desc()))).scalars().all()
 
     strategy_counts: dict[str, int] = {}
     source_counts: dict[str, int] = {}
+    feedback_label_counts: dict[str, int] = {}
+    preferred_format_counts: dict[str, int] = {}
     empty_query_count = 0
     no_result_count = 0
     ranked_result_total = 0
@@ -1483,6 +1575,12 @@ async def admin_recall_eval(
     rag_durations = [int(row.rag_duration_ms) for row in timings if row.rag_duration_ms is not None]
     for row in timings:
         served_by_counts[row.served_by] = served_by_counts.get(row.served_by, 0) + 1
+    for row in feedback_rows:
+        feedback_label_counts[row.label] = feedback_label_counts.get(row.label, 0) + 1
+    for row in query_profiles:
+        preferred_format = (row.preferred_target_format or "").strip()
+        if preferred_format:
+            preferred_format_counts[preferred_format] = preferred_format_counts.get(preferred_format, 0) + 1
 
     def _avg(values: list[int]) -> float | None:
         if not values:
@@ -1494,9 +1592,13 @@ async def admin_recall_eval(
         total_queries=len(logs),
         empty_query_count=empty_query_count,
         no_result_count=no_result_count,
+        total_feedback=len(feedback_rows),
+        query_profile_count=len(query_profiles),
         strategy_counts=strategy_counts,
         served_by_counts=served_by_counts,
         source_counts=source_counts,
+        feedback_label_counts=feedback_label_counts,
+        preferred_format_counts=preferred_format_counts,
         avg_ranked_results=round(ranked_result_total / len(logs), 2) if logs else None,
         avg_total_duration_ms=_avg(total_durations),
         avg_cag_duration_ms=_avg(cag_durations),
@@ -1511,6 +1613,8 @@ async def admin_recall_query_profiles(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     project_id: int | None = Query(default=None, ge=1),
+    preferred_target_format: str | None = Query(default=None),
+    has_feedback: bool | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> list[AdminQueryProfileOut]:
     _require_admin_auth(request)
@@ -1521,6 +1625,18 @@ async def admin_recall_query_profiles(
     stmt = select(QueryProfile).where(QueryProfile.org_id == org_id)
     if project_id is not None:
         stmt = stmt.where(QueryProfile.project_id == project_id)
+    if preferred_target_format is not None:
+        normalized_format = preferred_target_format.strip().lower()
+        if normalized_format:
+            stmt = stmt.where(func.lower(QueryProfile.preferred_target_format) == normalized_format)
+    if has_feedback is True:
+        stmt = stmt.where(
+            (QueryProfile.helpful_count + QueryProfile.wrong_count + QueryProfile.stale_count + QueryProfile.removed_count + QueryProfile.pinned_count) > 0
+        )
+    if has_feedback is False:
+        stmt = stmt.where(
+            (QueryProfile.helpful_count + QueryProfile.wrong_count + QueryProfile.stale_count + QueryProfile.removed_count + QueryProfile.pinned_count) == 0
+        )
 
     rows = (
         await db.execute(
@@ -1559,6 +1675,78 @@ async def admin_recall_query_profiles(
         )
         for row in rows
     ]
+
+
+@router.get("/admin/recall/query-profiles/{profile_id}", response_model=AdminQueryProfileDetailOut)
+async def admin_recall_query_profile_detail(
+    profile_id: int,
+    request: Request,
+    feedback_limit: int = Query(default=20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+) -> AdminQueryProfileDetailOut:
+    _require_admin_auth(request)
+    org_id = getattr(request.state, "org_id", None)
+    if org_id is None:
+        raise HTTPException(status_code=400, detail="X-Org-Id required")
+
+    profile = (
+        await db.execute(
+            select(QueryProfile)
+            .where(QueryProfile.id == profile_id, QueryProfile.org_id == org_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Query profile not found")
+
+    feedback_rows = (
+        await db.execute(
+            select(RetrievalFeedback)
+            .where(RetrievalFeedback.query_profile_id == profile.id)
+            .order_by(RetrievalFeedback.created_at.desc(), RetrievalFeedback.id.desc())
+            .limit(feedback_limit)
+        )
+    ).scalars().all()
+    return AdminQueryProfileDetailOut(
+        id=profile.id,
+        org_id=profile.org_id,
+        project_id=profile.project_id,
+        actor_user_id=profile.actor_user_id,
+        normalized_query=profile.normalized_query,
+        sample_query=profile.sample_query,
+        preferred_target_format=profile.preferred_target_format,
+        last_target_format=profile.last_target_format,
+        last_strategy=profile.last_strategy,
+        last_served_by=profile.last_served_by,
+        total_queries=profile.total_queries,
+        helpful_count=profile.helpful_count,
+        wrong_count=profile.wrong_count,
+        stale_count=profile.stale_count,
+        removed_count=profile.removed_count,
+        pinned_count=profile.pinned_count,
+        last_compilation_id=profile.last_compilation_id,
+        last_queried_at=profile.last_queried_at,
+        last_feedback_at=profile.last_feedback_at,
+        created_at=profile.created_at,
+        updated_at=profile.updated_at,
+        recent_feedback=[
+            AdminRecallFeedbackOut(
+                id=row.id,
+                org_id=row.org_id,
+                project_id=row.project_id,
+                compilation_id=row.compilation_id,
+                query_profile_id=row.query_profile_id,
+                actor_user_id=row.actor_user_id,
+                entity_type=row.entity_type,
+                entity_id=row.entity_id,
+                label=row.label,
+                note=row.note,
+                metadata=row.metadata_json or {},
+                created_at=row.created_at,
+            )
+            for row in feedback_rows
+        ],
+    )
 
 
 @router.get("/admin/cag/cache-stats", response_model=CagCacheStatsOut)

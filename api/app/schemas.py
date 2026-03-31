@@ -140,6 +140,21 @@ class RecallFeedbackOut(BaseModel):
     created_at: datetime
 
 
+class AdminRecallFeedbackOut(BaseModel):
+    id: int
+    org_id: int
+    project_id: int
+    compilation_id: int
+    query_profile_id: int | None = None
+    actor_user_id: int | None = None
+    entity_type: str
+    entity_id: int | None = None
+    label: RecallFeedbackLabel
+    note: str | None = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
 class SearchOut(BaseModel):
     project_id: int
     query: str
@@ -434,7 +449,9 @@ class AdminContextCompilationDetailOut(BaseModel):
     compilation_text: str | None = None
     compilation_json: Dict[str, Any] = Field(default_factory=dict)
     item_count: int = 0
+    feedback_count: int = 0
     items: list[AdminContextCompilationItemOut] = Field(default_factory=list)
+    recent_feedback: list[AdminRecallFeedbackOut] = Field(default_factory=list)
     query_profile_id: int | None = None
     created_at: datetime
 
@@ -465,9 +482,13 @@ class AdminRecallEvalOut(BaseModel):
     total_queries: int
     empty_query_count: int
     no_result_count: int
+    total_feedback: int
+    query_profile_count: int
     strategy_counts: Dict[str, int] = Field(default_factory=dict)
     served_by_counts: Dict[str, int] = Field(default_factory=dict)
     source_counts: Dict[str, int] = Field(default_factory=dict)
+    feedback_label_counts: Dict[str, int] = Field(default_factory=dict)
+    preferred_format_counts: Dict[str, int] = Field(default_factory=dict)
     avg_ranked_results: float | None = None
     avg_total_duration_ms: float | None = None
     avg_cag_duration_ms: float | None = None
@@ -497,6 +518,10 @@ class AdminQueryProfileOut(BaseModel):
     last_feedback_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class AdminQueryProfileDetailOut(AdminQueryProfileOut):
+    recent_feedback: list[AdminRecallFeedbackOut] = Field(default_factory=list)
 
 
 class AdminSecurityPostureOut(BaseModel):

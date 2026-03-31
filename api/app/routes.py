@@ -702,7 +702,7 @@ async def integrations_capabilities(
         api_version=API_VERSION,
         auth_modes=["session", "api_key", "bearer"],
         ingest_sources=["chrome_ext", "cli", "mcp", "email"],
-        recall_formats=["text", "toon", "toonx"],
+        recall_formats=["text", "toon", "toonx", "auto"],
         brain_batch_max_targets=BRAIN_BATCH_MAX_TARGETS,
         supports_idempotency=True,
         supports_ingest_replay=True,
@@ -2130,6 +2130,27 @@ async def _upsert_query_profile(
     return (await db.execute(stmt)).scalar_one()
 
 
+async def _lookup_query_profile(
+    db: AsyncSession,
+    *,
+    project_id: int,
+    query_text: str,
+) -> QueryProfile | None:
+    normalized_query = _normalize_query_profile_key(query_text)
+    if not normalized_query:
+        return None
+    return (
+        await db.execute(
+            select(QueryProfile)
+            .where(
+                QueryProfile.project_id == project_id,
+                QueryProfile.normalized_query == normalized_query,
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
 async def _write_context_compilation(
     db: AsyncSession,
     *,
@@ -2847,7 +2868,7 @@ async def recall(
     response: Response,
     query: str = "",
     limit: int = Query(default=10, ge=1, le=50),
-    format: str = Query(default="text", description="Output format: 'text' (default), 'toon' (compact), or 'toonx' (versioned structured transport)"),
+    format: str = Query(default="text", description="Output format: 'text' (default), 'toon' (compact), 'toonx' (versioned structured transport), or 'auto' (use query profile preference when available)"),
     db: AsyncSession = Depends(get_db),
     ctx: RequestContext = Depends(get_actor_context),
 ) -> RecallOut:
@@ -3034,7 +3055,12 @@ async def recall(
         score_details = {"reason": "empty_query"}
         rag_duration_ms = int((loop.time() - rag_started) * 1000)
 
-    output_format = format.strip().lower() if format else "text"
+    requested_format = format.strip().lower() if format else "text"
+    output_format = requested_format
+    if output_format == "auto":
+        query_profile = await _lookup_query_profile(db, project_id=project.id, query_text=query_clean)
+        preferred_format = (query_profile.preferred_target_format or "").strip().lower() if query_profile is not None else ""
+        output_format = preferred_format if preferred_format in {"text", "toon", "toonx", "toon-x"} else "text"
     if output_format not in {"text", "toon", "toonx", "toon-x"}:
         output_format = "text"
 
@@ -3126,6 +3152,8 @@ async def recall(
     response.headers["X-ContextCache-Recall-Strategy"] = strategy
     response.headers["X-ContextCache-Recall-Served-By"] = served_by
     response.headers["X-ContextCache-Recall-Duration-Ms"] = str(total_duration_ms)
+    response.headers["X-ContextCache-Recall-Requested-Format"] = requested_format or "text"
+    response.headers["X-ContextCache-Recall-Resolved-Format"] = output_format
     return RecallOut(
         project_id=project.id,
         query=query_clean,
