@@ -26,6 +26,7 @@ from .analyzer.algorithm import (
     run_hybrid_rag_recall,
 )
 from .analyzer.cag import is_local_cag, maybe_answer_from_cache
+from .auth_utils import now_utc
 from .db import AsyncSessionLocal, generate_api_key, get_db, hash_api_key
 from .billing import emit_usage_event
 from .models import (
@@ -42,6 +43,8 @@ from .models import (
     RecallTiming,
     ContextCompilation,
     ContextCompilationItem,
+    QueryProfile,
+    RetrievalFeedback,
     Tag,
     PlanCatalog,
     UserSubscription,
@@ -80,6 +83,8 @@ from .schemas import (
     ProjectCreate,
     ProjectOut,
     ProjectUpdate,
+    RecallFeedbackIn,
+    RecallFeedbackOut,
     RecallItemOut,
     RecallOut,
     RoleType,
@@ -92,7 +97,7 @@ from .schemas import (
     BrainBatchResultItem,
     IntegrationsCapabilitiesOut,
 )
-from .compiler import build_mir_from_recall, render_toon_x
+from .compiler import build_mir_from_recall, refresh_mir_bundle, render_toon_x
 
 # ── Daily usage limits (env-configurable, 0 = no limit) ─────────────────────
 def _env_int(primary: str, fallback: str, default: str) -> int:
@@ -2072,6 +2077,59 @@ def _estimate_token_count(text: str | None) -> int | None:
     return max(1, len(text.split()))
 
 
+def _normalize_query_profile_key(query_text: str) -> str:
+    return " ".join((query_text or "").strip().lower().split())[:500]
+
+
+async def _upsert_query_profile(
+    db: AsyncSession,
+    *,
+    project: Project,
+    ctx: RequestContext,
+    query_text: str,
+    target_format: str,
+    strategy: str,
+    served_by: str,
+    compilation_id: int,
+) -> int | None:
+    normalized_query = _normalize_query_profile_key(query_text)
+    if not normalized_query:
+        return None
+
+    stmt = (
+        pg_insert(QueryProfile)
+        .values(
+            org_id=project.org_id,
+            project_id=project.id,
+            actor_user_id=ctx.actor_user_id,
+            normalized_query=normalized_query,
+            sample_query=query_text,
+            last_target_format=target_format,
+            last_strategy=strategy,
+            last_served_by=served_by,
+            total_queries=1,
+            last_compilation_id=compilation_id,
+            last_queried_at=now_utc(),
+        )
+        .on_conflict_do_update(
+            constraint="uq_query_profiles_project_normalized_query",
+            set_={
+                "actor_user_id": ctx.actor_user_id,
+                "sample_query": query_text,
+                "last_target_format": target_format,
+                "last_strategy": strategy,
+                "last_served_by": served_by,
+                "total_queries": QueryProfile.total_queries + 1,
+                "last_compilation_id": compilation_id,
+                "last_queried_at": now_utc(),
+                "updated_at": now_utc(),
+            },
+        )
+        .returning(QueryProfile.id)
+    )
+    return (await db.execute(stmt)).scalar_one()
+
+
 async def _write_context_compilation(
     db: AsyncSession,
     *,
@@ -2082,8 +2140,9 @@ async def _write_context_compilation(
     compilation_text: str,
     compilation_json: dict[str, Any],
     served_by: str,
+    strategy: str,
     latency_ms: int,
-) -> None:
+) -> int | None:
     compilation = ContextCompilation(
         org_id=project.org_id,
         project_id=project.id,
@@ -2117,6 +2176,16 @@ async def _write_context_compilation(
                 source_kind=item.get("kind"),
             )
         )
+    return await _upsert_query_profile(
+        db,
+        project=project,
+        ctx=ctx,
+        query_text=query_text,
+        target_format=target_format,
+        strategy=strategy,
+        served_by=served_by,
+        compilation_id=compilation.id,
+    )
 
 
 # Phase 4.3: Chaos Theory - Lyapunov Load Balancing
@@ -2994,10 +3063,17 @@ async def recall(
         output_format=output_format,
         memory_pack_text=pack,
         items=out_items,
+        served_by=served_by,
+        strategy=strategy,
+        input_memory_ids=input_memory_ids,
+        ranked_memory_ids=ranked_memory_ids,
+        score_details=score_details,
+        weights=weight_details if query_clean else {},
     )
     if output_format in {"toonx", "toon-x"} and out_items:
         pack = render_toon_x(mir)
         mir.memory_pack_text = pack
+        refresh_mir_bundle(mir, target_format=output_format)
 
     total_duration_ms = int((loop.time() - request_started) * 1000)
     await write_usage(
@@ -3042,6 +3118,7 @@ async def recall(
         compilation_text=pack,
         compilation_json=_model_dump_json(mir),
         served_by=served_by,
+        strategy=strategy,
         latency_ms=total_duration_ms,
     )
     await db.commit()
@@ -3058,4 +3135,113 @@ async def recall(
         mir=mir,
         global_kv_cache_id=cag_kv_cache_id,
         global_memory_matrix=cag_memory_matrix,
+    )
+
+
+@router.post("/projects/{project_id}/recall/feedback", response_model=RecallFeedbackOut, status_code=201)
+async def submit_recall_feedback(
+    project_id: int,
+    payload: RecallFeedbackIn,
+    db: AsyncSession = Depends(get_db),
+    ctx: RequestContext = Depends(get_actor_context),
+) -> RecallFeedbackOut:
+    require_role(ctx, "viewer")
+    project = await get_project_or_404(db, project_id, ctx)
+    compilation = (
+        await db.execute(
+            select(ContextCompilation)
+            .where(
+                ContextCompilation.id == payload.compilation_id,
+                ContextCompilation.org_id == project.org_id,
+                ContextCompilation.project_id == project.id,
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if compilation is None:
+        raise HTTPException(status_code=404, detail="Compilation not found")
+
+    if payload.entity_id is not None:
+        compilation_item = (
+            await db.execute(
+                select(ContextCompilationItem)
+                .where(
+                    ContextCompilationItem.compilation_id == compilation.id,
+                    ContextCompilationItem.entity_type == "memory",
+                    ContextCompilationItem.entity_id == payload.entity_id,
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if compilation_item is None:
+            raise HTTPException(status_code=400, detail="Entity is not part of the compilation")
+
+    normalized_query = _normalize_query_profile_key(compilation.query_text)
+    query_profile = None
+    if normalized_query:
+        query_profile = (
+            await db.execute(
+                select(QueryProfile)
+                .where(
+                    QueryProfile.project_id == project.id,
+                    QueryProfile.normalized_query == normalized_query,
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+    feedback = RetrievalFeedback(
+        org_id=project.org_id,
+        project_id=project.id,
+        compilation_id=compilation.id,
+        query_profile_id=query_profile.id if query_profile is not None else None,
+        actor_user_id=ctx.actor_user_id,
+        entity_type="memory",
+        entity_id=payload.entity_id,
+        label=payload.label,
+        note=payload.note,
+        metadata_json=payload.metadata or {},
+    )
+    db.add(feedback)
+    await db.flush()
+
+    if query_profile is not None:
+        count_field = {
+            "helpful": "helpful_count",
+            "wrong": "wrong_count",
+            "stale": "stale_count",
+            "removed": "removed_count",
+            "pinned": "pinned_count",
+        }[payload.label]
+        setattr(query_profile, count_field, int(getattr(query_profile, count_field) or 0) + 1)
+        query_profile.last_feedback_at = now_utc()
+        query_profile.last_compilation_id = compilation.id
+        if payload.label in {"helpful", "pinned"}:
+            query_profile.preferred_target_format = compilation.target_format
+
+    await write_audit(
+        db,
+        ctx=ctx,
+        org_id=project.org_id,
+        action="recall.feedback.submit",
+        entity_type="context_compilation",
+        entity_id=compilation.id,
+        metadata={
+            "feedback_id": feedback.id,
+            "label": payload.label,
+            "entity_id": payload.entity_id,
+            "query_profile_id": query_profile.id if query_profile is not None else None,
+        },
+    )
+    await db.commit()
+    await db.refresh(feedback)
+    return RecallFeedbackOut(
+        id=feedback.id,
+        compilation_id=feedback.compilation_id,
+        query_profile_id=feedback.query_profile_id,
+        label=feedback.label,
+        entity_type=feedback.entity_type,
+        entity_id=feedback.entity_id,
+        note=feedback.note,
+        created_at=feedback.created_at,
     )

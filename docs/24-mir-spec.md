@@ -40,6 +40,21 @@ A `MIR/1` payload is a document containing:
   "query": "migration reliability",
   "generated_at": "2026-03-30T18:00:00Z",
   "memory_pack_text": "## Decisions\\n- ...",
+  "bundle": {
+    "bundle_id": "bundle:3f9c0d1f7a42b8e1",
+    "target_format": "text",
+    "item_count": 3,
+    "token_estimate": 42
+  },
+  "retrieval_plan": {
+    "served_by": "rag",
+    "strategy": "hybrid",
+    "input_memory_ids": [11, 12, 14],
+    "ranked_memory_ids": [12, 11, 14],
+    "candidate_count": 3,
+    "weights": {"fts": 0.6, "vector": 0.25, "recency": 0.15},
+    "score_source": "local-fallback"
+  },
   "items": []
 }
 ```
@@ -135,6 +150,53 @@ Meaning:
 
 - convenience copy of the rendered output when a text renderer already exists
 - useful during migration while recall remains an official renderer
+
+### `bundle`
+
+Type:
+
+- object or null
+
+Required:
+
+- no
+
+Meaning:
+
+- stable metadata for the compiled artifact itself
+- identifies the output bundle that was produced and the format it targets
+
+Current fields:
+
+- `bundle_id`: stable content-derived identifier for the compilation artifact
+- `target_format`: requested renderer family such as `text`, `toon`, or `toonx`
+- `item_count`: number of compiled items in the bundle
+- `token_estimate`: lightweight token estimate for the rendered pack
+
+### `retrieval_plan`
+
+Type:
+
+- object or null
+
+Required:
+
+- no
+
+Meaning:
+
+- records how the compiler assembled this bundle from retrieval results
+
+Current fields:
+
+- `served_by`: broad execution path such as `rag` or `cag`
+- `strategy`: retrieval strategy such as `hybrid`, `recency`, or `cag`
+- `input_memory_ids`: candidate memory ids considered by retrieval
+- `ranked_memory_ids`: selected memory ids in output order
+- `candidate_count`: number of candidates considered, when known
+- `weights`: ranking weights used by hybrid retrieval, when applicable
+- `reason`: fallback reason such as `no_hybrid_match`, when applicable
+- `score_source`: retrieval backend/source label when available
 
 ### `items`
 

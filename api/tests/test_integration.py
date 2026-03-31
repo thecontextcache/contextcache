@@ -32,7 +32,9 @@ from app.models import (
     RecallLog,
     ContextCompilation,
     ContextCompilationItem,
+    QueryProfile,
     Tag,
+    RetrievalFeedback,
     UsageCounter,
     User,
     MemoryTag,
@@ -1667,6 +1669,10 @@ async def test_recall_persists_context_compilation_with_item_provenance(
     body = recall_resp.json()
     assert body["renderer"] == "toon-x/v1"
     assert body["mir"]["version"] == "mir/1"
+    assert body["mir"]["bundle"]["target_format"] == "toonx"
+    assert body["mir"]["bundle"]["bundle_id"].startswith("bundle:")
+    assert body["mir"]["retrieval_plan"]["served_by"] in {"rag", "cag"}
+    assert body["mir"]["retrieval_plan"]["strategy"] in {"hybrid", "recency", "cag"}
 
     compilation = (
         await db_session.execute(
@@ -1682,6 +1688,9 @@ async def test_recall_persists_context_compilation_with_item_provenance(
     assert compilation.target_format == "toonx"
     assert compilation.served_by in {"rag", "cag"}
     assert compilation.compilation_json["version"] == "mir/1"
+    assert compilation.compilation_json["bundle"]["target_format"] == "toonx"
+    assert compilation.compilation_json["bundle"]["item_count"] >= 1
+    assert compilation.compilation_json["retrieval_plan"]["served_by"] in {"rag", "cag"}
 
     item_rows = (
         await db_session.execute(
@@ -1718,6 +1727,8 @@ async def test_recall_persists_text_context_compilation_with_mir_json(
     assert body["renderer"] == "recall-pack/v1"
     assert body["mir"]["version"] == "mir/1"
     assert body["mir"]["renderer"] == "recall-pack/v1"
+    assert body["mir"]["bundle"]["target_format"] == "text"
+    assert body["mir"]["retrieval_plan"]["served_by"] == "rag"
 
     compilation = (
         await db_session.execute(
@@ -1733,6 +1744,7 @@ async def test_recall_persists_text_context_compilation_with_mir_json(
     assert compilation.target_format == "text"
     assert compilation.compilation_json["version"] == "mir/1"
     assert compilation.compilation_json["renderer"] == "recall-pack/v1"
+    assert compilation.compilation_json["bundle"]["target_format"] == "text"
     assert compilation.compilation_text == body["memory_pack_text"]
 
 
@@ -1782,6 +1794,12 @@ async def test_admin_recall_compilations_returns_recent_entries(
     matching_rows = [row for row in rows if row["query_text"] == "compilation listing"]
     assert len(matching_rows) >= 2
     assert all(row["item_count"] >= 1 for row in matching_rows)
+    assert all((row["bundle_id"] or "").startswith("bundle:") for row in matching_rows)
+    assert {row["retrieval_strategy"] for row in matching_rows if row["retrieval_strategy"] is not None} <= {
+        "hybrid",
+        "recency",
+        "cag",
+    }
 
     toonx_only = await client.get(
         "/admin/recall/compilations",
@@ -1792,6 +1810,157 @@ async def test_admin_recall_compilations_returns_recent_entries(
     toonx_rows = toonx_only.json()
     assert toonx_rows
     assert all(row["target_format"] == "toonx" for row in toonx_rows)
+    assert all(row["bundle_id"] for row in toonx_rows)
+
+
+async def test_admin_recall_compilation_detail_returns_artifact_and_items(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    admin_headers = await _login_org_member(
+        client,
+        db_session,
+        app_ctx,
+        role="owner",
+        is_admin=True,
+    )
+    create_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=admin_headers,
+        json={"type": "decision", "content": "Compilation detail memory"},
+    )
+    assert create_resp.status_code == 201
+
+    recall_resp = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=admin_headers,
+        params={"query": "compilation detail", "limit": 5, "format": "toonx"},
+    )
+    assert recall_resp.status_code == 200
+
+    compilation = (
+        await db_session.execute(
+            select(ContextCompilation)
+            .where(
+                ContextCompilation.project_id == app_ctx.project_id,
+                ContextCompilation.query_text == "compilation detail",
+            )
+            .order_by(ContextCompilation.id.desc())
+            .limit(1)
+        )
+    ).scalar_one()
+
+    detail_resp = await client.get(
+        f"/admin/recall/compilations/{compilation.id}",
+        headers=admin_headers,
+    )
+    assert detail_resp.status_code == 200
+    body = detail_resp.json()
+    assert body["id"] == compilation.id
+    assert body["target_format"] == "toonx"
+    assert body["bundle_id"].startswith("bundle:")
+    assert body["renderer"] == "toon-x/v1"
+    assert body["retrieval_strategy"] in {"hybrid", "recency", "cag"}
+    assert body["compilation_json"]["version"] == "mir/1"
+    assert body["items"]
+    assert body["item_count"] == len(body["items"])
+    assert body["query_profile_id"] is not None
+
+
+async def test_recall_feedback_updates_query_profile_and_persists_feedback(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    viewer_headers = await _login_org_member(client, db_session, app_ctx, role="viewer")
+    create_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=auth_headers(app_ctx, role="owner"),
+        json={"type": "decision", "content": "Feedback target memory"},
+    )
+    assert create_resp.status_code == 201
+    memory_id = create_resp.json()["id"]
+
+    recall_resp = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=viewer_headers,
+        params={"query": "feedback target", "limit": 5, "format": "toonx"},
+    )
+    assert recall_resp.status_code == 200
+
+    compilation = (
+        await db_session.execute(
+            select(ContextCompilation)
+            .where(
+                ContextCompilation.project_id == app_ctx.project_id,
+                ContextCompilation.query_text == "feedback target",
+            )
+            .order_by(ContextCompilation.id.desc())
+            .limit(1)
+        )
+    ).scalar_one()
+
+    feedback_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/recall/feedback",
+        headers=viewer_headers,
+        json={
+            "compilation_id": compilation.id,
+            "label": "helpful",
+            "entity_id": memory_id,
+            "note": "This was the right memory.",
+            "metadata": {"source": "integration-test"},
+        },
+    )
+    assert feedback_resp.status_code == 201
+    feedback_body = feedback_resp.json()
+    assert feedback_body["compilation_id"] == compilation.id
+    assert feedback_body["label"] == "helpful"
+    assert feedback_body["entity_id"] == memory_id
+    assert feedback_body["query_profile_id"] is not None
+
+    feedback_row = (
+        await db_session.execute(
+            select(RetrievalFeedback)
+            .where(RetrievalFeedback.id == feedback_body["id"])
+            .limit(1)
+        )
+    ).scalar_one()
+    assert feedback_row.query_profile_id == feedback_body["query_profile_id"]
+    assert feedback_row.metadata_json["source"] == "integration-test"
+
+    query_profile = (
+        await db_session.execute(
+            select(QueryProfile)
+            .where(QueryProfile.id == feedback_body["query_profile_id"])
+            .limit(1)
+        )
+    ).scalar_one()
+    assert query_profile.normalized_query == "feedback target"
+    assert query_profile.total_queries >= 1
+    assert query_profile.helpful_count >= 1
+    assert query_profile.preferred_target_format == "toonx"
+    assert query_profile.last_compilation_id == compilation.id
+    assert query_profile.last_feedback_at is not None
+
+    admin_headers = await _login_org_member(
+        client,
+        db_session,
+        app_ctx,
+        role="owner",
+        is_admin=True,
+    )
+    profiles_resp = await client.get(
+        "/admin/recall/query-profiles",
+        headers=admin_headers,
+        params={"project_id": app_ctx.project_id, "limit": 20, "offset": 0},
+    )
+    assert profiles_resp.status_code == 200
+    profiles = profiles_resp.json()
+    matching = [row for row in profiles if row["normalized_query"] == "feedback target"]
+    assert matching
+    assert matching[0]["helpful_count"] >= 1
+    assert matching[0]["preferred_target_format"] == "toonx"
 
 
 async def test_admin_ops_summary_reports_capture_backlog_and_failures(

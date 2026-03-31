@@ -37,6 +37,12 @@ def test_build_mir_from_recall_builds_ranked_items_and_renderer() -> None:
         output_format="toon",
         memory_pack_text="CTX/1 ...",
         items=[item],
+        served_by="rag",
+        strategy="hybrid",
+        input_memory_ids=[42, 43],
+        ranked_memory_ids=[42],
+        score_details={"source": "local-fallback", "candidate_count": 2},
+        weights={"fts": 0.6, "vector": 0.25, "recency": 0.15},
         now=now,
     )
 
@@ -56,6 +62,19 @@ def test_build_mir_from_recall_builds_ranked_items_and_renderer() -> None:
     assert mir_item.freshness.status == "fresh"
     assert mir_item.evidence_refs == ["memory:42"]
     assert mir_item.tags == ["vision", "compiler"]
+    assert doc.bundle is not None
+    assert doc.bundle.bundle_id.startswith("bundle:")
+    assert doc.bundle.target_format == "toon"
+    assert doc.bundle.item_count == 1
+    assert doc.bundle.token_estimate == 2
+    assert doc.retrieval_plan is not None
+    assert doc.retrieval_plan.served_by == "rag"
+    assert doc.retrieval_plan.strategy == "hybrid"
+    assert doc.retrieval_plan.input_memory_ids == [42, 43]
+    assert doc.retrieval_plan.ranked_memory_ids == [42]
+    assert doc.retrieval_plan.candidate_count == 2
+    assert doc.retrieval_plan.score_source == "local-fallback"
+    assert doc.retrieval_plan.weights["fts"] == 0.6
 
 
 def test_render_toon_x_uses_mir_fields() -> None:

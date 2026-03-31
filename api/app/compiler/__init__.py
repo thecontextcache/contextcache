@@ -1,27 +1,33 @@
 from .mir import (
+    MIRBundle,
     MIRDocument,
     MIRFreshness,
     MIRFreshnessStatus,
     MIRItem,
     MIRKind,
     MIRRenderer,
+    MIRRetrievalPlan,
     MIRScope,
     MIRScopeLevel,
     build_mir_from_recall,
     memory_type_to_mir_kind,
+    refresh_mir_bundle,
     render_toon_x,
 )
 
 __all__ = [
+    "MIRBundle",
     "MIRDocument",
     "MIRFreshness",
     "MIRFreshnessStatus",
     "MIRItem",
     "MIRKind",
     "MIRRenderer",
+    "MIRRetrievalPlan",
     "MIRScope",
     "MIRScopeLevel",
     "build_mir_from_recall",
     "memory_type_to_mir_kind",
+    "refresh_mir_bundle",
     "render_toon_x",
 ]

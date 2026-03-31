@@ -393,6 +393,68 @@ class ContextCompilationItem(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
+class QueryProfile(Base):
+    __tablename__ = "query_profiles"
+    __table_args__ = (
+        UniqueConstraint("project_id", "normalized_query", name="uq_query_profiles_project_normalized_query"),
+        Index("ix_query_profiles_org_project_updated", "org_id", "project_id", "updated_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    actor_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    normalized_query: Mapped[str] = mapped_column(String(500), nullable=False)
+    sample_query: Mapped[str] = mapped_column(Text, nullable=False)
+    preferred_target_format: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    last_target_format: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    last_strategy: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    last_served_by: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    total_queries: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    helpful_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    wrong_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    stale_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    removed_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    pinned_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    last_compilation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("context_compilations.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    last_queried_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    last_feedback_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False, index=True
+    )
+
+
+class RetrievalFeedback(Base):
+    __tablename__ = "retrieval_feedback"
+    __table_args__ = (
+        Index("ix_retrieval_feedback_compilation_created", "compilation_id", "created_at"),
+        Index("ix_retrieval_feedback_query_profile_created", "query_profile_id", "created_at"),
+        Index("ix_retrieval_feedback_org_project_created", "org_id", "project_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    compilation_id: Mapped[int] = mapped_column(
+        ForeignKey("context_compilations.id", ondelete="CASCADE"), index=True
+    )
+    query_profile_id: Mapped[int | None] = mapped_column(
+        ForeignKey("query_profiles.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    actor_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    entity_type: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text("'memory'"))
+    entity_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    label: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
 # ---------------------------------------------------------------------------
 # Auth models
 # ---------------------------------------------------------------------------

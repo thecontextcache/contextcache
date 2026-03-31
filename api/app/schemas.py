@@ -118,6 +118,28 @@ class RecallOut(BaseModel):
     global_memory_matrix: list[list[float]] | None = None
 
 
+RecallFeedbackLabel = Literal["helpful", "wrong", "stale", "removed", "pinned"]
+
+
+class RecallFeedbackIn(BaseModel):
+    compilation_id: int = Field(ge=1)
+    label: RecallFeedbackLabel
+    entity_id: int | None = Field(default=None, ge=1)
+    note: str | None = Field(default=None, max_length=2000)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class RecallFeedbackOut(BaseModel):
+    id: int
+    compilation_id: int
+    query_profile_id: int | None = None
+    label: RecallFeedbackLabel
+    entity_type: str
+    entity_id: int | None = None
+    note: str | None = None
+    created_at: datetime
+
+
 class SearchOut(BaseModel):
     project_id: int
     query: str
@@ -374,12 +396,46 @@ class AdminContextCompilationOut(BaseModel):
     project_id: int
     actor_user_id: int | None = None
     query_text: str
+    bundle_id: str | None = None
     target_format: str
     renderer: str | None = None
+    retrieval_strategy: str | None = None
     served_by: str | None = None
     status: str
     latency_ms: int | None = None
     item_count: int = 0
+    created_at: datetime
+
+
+class AdminContextCompilationItemOut(BaseModel):
+    id: int
+    entity_type: str
+    entity_id: int | None = None
+    rank: int | None = None
+    token_estimate: int | None = None
+    why_included: str | None = None
+    source_kind: str | None = None
+    created_at: datetime
+
+
+class AdminContextCompilationDetailOut(BaseModel):
+    id: int
+    org_id: int
+    project_id: int
+    actor_user_id: int | None = None
+    query_text: str
+    bundle_id: str | None = None
+    target_format: str
+    renderer: str | None = None
+    retrieval_strategy: str | None = None
+    served_by: str | None = None
+    status: str
+    latency_ms: int | None = None
+    compilation_text: str | None = None
+    compilation_json: Dict[str, Any] = Field(default_factory=dict)
+    item_count: int = 0
+    items: list[AdminContextCompilationItemOut] = Field(default_factory=list)
+    query_profile_id: int | None = None
     created_at: datetime
 
 
@@ -417,6 +473,30 @@ class AdminRecallEvalOut(BaseModel):
     avg_cag_duration_ms: float | None = None
     avg_rag_duration_ms: float | None = None
     max_total_duration_ms: int | None = None
+
+
+class AdminQueryProfileOut(BaseModel):
+    id: int
+    org_id: int
+    project_id: int
+    actor_user_id: int | None = None
+    normalized_query: str
+    sample_query: str
+    preferred_target_format: str | None = None
+    last_target_format: str | None = None
+    last_strategy: str | None = None
+    last_served_by: str | None = None
+    total_queries: int
+    helpful_count: int
+    wrong_count: int
+    stale_count: int
+    removed_count: int
+    pinned_count: int
+    last_compilation_id: int | None = None
+    last_queried_at: datetime | None = None
+    last_feedback_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class AdminSecurityPostureOut(BaseModel):

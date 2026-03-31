@@ -32,8 +32,10 @@ from .models import (
     AuthSession,
     AuthUser,
     ContextCompilation,
+    ContextCompilationItem,
     Membership,
     Organization,
+    QueryProfile,
     RawCapture,
     RecallLog,
     RecallTiming,
@@ -46,6 +48,8 @@ from .models import (
 )
 from .rate_limit import check_request_link_limits, check_verify_limits
 from .schemas import (
+    AdminContextCompilationDetailOut,
+    AdminContextCompilationItemOut,
     AdminContextCompilationOut,
     AdminLlmHealthOut,
     AdminInviteCreateIn,
@@ -56,6 +60,7 @@ from .schemas import (
     AdminCaptureFailureOut,
     AdminRecallLogOut,
     AdminRecallEvalOut,
+    AdminQueryProfileOut,
     AdminSecurityPostureOut,
     AdminUsageOut,
     AdminUserOut,
@@ -1251,8 +1256,10 @@ async def admin_recall_compilations(
             project_id=row.project_id,
             actor_user_id=row.actor_user_id,
             query_text=row.query_text,
+            bundle_id=((row.compilation_json or {}).get("bundle") or {}).get("bundle_id"),
             target_format=row.target_format,
             renderer=(row.compilation_json or {}).get("renderer"),
+            retrieval_strategy=((row.compilation_json or {}).get("retrieval_plan") or {}).get("strategy"),
             served_by=row.served_by,
             status=row.status,
             latency_ms=row.latency_ms,
@@ -1261,6 +1268,76 @@ async def admin_recall_compilations(
         )
         for row in rows
     ]
+
+
+@router.get("/admin/recall/compilations/{compilation_id}", response_model=AdminContextCompilationDetailOut)
+async def admin_recall_compilation_detail(
+    compilation_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> AdminContextCompilationDetailOut:
+    _require_admin_auth(request)
+    org_id = getattr(request.state, "org_id", None)
+    if org_id is None:
+        raise HTTPException(status_code=400, detail="X-Org-Id required")
+
+    compilation = (
+        await db.execute(
+            select(ContextCompilation)
+            .where(ContextCompilation.id == compilation_id, ContextCompilation.org_id == org_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if compilation is None:
+        raise HTTPException(status_code=404, detail="Compilation not found")
+
+    item_rows = (
+        await db.execute(
+            select(ContextCompilationItem)
+            .where(ContextCompilationItem.compilation_id == compilation.id)
+            .order_by(ContextCompilationItem.rank.asc(), ContextCompilationItem.id.asc())
+        )
+    ).scalars().all()
+    query_profile_id = (
+        await db.execute(
+            select(QueryProfile.id)
+            .where(QueryProfile.last_compilation_id == compilation.id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    compilation_json = compilation.compilation_json or {}
+    return AdminContextCompilationDetailOut(
+        id=compilation.id,
+        org_id=compilation.org_id,
+        project_id=compilation.project_id,
+        actor_user_id=compilation.actor_user_id,
+        query_text=compilation.query_text,
+        bundle_id=(compilation_json.get("bundle") or {}).get("bundle_id"),
+        target_format=compilation.target_format,
+        renderer=compilation_json.get("renderer"),
+        retrieval_strategy=(compilation_json.get("retrieval_plan") or {}).get("strategy"),
+        served_by=compilation.served_by,
+        status=compilation.status,
+        latency_ms=compilation.latency_ms,
+        compilation_text=compilation.compilation_text,
+        compilation_json=compilation_json,
+        item_count=len(item_rows),
+        items=[
+            AdminContextCompilationItemOut(
+                id=row.id,
+                entity_type=row.entity_type,
+                entity_id=row.entity_id,
+                rank=row.rank,
+                token_estimate=row.token_estimate,
+                why_included=row.why_included,
+                source_kind=row.source_kind,
+                created_at=row.created_at,
+            )
+            for row in item_rows
+        ],
+        query_profile_id=query_profile_id,
+        created_at=compilation.created_at,
+    )
 
 
 @router.get("/admin/ops/summary", response_model=AdminOpsSummaryOut)
@@ -1426,6 +1503,62 @@ async def admin_recall_eval(
         avg_rag_duration_ms=_avg(rag_durations),
         max_total_duration_ms=max(total_durations) if total_durations else None,
     )
+
+
+@router.get("/admin/recall/query-profiles", response_model=list[AdminQueryProfileOut])
+async def admin_recall_query_profiles(
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    project_id: int | None = Query(default=None, ge=1),
+    db: AsyncSession = Depends(get_db),
+) -> list[AdminQueryProfileOut]:
+    _require_admin_auth(request)
+    org_id = getattr(request.state, "org_id", None)
+    if org_id is None:
+        raise HTTPException(status_code=400, detail="X-Org-Id required")
+
+    stmt = select(QueryProfile).where(QueryProfile.org_id == org_id)
+    if project_id is not None:
+        stmt = stmt.where(QueryProfile.project_id == project_id)
+
+    rows = (
+        await db.execute(
+            stmt
+            .order_by(
+                func.coalesce(QueryProfile.last_feedback_at, QueryProfile.last_queried_at, QueryProfile.updated_at).desc(),
+                QueryProfile.id.desc(),
+            )
+            .offset(offset)
+            .limit(limit)
+        )
+    ).scalars().all()
+    return [
+        AdminQueryProfileOut(
+            id=row.id,
+            org_id=row.org_id,
+            project_id=row.project_id,
+            actor_user_id=row.actor_user_id,
+            normalized_query=row.normalized_query,
+            sample_query=row.sample_query,
+            preferred_target_format=row.preferred_target_format,
+            last_target_format=row.last_target_format,
+            last_strategy=row.last_strategy,
+            last_served_by=row.last_served_by,
+            total_queries=row.total_queries,
+            helpful_count=row.helpful_count,
+            wrong_count=row.wrong_count,
+            stale_count=row.stale_count,
+            removed_count=row.removed_count,
+            pinned_count=row.pinned_count,
+            last_compilation_id=row.last_compilation_id,
+            last_queried_at=row.last_queried_at,
+            last_feedback_at=row.last_feedback_at,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+        )
+        for row in rows
+    ]
 
 
 @router.get("/admin/cag/cache-stats", response_model=CagCacheStatsOut)

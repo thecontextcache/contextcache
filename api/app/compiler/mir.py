@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from hashlib import sha256
 from datetime import datetime, timezone
 from typing import Literal, Sequence
 
@@ -56,6 +57,24 @@ class MIRItem(BaseModel):
     created_at: datetime | None = None
 
 
+class MIRBundle(BaseModel):
+    bundle_id: str
+    target_format: str
+    item_count: int = Field(ge=0)
+    token_estimate: int | None = Field(default=None, ge=0)
+
+
+class MIRRetrievalPlan(BaseModel):
+    served_by: str
+    strategy: str
+    input_memory_ids: list[int] = Field(default_factory=list)
+    ranked_memory_ids: list[int] = Field(default_factory=list)
+    candidate_count: int | None = Field(default=None, ge=0)
+    weights: dict[str, float] = Field(default_factory=dict)
+    reason: str | None = None
+    score_source: str | None = None
+
+
 class MIRDocument(BaseModel):
     version: Literal["mir/1"] = "mir/1"
     renderer: MIRRenderer
@@ -63,6 +82,8 @@ class MIRDocument(BaseModel):
     query: str
     generated_at: datetime
     memory_pack_text: str | None = None
+    bundle: MIRBundle | None = None
+    retrieval_plan: MIRRetrievalPlan | None = None
     items: list[MIRItem] = Field(default_factory=list)
 
 
@@ -106,6 +127,40 @@ def _renderer_for(output_format: str) -> MIRRenderer:
     return "recall-pack/v1"
 
 
+def _token_estimate_for(text: str | None) -> int | None:
+    if not text:
+        return None
+    return max(1, len(text.split()))
+
+
+def _bundle_id_for(document: MIRDocument, *, target_format: str) -> str:
+    digest = sha256()
+    digest.update(document.version.encode("utf-8"))
+    digest.update(b"|")
+    digest.update(document.renderer.encode("utf-8"))
+    digest.update(b"|")
+    digest.update(str(document.project_id).encode("utf-8"))
+    digest.update(b"|")
+    digest.update(target_format.encode("utf-8"))
+    digest.update(b"|")
+    digest.update(document.query.encode("utf-8"))
+    digest.update(b"|")
+    digest.update((document.memory_pack_text or "").encode("utf-8"))
+    for item in document.items:
+        digest.update(b"|")
+        digest.update(item.id.encode("utf-8"))
+    return f"bundle:{digest.hexdigest()[:16]}"
+
+
+def refresh_mir_bundle(document: MIRDocument, *, target_format: str) -> None:
+    document.bundle = MIRBundle(
+        bundle_id=_bundle_id_for(document, target_format=target_format),
+        target_format=target_format,
+        item_count=len(document.items),
+        token_estimate=_token_estimate_for(document.memory_pack_text),
+    )
+
+
 def build_mir_from_recall(
     *,
     project_id: int,
@@ -113,6 +168,12 @@ def build_mir_from_recall(
     output_format: str,
     memory_pack_text: str,
     items: Sequence[object],
+    served_by: str = "rag",
+    strategy: str = "recency",
+    input_memory_ids: Sequence[int] | None = None,
+    ranked_memory_ids: Sequence[int] | None = None,
+    score_details: dict[str, object] | None = None,
+    weights: dict[str, float] | None = None,
     now: datetime | None = None,
 ) -> MIRDocument:
     generated_at = now or datetime.now(timezone.utc)
@@ -144,14 +205,35 @@ def build_mir_from_recall(
                 created_at=created_at,
             )
         )
-    return MIRDocument(
+    normalized_output_format = (output_format or "").strip().lower() or "text"
+    retrieval_details = score_details or {}
+    candidate_count = retrieval_details.get("candidate_count")
+    if not isinstance(candidate_count, int):
+        candidate_count = len(list(input_memory_ids or [])) or len(list(ranked_memory_ids or []))
+    reason = retrieval_details.get("reason")
+    score_source = retrieval_details.get("source")
+    raw_retrieval_weights = weights or retrieval_details.get("weights") or {}
+    retrieval_weights = raw_retrieval_weights if isinstance(raw_retrieval_weights, dict) else {}
+    document = MIRDocument(
         renderer=_renderer_for(output_format),
         project_id=project_id,
         query=query,
         generated_at=generated_at,
         memory_pack_text=memory_pack_text,
+        retrieval_plan=MIRRetrievalPlan(
+            served_by=served_by,
+            strategy=strategy,
+            input_memory_ids=list(input_memory_ids or []),
+            ranked_memory_ids=list(ranked_memory_ids or []),
+            candidate_count=candidate_count,
+            weights={str(key): float(value) for key, value in dict(retrieval_weights).items()},
+            reason=str(reason) if isinstance(reason, str) and reason else None,
+            score_source=str(score_source) if isinstance(score_source, str) and score_source else None,
+        ),
         items=mir_items,
     )
+    refresh_mir_bundle(document, target_format=normalized_output_format)
+    return document
 
 
 def render_toon_x(document: MIRDocument) -> str:
