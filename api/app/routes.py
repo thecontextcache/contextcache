@@ -2986,6 +2986,19 @@ async def recall(
         else:
             pack = cag_pack
 
+    tag_map = await _load_tag_names(db, [m.id for m, _ in top_with_rank]) if top_with_rank else {}
+    out_items = [_recall_item_to_out(m, tag_map.get(m.id, []), rs) for m, rs in top_with_rank]
+    mir = build_mir_from_recall(
+        project_id=project.id,
+        query=query_clean,
+        output_format=output_format,
+        memory_pack_text=pack,
+        items=out_items,
+    )
+    if output_format in {"toonx", "toon-x"} and out_items:
+        pack = render_toon_x(mir)
+        mir.memory_pack_text = pack
+
     total_duration_ms = int((loop.time() - request_started) * 1000)
     await write_usage(
         db,
@@ -3036,19 +3049,6 @@ async def recall(
     response.headers["X-ContextCache-Recall-Strategy"] = strategy
     response.headers["X-ContextCache-Recall-Served-By"] = served_by
     response.headers["X-ContextCache-Recall-Duration-Ms"] = str(total_duration_ms)
-
-    tag_map = await _load_tag_names(db, [m.id for m, _ in top_with_rank]) if top_with_rank else {}
-    out_items = [_recall_item_to_out(m, tag_map.get(m.id, []), rs) for m, rs in top_with_rank]
-    mir = build_mir_from_recall(
-        project_id=project.id,
-        query=query_clean,
-        output_format=output_format,
-        memory_pack_text=pack,
-        items=out_items,
-    )
-    if output_format in {"toonx", "toon-x"} and out_items:
-        pack = render_toon_x(mir)
-        mir.memory_pack_text = pack
     return RecallOut(
         project_id=project.id,
         query=query_clean,
