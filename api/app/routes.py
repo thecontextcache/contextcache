@@ -2151,6 +2151,19 @@ async def _lookup_query_profile(
     ).scalar_one_or_none()
 
 
+def _query_profile_auto_resolution(profile: QueryProfile | None) -> tuple[str | None, str | None]:
+    if profile is None:
+        return None, None
+    preferred_format = (profile.preferred_target_format or "").strip().lower()
+    if preferred_format not in {"text", "toon", "toonx", "toon-x"}:
+        return None, "no_preferred_format"
+    positive_feedback_count = int(profile.helpful_count or 0) + int(profile.pinned_count or 0)
+    negative_feedback_count = int(profile.wrong_count or 0) + int(profile.stale_count or 0) + int(profile.removed_count or 0)
+    if positive_feedback_count <= negative_feedback_count:
+        return None, "preference_conflict"
+    return preferred_format, "query_profile_preference"
+
+
 async def _write_context_compilation(
     db: AsyncSession,
     *,
@@ -3057,12 +3070,20 @@ async def recall(
 
     requested_format = format.strip().lower() if format else "text"
     output_format = requested_format
+    query_profile_id: int | None = None
+    format_resolution_reason: str | None = None
     if output_format == "auto":
         query_profile = await _lookup_query_profile(db, project_id=project.id, query_text=query_clean)
-        preferred_format = (query_profile.preferred_target_format or "").strip().lower() if query_profile is not None else ""
-        output_format = preferred_format if preferred_format in {"text", "toon", "toonx", "toon-x"} else "text"
+        query_profile_id = query_profile.id if query_profile is not None else None
+        preferred_format, format_resolution_reason = _query_profile_auto_resolution(query_profile)
+        output_format = preferred_format or "text"
+        if format_resolution_reason is None:
+            format_resolution_reason = "default_text_fallback"
+    else:
+        format_resolution_reason = "explicit_request"
     if output_format not in {"text", "toon", "toonx", "toon-x"}:
         output_format = "text"
+        format_resolution_reason = "invalid_format_fallback"
 
     if cag_pack is None:
         pack = build_memory_pack(
@@ -3154,6 +3175,7 @@ async def recall(
     response.headers["X-ContextCache-Recall-Duration-Ms"] = str(total_duration_ms)
     response.headers["X-ContextCache-Recall-Requested-Format"] = requested_format or "text"
     response.headers["X-ContextCache-Recall-Resolved-Format"] = output_format
+    response.headers["X-ContextCache-Recall-Format-Reason"] = format_resolution_reason or "unknown"
     return RecallOut(
         project_id=project.id,
         query=query_clean,
@@ -3161,6 +3183,10 @@ async def recall(
         items=out_items,
         renderer=mir.renderer,
         mir=mir,
+        requested_format=requested_format or "text",
+        resolved_format=output_format,
+        format_resolution_reason=format_resolution_reason,
+        query_profile_id=query_profile_id,
         global_kv_cache_id=cag_kv_cache_id,
         global_memory_matrix=cag_memory_matrix,
     )

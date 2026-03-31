@@ -114,6 +114,10 @@ class RecallOut(BaseModel):
     items: List[RecallItemOut]
     renderer: str = "recall-pack/v1"
     mir: MIRDocument | None = None
+    requested_format: str = "text"
+    resolved_format: str = "text"
+    format_resolution_reason: str | None = None
+    query_profile_id: int | None = None
     global_kv_cache_id: str | None = None
     global_memory_matrix: list[list[float]] | None = None
 
@@ -513,6 +517,10 @@ class AdminQueryProfileOut(BaseModel):
     stale_count: int
     removed_count: int
     pinned_count: int
+    feedback_total: int
+    positive_feedback_count: int
+    negative_feedback_count: int
+    auto_apply_enabled: bool
     last_compilation_id: int | None = None
     last_queried_at: datetime | None = None
     last_feedback_at: datetime | None = None

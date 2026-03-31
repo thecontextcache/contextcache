@@ -58,6 +58,7 @@ cors_expose_headers = [
     "x-contextcache-recall-duration-ms",
     "x-contextcache-recall-requested-format",
     "x-contextcache-recall-resolved-format",
+    "x-contextcache-recall-format-reason",
 ]
 if APP_ENV == "dev":
     cors_allow_headers.append("x-user-email")

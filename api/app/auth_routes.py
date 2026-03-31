@@ -102,6 +102,14 @@ SESSION_COOKIE_DOMAIN = None
 _LOGIN_EVENT_RETENTION = 10  # keep only last N login events per user
 
 
+def _query_profile_feedback_stats(profile: QueryProfile) -> tuple[int, int, int, bool]:
+    positive_feedback_count = int(profile.helpful_count or 0) + int(profile.pinned_count or 0)
+    negative_feedback_count = int(profile.wrong_count or 0) + int(profile.stale_count or 0) + int(profile.removed_count or 0)
+    feedback_total = positive_feedback_count + negative_feedback_count
+    auto_apply_enabled = bool((profile.preferred_target_format or "").strip()) and positive_feedback_count > negative_feedback_count
+    return feedback_total, positive_feedback_count, negative_feedback_count, auto_apply_enabled
+
+
 def _client_ip(request: Request) -> str:
     """Extract the real client IP with Cloudflare Tunnel precedence.
 
@@ -1579,7 +1587,8 @@ async def admin_recall_eval(
         feedback_label_counts[row.label] = feedback_label_counts.get(row.label, 0) + 1
     for row in query_profiles:
         preferred_format = (row.preferred_target_format or "").strip()
-        if preferred_format:
+        _, _, _, auto_apply_enabled = _query_profile_feedback_stats(row)
+        if preferred_format and auto_apply_enabled:
             preferred_format_counts[preferred_format] = preferred_format_counts.get(preferred_format, 0) + 1
 
     def _avg(values: list[int]) -> float | None:
@@ -1667,6 +1676,10 @@ async def admin_recall_query_profiles(
             stale_count=row.stale_count,
             removed_count=row.removed_count,
             pinned_count=row.pinned_count,
+            feedback_total=_query_profile_feedback_stats(row)[0],
+            positive_feedback_count=_query_profile_feedback_stats(row)[1],
+            negative_feedback_count=_query_profile_feedback_stats(row)[2],
+            auto_apply_enabled=_query_profile_feedback_stats(row)[3],
             last_compilation_id=row.last_compilation_id,
             last_queried_at=row.last_queried_at,
             last_feedback_at=row.last_feedback_at,
@@ -1724,6 +1737,10 @@ async def admin_recall_query_profile_detail(
         stale_count=profile.stale_count,
         removed_count=profile.removed_count,
         pinned_count=profile.pinned_count,
+        feedback_total=_query_profile_feedback_stats(profile)[0],
+        positive_feedback_count=_query_profile_feedback_stats(profile)[1],
+        negative_feedback_count=_query_profile_feedback_stats(profile)[2],
+        auto_apply_enabled=_query_profile_feedback_stats(profile)[3],
         last_compilation_id=profile.last_compilation_id,
         last_queried_at=profile.last_queried_at,
         last_feedback_at=profile.last_feedback_at,

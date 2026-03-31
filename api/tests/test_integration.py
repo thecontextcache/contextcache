@@ -1727,6 +1727,10 @@ async def test_recall_persists_text_context_compilation_with_mir_json(
     assert body["renderer"] == "recall-pack/v1"
     assert body["mir"]["version"] == "mir/1"
     assert body["mir"]["renderer"] == "recall-pack/v1"
+    assert body["requested_format"] == "text"
+    assert body["resolved_format"] == "text"
+    assert body["format_resolution_reason"] == "explicit_request"
+    assert body["query_profile_id"] is None
     assert body["mir"]["bundle"]["target_format"] == "text"
     assert body["mir"]["retrieval_plan"]["served_by"] == "rag"
 
@@ -2013,8 +2017,13 @@ async def test_recall_auto_format_uses_query_profile_preference(
     assert auto_resp.status_code == 200
     assert auto_resp.headers["X-ContextCache-Recall-Requested-Format"] == "auto"
     assert auto_resp.headers["X-ContextCache-Recall-Resolved-Format"] == "toonx"
+    assert auto_resp.headers["X-ContextCache-Recall-Format-Reason"] == "query_profile_preference"
     body = auto_resp.json()
     assert body["renderer"] == "toon-x/v1"
+    assert body["requested_format"] == "auto"
+    assert body["resolved_format"] == "toonx"
+    assert body["format_resolution_reason"] == "query_profile_preference"
+    assert body["query_profile_id"] is not None
     assert body["mir"]["bundle"]["target_format"] == "toonx"
 
 
@@ -2135,6 +2144,10 @@ async def test_admin_query_profile_detail_returns_recent_feedback(
     assert body["id"] == query_profile_id
     assert body["normalized_query"] == "query profile detail"
     assert body["preferred_target_format"] == "toonx"
+    assert body["feedback_total"] >= 1
+    assert body["positive_feedback_count"] >= 1
+    assert body["negative_feedback_count"] == 0
+    assert body["auto_apply_enabled"] is True
     assert body["recent_feedback"]
     assert body["recent_feedback"][0]["label"] == "pinned"
     assert body["recent_feedback"][0]["entity_id"] == memory_id
@@ -2252,6 +2265,9 @@ async def test_admin_recall_feedback_filters_query_profiles_and_eval_metrics(
     assert profiles_resp.status_code == 200
     profiles = profiles_resp.json()
     assert any(row["id"] == query_profile_id for row in profiles)
+    matching_profile = next(row for row in profiles if row["id"] == query_profile_id)
+    assert matching_profile["feedback_total"] >= 1
+    assert matching_profile["auto_apply_enabled"] is True
 
     eval_resp = await client.get(
         "/admin/recall/eval",
@@ -2264,6 +2280,95 @@ async def test_admin_recall_feedback_filters_query_profiles_and_eval_metrics(
     assert body["query_profile_count"] >= 1
     assert body["feedback_label_counts"]["helpful"] >= 1
     assert body["preferred_format_counts"]["toonx"] >= 1
+
+
+async def test_recall_auto_format_falls_back_when_negative_feedback_outweighs_positive(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    viewer_headers = await _login_org_member(client, db_session, app_ctx, role="viewer")
+    create_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=auth_headers(app_ctx, role="owner"),
+        json={"type": "decision", "content": "Auto fallback memory"},
+    )
+    assert create_resp.status_code == 201
+    memory_id = create_resp.json()["id"]
+
+    first_recall = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=viewer_headers,
+        params={"query": "auto fallback", "limit": 5, "format": "toonx"},
+    )
+    assert first_recall.status_code == 200
+    first_compilation = (
+        await db_session.execute(
+            select(ContextCompilation)
+            .where(
+                ContextCompilation.project_id == app_ctx.project_id,
+                ContextCompilation.query_text == "auto fallback",
+            )
+            .order_by(ContextCompilation.id.desc())
+            .limit(1)
+        )
+    ).scalar_one()
+    helpful_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/recall/feedback",
+        headers=viewer_headers,
+        json={"compilation_id": first_compilation.id, "label": "helpful", "entity_id": memory_id},
+    )
+    assert helpful_resp.status_code == 201
+
+    second_recall = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=viewer_headers,
+        params={"query": "auto fallback", "limit": 5, "format": "toonx"},
+    )
+    assert second_recall.status_code == 200
+    second_compilation = (
+        await db_session.execute(
+            select(ContextCompilation)
+            .where(
+                ContextCompilation.project_id == app_ctx.project_id,
+                ContextCompilation.query_text == "auto fallback",
+            )
+            .order_by(ContextCompilation.id.desc())
+            .limit(1)
+        )
+    ).scalar_one()
+    for _ in range(2):
+        wrong_resp = await client.post(
+            f"/projects/{app_ctx.project_id}/recall/feedback",
+            headers=viewer_headers,
+            json={"compilation_id": second_compilation.id, "label": "wrong", "entity_id": memory_id},
+        )
+        assert wrong_resp.status_code == 201
+
+    auto_resp = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=viewer_headers,
+        params={"query": "auto fallback", "limit": 5, "format": "auto"},
+    )
+    assert auto_resp.status_code == 200
+    assert auto_resp.headers["X-ContextCache-Recall-Resolved-Format"] == "text"
+    assert auto_resp.headers["X-ContextCache-Recall-Format-Reason"] == "preference_conflict"
+    body = auto_resp.json()
+    assert body["resolved_format"] == "text"
+    assert body["format_resolution_reason"] == "preference_conflict"
+
+    profile = (
+        await db_session.execute(
+            select(QueryProfile)
+            .where(
+                QueryProfile.project_id == app_ctx.project_id,
+                QueryProfile.normalized_query == "auto fallback",
+            )
+            .limit(1)
+        )
+    ).scalar_one()
+    assert profile.helpful_count >= 1
+    assert profile.wrong_count >= 2
 
 
 async def test_admin_ops_summary_reports_capture_backlog_and_failures(
