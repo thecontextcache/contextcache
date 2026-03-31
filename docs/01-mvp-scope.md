@@ -1,5 +1,7 @@
 # MVP Scope
 
+> Historical baseline: this page documents the original MVP boundary that got ContextCache to its first shipped version. The current platform and API have grown beyond this scope; see `/Users/nd/Documents/contextcache/docs/04-api-contract.md` for the shipped API and `/Users/nd/Documents/contextcache/docs/21-product-vision.md` for the memory-compiler direction.
+
 <!--
   This document is the single source of truth for what's in/out of MVP.
   Reference this when deciding whether to add a feature.

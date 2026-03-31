@@ -1,5 +1,5 @@
 site_name: TheContextCache™
-site_description: Project Brain for AI-assisted teams — capture decisions, recall context packs.
+site_description: Project Brain for AI-assisted teams — capture work, compile useful context.
 site_url: ""
 
 theme:
@@ -57,6 +57,10 @@ nav:
     - System Architecture: 02-architecture.md
     - Data Model: 03-data-model.md
     - API Contract: 04-api-contract.md
+  - Memory Compiler:
+    - Product Vision: 21-product-vision.md
+    - Compiler Architecture: 22-memory-compiler-architecture.md
+    - Migration From Recall: 23-migration-from-recall-to-compiler.md
   - Operations:
     - Deployment: 06-deployment.md
     - Security Model: 07-security.md
