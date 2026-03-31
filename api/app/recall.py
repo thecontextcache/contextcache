@@ -26,6 +26,13 @@ toon
 
     Saves ~30-60 % tokens compared to the "text" format for agent
     consumption where the full section headers add no value.
+
+toonx
+    Versioned compact transport with a stable header and per-line records:
+
+        CTX/1 q="auth flow" n=2
+        1 | decision | Use magic-link auth only.
+        2 | todo | Add replay-safe signature checks.
 """
 from __future__ import annotations
 
@@ -57,6 +64,19 @@ def _build_toon_pack(query: str, items: List[Tuple[str, str]]) -> str:
     return "\n".join(lines)
 
 
+def _build_toon_x_pack(query: str, items: List[Tuple[str, str]]) -> str:
+    def _compress(text: str) -> str:
+        return re.sub(r"\s+", " ", (text or "").strip())
+
+    header_query = _compress(query)
+    lines = [f'CTX/1 q="{header_query}" n={len(items)}']
+    for index, (mem_type, content) in enumerate(items, start=1):
+        t = (mem_type or "note").strip()
+        c = _compress(content)
+        lines.append(f"{index} | {t} | {c}")
+    return "\n".join(lines)
+
+
 def build_memory_pack(
     query: str,
     items: List[Tuple[str, str]],
@@ -72,7 +92,8 @@ def build_memory_pack(
         List of (memory_type, content) tuples in ranked order.
     output_format:
         ``"text"``  — human-readable, grouped by type (default).
-        ``"toon"``  — compact Token-Oriented Object Notation for agents.
+        ``"toon"``   — compact Token-Oriented Object Notation for agents.
+        ``"toonx"``  — versioned structured transport for agents and compiler outputs.
 
     Returns
     -------
@@ -81,4 +102,6 @@ def build_memory_pack(
     """
     if output_format == "toon":
         return _build_toon_pack(query, items)
+    if output_format in {"toonx", "toon-x"}:
+        return _build_toon_x_pack(query, items)
     return _build_pack(query, items)

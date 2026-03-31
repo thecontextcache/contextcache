@@ -40,6 +40,8 @@ from .models import (
     Project,
     RecallLog,
     RecallTiming,
+    ContextCompilation,
+    ContextCompilationItem,
     Tag,
     PlanCatalog,
     UserSubscription,
@@ -90,6 +92,7 @@ from .schemas import (
     BrainBatchResultItem,
     IntegrationsCapabilitiesOut,
 )
+from .compiler import build_mir_from_recall, render_toon_x
 
 # ── Daily usage limits (env-configurable, 0 = no limit) ─────────────────────
 def _env_int(primary: str, fallback: str, default: str) -> int:
@@ -694,7 +697,7 @@ async def integrations_capabilities(
         api_version=API_VERSION,
         auth_modes=["session", "api_key", "bearer"],
         ingest_sources=["chrome_ext", "cli", "mcp", "email"],
-        recall_formats=["text", "toon"],
+        recall_formats=["text", "toon", "toonx"],
         brain_batch_max_targets=BRAIN_BATCH_MAX_TARGETS,
         supports_idempotency=True,
         supports_ingest_replay=True,
@@ -2056,6 +2059,66 @@ async def _write_recall_timing(
     )
 
 
+def _model_dump_json(model: Any) -> dict[str, Any]:
+    if hasattr(model, "model_dump"):
+        return model.model_dump(mode="json")
+    return model.dict()  # pragma: no cover
+
+
+def _estimate_token_count(text: str | None) -> int | None:
+    if not text:
+        return None
+    # Lightweight heuristic until we wire a tokenizer-aware estimator.
+    return max(1, len(text.split()))
+
+
+async def _write_context_compilation(
+    db: AsyncSession,
+    *,
+    project: Project,
+    ctx: RequestContext,
+    query_text: str,
+    target_format: str,
+    compilation_text: str,
+    compilation_json: dict[str, Any],
+    served_by: str,
+    latency_ms: int,
+) -> None:
+    compilation = ContextCompilation(
+        org_id=project.org_id,
+        project_id=project.id,
+        actor_user_id=ctx.actor_user_id,
+        query_text=query_text,
+        target_format=target_format,
+        compilation_text=compilation_text,
+        compilation_json=compilation_json,
+        served_by=served_by,
+        latency_ms=latency_ms,
+    )
+    db.add(compilation)
+    await db.flush()
+
+    for item in compilation_json.get("items", []) or []:
+        entity_id: int | None = None
+        item_id = str(item.get("id") or "")
+        if item_id.startswith("memory:"):
+            try:
+                entity_id = int(item_id.split(":", 1)[1])
+            except ValueError:
+                entity_id = None
+        db.add(
+            ContextCompilationItem(
+                compilation_id=compilation.id,
+                entity_type="memory",
+                entity_id=entity_id,
+                rank=item.get("rank"),
+                token_estimate=_estimate_token_count(item.get("content")),
+                why_included=item.get("why_included"),
+                source_kind=item.get("kind"),
+            )
+        )
+
+
 # Phase 4.3: Chaos Theory - Lyapunov Load Balancing
 # Global state tracking for concurrent system load
 import math
@@ -2715,7 +2778,7 @@ async def recall(
     response: Response,
     query: str = "",
     limit: int = Query(default=10, ge=1, le=50),
-    format: str = Query(default="text", description="Output format: 'text' (default) or 'toon' (compact, token-optimised for agents)"),
+    format: str = Query(default="text", description="Output format: 'text' (default), 'toon' (compact), or 'toonx' (versioned structured transport)"),
     db: AsyncSession = Depends(get_db),
     ctx: RequestContext = Depends(get_actor_context),
 ) -> RecallOut:
@@ -2903,7 +2966,7 @@ async def recall(
         rag_duration_ms = int((loop.time() - rag_started) * 1000)
 
     output_format = format.strip().lower() if format else "text"
-    if output_format not in {"text", "toon"}:
+    if output_format not in {"text", "toon", "toonx", "toon-x"}:
         output_format = "text"
 
     if cag_pack is None:
@@ -2957,6 +3020,17 @@ async def recall(
         rag_duration_ms=rag_duration_ms,
         total_duration_ms=total_duration_ms,
     )
+    await _write_context_compilation(
+        db,
+        project=project,
+        ctx=ctx,
+        query_text=query_clean,
+        target_format=output_format,
+        compilation_text=pack,
+        compilation_json=_model_dump_json(mir),
+        served_by=served_by,
+        latency_ms=total_duration_ms,
+    )
     await db.commit()
     response.headers["X-ContextCache-API-Version"] = API_VERSION
     response.headers["X-ContextCache-Recall-Strategy"] = strategy
@@ -2965,11 +3039,23 @@ async def recall(
 
     tag_map = await _load_tag_names(db, [m.id for m, _ in top_with_rank]) if top_with_rank else {}
     out_items = [_recall_item_to_out(m, tag_map.get(m.id, []), rs) for m, rs in top_with_rank]
+    mir = build_mir_from_recall(
+        project_id=project.id,
+        query=query_clean,
+        output_format=output_format,
+        memory_pack_text=pack,
+        items=out_items,
+    )
+    if output_format in {"toonx", "toon-x"} and out_items:
+        pack = render_toon_x(mir)
+        mir.memory_pack_text = pack
     return RecallOut(
         project_id=project.id,
         query=query_clean,
         memory_pack_text=pack,
         items=out_items,
+        renderer=mir.renderer,
+        mir=mir,
         global_kv_cache_id=cag_kv_cache_id,
         global_memory_matrix=cag_memory_matrix,
     )

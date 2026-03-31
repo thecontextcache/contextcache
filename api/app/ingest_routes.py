@@ -505,7 +505,7 @@ async def ingest_capabilities(
         api_version=_API_VERSION,
         auth_modes=["session", "api_key", "bearer"],
         ingest_sources=sorted(_ALLOWED_SOURCES),
-        recall_formats=["text", "toon"],
+        recall_formats=["text", "toon", "toonx"],
         brain_batch_max_targets=int(os.getenv("BRAIN_BATCH_MAX_TARGETS", "1000")),
         supports_idempotency=True,
         supports_ingest_replay=True,

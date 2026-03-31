@@ -344,6 +344,55 @@ class RecallTiming(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class ContextCompilation(Base):
+    __tablename__ = "context_compilations"
+    __table_args__ = (
+        Index("ix_context_compilations_org_created", "org_id", "created_at"),
+        Index("ix_context_compilations_project_created", "project_id", "created_at"),
+        Index("ix_context_compilations_actor_created", "actor_user_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    actor_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    query_text: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    target_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    target_tool: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    target_format: Mapped[str] = mapped_column(String(32), nullable=False)
+    token_budget: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    compilation_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    compilation_json: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+    )
+    served_by: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'completed'"))
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class ContextCompilationItem(Base):
+    __tablename__ = "context_compilation_items"
+    __table_args__ = (
+        Index("ix_context_compilation_items_compilation_rank", "compilation_id", "rank"),
+        Index("ix_context_compilation_items_entity", "entity_type", "entity_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    compilation_id: Mapped[int] = mapped_column(
+        ForeignKey("context_compilations.id", ondelete="CASCADE"), index=True
+    )
+    entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    entity_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    token_estimate: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    why_included: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
 # ---------------------------------------------------------------------------
 # Auth models
 # ---------------------------------------------------------------------------

@@ -61,6 +61,7 @@ nav:
     - Product Vision: 21-product-vision.md
     - Compiler Architecture: 22-memory-compiler-architecture.md
     - Migration From Recall: 23-migration-from-recall-to-compiler.md
+    - MIR/1 Spec: 24-mir-spec.md
   - Operations:
     - Deployment: 06-deployment.md
     - Security Model: 07-security.md

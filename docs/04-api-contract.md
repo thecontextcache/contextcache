@@ -264,7 +264,7 @@ Response:
   "api_version": "2026-03-20",
   "auth_modes": ["session", "api_key", "bearer"],
   "ingest_sources": ["chrome_ext", "cli", "mcp", "email"],
-  "recall_formats": ["text", "toon"],
+  "recall_formats": ["text", "toon", "toonx"],
   "brain_batch_max_targets": 1000,
   "supports_idempotency": true,
   "supports_ingest_replay": true,

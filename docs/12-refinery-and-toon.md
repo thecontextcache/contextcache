@@ -283,14 +283,19 @@ Token savings: ~38 % for this example.
 
 ### Usage
 
-Append `?format=toon` to any Recall call:
+Append `?format=toon` or `?format=toonx` to any Recall call:
 
 ```bash
 curl "https://api.thecontextcache.com/projects/42/recall?query=auth+flow&format=toon" \
   -H "x-api-key: $CC_API_KEY"
 ```
 
-In the web UI, select the **TOON** toggle in the Recall tab before running recall.
+```bash
+curl "https://api.thecontextcache.com/projects/42/recall?query=auth+flow&format=toonx" \
+  -H "x-api-key: $CC_API_KEY"
+```
+
+In the web UI, select the **TOON** or **TOON-X** toggle in the Recall tab before running recall.
 
 ### When to Use Each Format
 
@@ -298,8 +303,10 @@ In the web UI, select the **TOON** toggle in the Recall tab before running recal
 |----------|--------|
 | Pasting into ChatGPT / Claude manually | `text` |
 | Agent pipeline, CI/CD script, MCP tool | `toon` |
+| Compiler-aware agent or downstream parser | `toonx` |
 | Sharing with teammates | `text` |
 | Token budget is tight (long context) | `toon` |
+| You need stable line-oriented machine parsing | `toonx` |
 
 ---
 

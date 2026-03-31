@@ -30,6 +30,8 @@ from app.models import (
     Project,
     RawCapture,
     RecallLog,
+    ContextCompilation,
+    ContextCompilationItem,
     Tag,
     UsageCounter,
     User,
@@ -963,7 +965,7 @@ async def test_integrations_capabilities_returns_stable_contract(
     assert body["api_version"]
     assert body["auth_modes"] == ["session", "api_key", "bearer"]
     assert body["ingest_sources"] == ["chrome_ext", "cli", "mcp", "email"]
-    assert body["recall_formats"] == ["text", "toon"]
+    assert body["recall_formats"] == ["text", "toon", "toonx"]
     assert body["supports_batch_undo"] == ["add_tag", "pin", "remove_tag", "unpin"]
     assert body["supports_idempotency"] is True
     assert body["supports_ingest_replay"] is True
@@ -1640,6 +1642,57 @@ async def test_admin_recall_logs_returns_recent_entries(
     assert len(logs) >= 1
     assert logs[0]["project_id"] == app_ctx.project_id
     assert logs[0]["strategy"] in {"hybrid", "recency", "cag"}
+
+
+async def test_recall_persists_context_compilation_with_item_provenance(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    viewer_headers = await _login_org_member(client, db_session, app_ctx, role="viewer")
+    create_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=auth_headers(app_ctx, role="owner"),
+        json={"type": "decision", "content": "Compiler persistence memory"},
+    )
+    assert create_resp.status_code == 201
+    memory_id = create_resp.json()["id"]
+
+    recall_resp = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=viewer_headers,
+        params={"query": "compiler persistence", "limit": 5, "format": "toonx"},
+    )
+    assert recall_resp.status_code == 200
+    body = recall_resp.json()
+    assert body["renderer"] == "toon-x/v1"
+    assert body["mir"]["version"] == "mir/1"
+
+    compilation = (
+        await db_session.execute(
+            select(ContextCompilation)
+            .where(
+                ContextCompilation.project_id == app_ctx.project_id,
+                ContextCompilation.query_text == "compiler persistence",
+            )
+            .order_by(ContextCompilation.id.desc())
+            .limit(1)
+        )
+    ).scalar_one()
+    assert compilation.target_format == "toonx"
+    assert compilation.served_by in {"rag", "cag"}
+    assert compilation.compilation_json["version"] == "mir/1"
+
+    item_rows = (
+        await db_session.execute(
+            select(ContextCompilationItem)
+            .where(ContextCompilationItem.compilation_id == compilation.id)
+            .order_by(ContextCompilationItem.rank.asc(), ContextCompilationItem.id.asc())
+        )
+    ).scalars().all()
+    assert len(item_rows) >= 1
+    assert any(row.entity_id == memory_id for row in item_rows)
+    assert any(row.source_kind in {"decision", "fact", "artifact", "next_hop", "unknown"} for row in item_rows)
 
 
 async def test_admin_ops_summary_reports_capture_backlog_and_failures(

@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
+from app.compiler.mir import MIRDocument
+
 MemoryType = Literal[
     "decision",
     "finding",
@@ -110,6 +112,8 @@ class RecallOut(BaseModel):
     query: str
     memory_pack_text: str
     items: List[RecallItemOut]
+    renderer: str = "recall-pack/v1"
+    mir: MIRDocument | None = None
     global_kv_cache_id: str | None = None
     global_memory_matrix: list[list[float]] | None = None
 
