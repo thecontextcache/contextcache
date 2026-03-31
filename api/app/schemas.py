@@ -112,6 +112,7 @@ class RecallOut(BaseModel):
     query: str
     memory_pack_text: str
     items: List[RecallItemOut]
+    compilation_id: int | None = None
     renderer: str = "recall-pack/v1"
     mir: MIRDocument | None = None
     requested_format: str = "text"
@@ -142,6 +143,12 @@ class RecallFeedbackOut(BaseModel):
     entity_id: int | None = None
     note: str | None = None
     created_at: datetime
+
+
+class ContextCompileIn(BaseModel):
+    query: str = Field(default="", max_length=4000)
+    limit: int = Field(default=10, ge=1, le=50)
+    format: str = Field(default="text", max_length=32)
 
 
 class AdminRecallFeedbackOut(BaseModel):
@@ -498,6 +505,21 @@ class AdminRecallEvalOut(BaseModel):
     avg_cag_duration_ms: float | None = None
     avg_rag_duration_ms: float | None = None
     max_total_duration_ms: int | None = None
+
+
+class AdminRecallMemorySignalOut(BaseModel):
+    memory_id: int
+    project_id: int
+    memory_type: str
+    title: str | None = None
+    helpful_count: int
+    wrong_count: int
+    stale_count: int
+    removed_count: int
+    pinned_count: int
+    feedback_total: int
+    net_score: int
+    last_feedback_at: datetime | None = None
 
 
 class AdminQueryProfileOut(BaseModel):

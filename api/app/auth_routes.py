@@ -34,6 +34,7 @@ from .models import (
     ContextCompilation,
     ContextCompilationItem,
     Membership,
+    Memory,
     Organization,
     QueryProfile,
     RawCapture,
@@ -63,6 +64,7 @@ from .schemas import (
     AdminCaptureFailureOut,
     AdminRecallLogOut,
     AdminRecallEvalOut,
+    AdminRecallMemorySignalOut,
     AdminQueryProfileOut,
     AdminSecurityPostureOut,
     AdminUsageOut,
@@ -1428,6 +1430,107 @@ async def admin_recall_feedback(
         )
         for row in rows
     ]
+
+
+@router.get("/admin/recall/memory-signals", response_model=list[AdminRecallMemorySignalOut])
+async def admin_recall_memory_signals(
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=200),
+    project_id: int | None = Query(default=None, ge=1),
+    db: AsyncSession = Depends(get_db),
+) -> list[AdminRecallMemorySignalOut]:
+    _require_admin_auth(request)
+    org_id = getattr(request.state, "org_id", None)
+    if org_id is None:
+        raise HTTPException(status_code=400, detail="X-Org-Id required")
+
+    stmt = select(RetrievalFeedback).where(
+        RetrievalFeedback.org_id == org_id,
+        RetrievalFeedback.entity_type == "memory",
+        RetrievalFeedback.entity_id.is_not(None),
+    )
+    if project_id is not None:
+        stmt = stmt.where(RetrievalFeedback.project_id == project_id)
+    feedback_rows = (
+        await db.execute(
+            stmt.order_by(RetrievalFeedback.created_at.desc(), RetrievalFeedback.id.desc())
+        )
+    ).scalars().all()
+    if not feedback_rows:
+        return []
+
+    grouped: dict[int, dict[str, int | datetime | None]] = {}
+    for row in feedback_rows:
+        if row.entity_id is None:
+            continue
+        bucket = grouped.setdefault(
+            row.entity_id,
+            {
+                "project_id": row.project_id,
+                "helpful_count": 0,
+                "wrong_count": 0,
+                "stale_count": 0,
+                "removed_count": 0,
+                "pinned_count": 0,
+                "last_feedback_at": None,
+            },
+        )
+        count_key = f"{row.label}_count"
+        if count_key in bucket:
+            bucket[count_key] = int(bucket[count_key] or 0) + 1
+        last_feedback_at = bucket["last_feedback_at"]
+        if last_feedback_at is None or row.created_at > last_feedback_at:
+            bucket["last_feedback_at"] = row.created_at
+
+    ranked_memory_ids = sorted(
+        grouped,
+        key=lambda memory_id: (
+            -(
+                int(grouped[memory_id]["wrong_count"] or 0)
+                + int(grouped[memory_id]["stale_count"] or 0)
+                + int(grouped[memory_id]["removed_count"] or 0)
+                + int(grouped[memory_id]["pinned_count"] or 0)
+                + int(grouped[memory_id]["helpful_count"] or 0)
+            ),
+            -(memory_id),
+        ),
+    )[:limit]
+    memories = (
+        await db.execute(
+            select(Memory).where(Memory.id.in_(ranked_memory_ids))
+        )
+    ).scalars().all()
+    memory_by_id = {memory.id: memory for memory in memories}
+    rows: list[AdminRecallMemorySignalOut] = []
+    for memory_id in ranked_memory_ids:
+        memory = memory_by_id.get(memory_id)
+        if memory is None:
+            continue
+        counts = grouped[memory_id]
+        helpful_count = int(counts["helpful_count"] or 0)
+        wrong_count = int(counts["wrong_count"] or 0)
+        stale_count = int(counts["stale_count"] or 0)
+        removed_count = int(counts["removed_count"] or 0)
+        pinned_count = int(counts["pinned_count"] or 0)
+        feedback_total = helpful_count + wrong_count + stale_count + removed_count + pinned_count
+        net_score = helpful_count + pinned_count - wrong_count - stale_count - removed_count
+        rows.append(
+            AdminRecallMemorySignalOut(
+                memory_id=memory.id,
+                project_id=memory.project_id,
+                memory_type=memory.type,
+                title=memory.title,
+                helpful_count=helpful_count,
+                wrong_count=wrong_count,
+                stale_count=stale_count,
+                removed_count=removed_count,
+                pinned_count=pinned_count,
+                feedback_total=feedback_total,
+                net_score=net_score,
+                last_feedback_at=counts["last_feedback_at"],
+            )
+        )
+    return rows
 
 
 @router.get("/admin/ops/summary", response_model=AdminOpsSummaryOut)

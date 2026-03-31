@@ -7,6 +7,10 @@ import {
   type AdminInvite,
   type AdminWaitlistEntry,
   type AdminRecallLog,
+  type AdminRecallEval,
+  type AdminRecallFeedback,
+  type AdminRecallMemorySignal,
+  type AdminQueryProfile,
   type CagCacheStats,
   type AdminLlmHealth,
   type AdminUsageRow,
@@ -66,6 +70,10 @@ export function AdminContent() {
 
   // Recall logs
   const [recallLogs, setRecallLogs] = useState<AdminRecallLog[]>([]);
+  const [recallEval, setRecallEval] = useState<AdminRecallEval | null>(null);
+  const [recallFeedback, setRecallFeedback] = useState<AdminRecallFeedback[]>([]);
+  const [memorySignals, setMemorySignals] = useState<AdminRecallMemorySignal[]>([]);
+  const [queryProfiles, setQueryProfiles] = useState<AdminQueryProfile[]>([]);
 
   // System / CAG
   const [cagStats, setCagStats] = useState<CagCacheStats | null>(null);
@@ -113,8 +121,18 @@ export function AdminContent() {
           break;
         }
         case 'recall': {
-          const data = await admin.recallLogs();
-          setRecallLogs(data);
+          const [logs, evalData, feedback, profiles, memorySignalRows] = await Promise.all([
+            admin.recallLogs(),
+            admin.recallEval(),
+            admin.recallFeedback(12),
+            admin.queryProfiles(12, 0, undefined, true),
+            admin.recallMemorySignals(10),
+          ]);
+          setRecallLogs(logs);
+          setRecallEval(evalData);
+          setRecallFeedback(feedback);
+          setQueryProfiles(profiles);
+          setMemorySignals(memorySignalRows);
           break;
         }
         case 'system': {
@@ -601,53 +619,184 @@ export function AdminContent() {
 
           {/* ── Recall Logs ───────────────────────────── */}
           {tab === 'recall' && (
-            <div className="cc-table-wrap">
-              <table className="cc-table">
-                <thead>
-                  <tr className="cc-table-head">
-                    <th className="cc-th">ID</th>
-                    <th className="cc-th">Query</th>
-                    <th className="cc-th">Strategy</th>
-                    <th className="cc-th">Served By</th>
-                    <th className="cc-th">Duration</th>
-                    <th className="cc-th">Project</th>
-                    <th className="cc-th">Results</th>
-                    <th className="cc-th">Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recallLogs.map((log) => (
-                    <tr key={log.id} className="cc-tr">
-                      <td className="cc-td-muted">{log.id}</td>
-                      <td className="max-w-[250px] truncate px-4 py-3 text-ink">{log.query_text}</td>
-                      <td className="px-4 py-3">
-                        <Badge variant="muted">{log.strategy}</Badge>
-                      </td>
-                      <td className="cc-td-muted">
-                        {(log.served_by as string | undefined)
-                          || (log.score_details?.served_by as string | undefined)
-                          || '—'}
-                      </td>
-                      <td className="cc-td-muted">
-                        {(() => {
-                          const raw = (log.duration_ms as number | undefined)
-                            ?? (log.score_details?.total_duration_ms as number | undefined)
-                            ?? (log.score_details?.duration_ms as number | undefined);
-                          return raw != null ? `${raw} ms` : '—';
-                        })()}
-                      </td>
-                      <td className="cc-td-muted">#{log.project_id}</td>
-                      <td className="cc-td-muted">{log.ranked_memory_ids.length}</td>
-                      <td className="cc-td-muted">
-                        {new Date(log.created_at).toLocaleString()}
-                      </td>
-                    </tr>
-                  ))}
-                  {recallLogs.length === 0 && (
-                    <tr><td colSpan={8} className="px-4 py-8 text-center text-muted">No recall logs</td></tr>
-                  )}
-                </tbody>
-              </table>
+            <div className="space-y-6">
+              {recallEval && (
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                  <Card>
+                    <p className="text-xs uppercase tracking-wider text-muted">Queries</p>
+                    <p className="mt-2 text-2xl font-semibold text-ink">{recallEval.total_queries}</p>
+                    <p className="mt-1 text-xs text-muted">
+                      empty {recallEval.empty_query_count} · no-result {recallEval.no_result_count}
+                    </p>
+                  </Card>
+                  <Card>
+                    <p className="text-xs uppercase tracking-wider text-muted">Feedback</p>
+                    <p className="mt-2 text-2xl font-semibold text-ink">{recallEval.total_feedback}</p>
+                    <p className="mt-1 text-xs text-muted">
+                      profiles {recallEval.query_profile_count}
+                    </p>
+                  </Card>
+                  <Card>
+                    <p className="text-xs uppercase tracking-wider text-muted">Avg Duration</p>
+                    <p className="mt-2 text-2xl font-semibold text-ink">
+                      {recallEval.avg_total_duration_ms != null ? `${recallEval.avg_total_duration_ms} ms` : '—'}
+                    </p>
+                    <p className="mt-1 text-xs text-muted">
+                      max {recallEval.max_total_duration_ms != null ? `${recallEval.max_total_duration_ms} ms` : '—'}
+                    </p>
+                  </Card>
+                  <Card>
+                    <p className="text-xs uppercase tracking-wider text-muted">Preferred Formats</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {Object.entries(recallEval.preferred_format_counts).length > 0 ? Object.entries(recallEval.preferred_format_counts).map(([format, count]) => (
+                        <Badge key={format} variant="violet">{format}: {count}</Badge>
+                      )) : <span className="text-sm text-muted">No auto-apply profiles yet</span>}
+                    </div>
+                  </Card>
+                </div>
+              )}
+
+              <div className="grid gap-6 xl:grid-cols-[1.2fr,0.8fr]">
+                <Card>
+                  <div className="mb-4 flex items-center justify-between">
+                    <div>
+                      <h2 className="text-lg font-semibold">Recall Logs</h2>
+                      <p className="mt-1 text-sm text-muted">Recent recall executions and retrieval outcomes.</p>
+                    </div>
+                  </div>
+                  <div className="cc-table-wrap">
+                    <table className="cc-table">
+                      <thead>
+                        <tr className="cc-table-head">
+                          <th className="cc-th">ID</th>
+                          <th className="cc-th">Query</th>
+                          <th className="cc-th">Strategy</th>
+                          <th className="cc-th">Served By</th>
+                          <th className="cc-th">Duration</th>
+                          <th className="cc-th">Project</th>
+                          <th className="cc-th">Results</th>
+                          <th className="cc-th">Date</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {recallLogs.map((log) => (
+                          <tr key={log.id} className="cc-tr">
+                            <td className="cc-td-muted">{log.id}</td>
+                            <td className="max-w-[250px] truncate px-4 py-3 text-ink">{log.query_text}</td>
+                            <td className="px-4 py-3">
+                              <Badge variant="muted">{log.strategy}</Badge>
+                            </td>
+                            <td className="cc-td-muted">
+                              {(log.served_by as string | undefined)
+                                || (log.score_details?.served_by as string | undefined)
+                                || '—'}
+                            </td>
+                            <td className="cc-td-muted">
+                              {(() => {
+                                const raw = (log.duration_ms as number | undefined)
+                                  ?? (log.score_details?.total_duration_ms as number | undefined)
+                                  ?? (log.score_details?.duration_ms as number | undefined);
+                                return raw != null ? `${raw} ms` : '—';
+                              })()}
+                            </td>
+                            <td className="cc-td-muted">#{log.project_id}</td>
+                            <td className="cc-td-muted">{log.ranked_memory_ids.length}</td>
+                            <td className="cc-td-muted">
+                              {new Date(log.created_at).toLocaleString()}
+                            </td>
+                          </tr>
+                        ))}
+                        {recallLogs.length === 0 && (
+                          <tr><td colSpan={8} className="px-4 py-8 text-center text-muted">No recall logs</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+
+                <div className="space-y-6">
+                  <Card>
+                    <h2 className="text-lg font-semibold">Profile Signals</h2>
+                    <p className="mt-1 text-sm text-muted">Queries that currently influence `format=auto`.</p>
+                    <div className="mt-4 space-y-3">
+                      {queryProfiles.length > 0 ? queryProfiles.map((profile) => (
+                        <div key={profile.id} className="rounded-lg border border-line/70 bg-bg-2/30 p-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium text-ink">{profile.sample_query}</span>
+                            {profile.preferred_target_format && (
+                              <Badge variant={profile.auto_apply_enabled ? 'violet' : 'muted'}>
+                                {profile.preferred_target_format}
+                              </Badge>
+                            )}
+                            <Badge variant={profile.auto_apply_enabled ? 'ok' : 'warn'}>
+                              {profile.auto_apply_enabled ? 'auto applies' : 'held back'}
+                            </Badge>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted">
+                            <span>queries {profile.total_queries}</span>
+                            <span>positive {profile.positive_feedback_count}</span>
+                            <span>negative {profile.negative_feedback_count}</span>
+                            <span>feedback {profile.feedback_total}</span>
+                          </div>
+                        </div>
+                      )) : (
+                        <p className="text-sm text-muted">No query profiles with feedback yet.</p>
+                      )}
+                    </div>
+                  </Card>
+
+                  <Card>
+                    <h2 className="text-lg font-semibold">Recent Feedback</h2>
+                    <p className="mt-1 text-sm text-muted">Latest recall feedback flowing back from the dashboard.</p>
+                    <div className="mt-4 space-y-3">
+                      {recallFeedback.length > 0 ? recallFeedback.map((entry) => (
+                        <div key={entry.id} className="rounded-lg border border-line/70 bg-bg-2/30 p-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant={entry.label === 'helpful' || entry.label === 'pinned' ? 'ok' : entry.label === 'wrong' ? 'err' : 'warn'}>
+                              {entry.label}
+                            </Badge>
+                            <span className="text-sm text-ink">compilation #{entry.compilation_id}</span>
+                            {entry.entity_id != null && (
+                              <span className="text-sm text-muted">memory #{entry.entity_id}</span>
+                            )}
+                          </div>
+                          <p className="mt-2 text-xs text-muted">
+                            project #{entry.project_id} · {new Date(entry.created_at).toLocaleString()}
+                          </p>
+                        </div>
+                      )) : (
+                        <p className="text-sm text-muted">No feedback recorded yet.</p>
+                      )}
+                    </div>
+                  </Card>
+
+                  <Card>
+                    <h2 className="text-lg font-semibold">Memory Signals</h2>
+                    <p className="mt-1 text-sm text-muted">Evidence-level feedback trends across recalled memories.</p>
+                    <div className="mt-4 space-y-3">
+                      {memorySignals.length > 0 ? memorySignals.map((signal) => (
+                        <div key={signal.memory_id} className="rounded-lg border border-line/70 bg-bg-2/30 p-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant={signal.net_score >= 0 ? 'ok' : 'err'}>
+                              net {signal.net_score}
+                            </Badge>
+                            <span className="font-medium text-ink">{signal.title || `Memory #${signal.memory_id}`}</span>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted">
+                            <span>type {signal.memory_type}</span>
+                            <span>helpful {signal.helpful_count}</span>
+                            <span>wrong {signal.wrong_count}</span>
+                            <span>stale {signal.stale_count}</span>
+                            <span>pinned {signal.pinned_count}</span>
+                          </div>
+                        </div>
+                      )) : (
+                        <p className="text-sm text-muted">No memory-level signals yet.</p>
+                      )}
+                    </div>
+                  </Card>
+                </div>
+              </div>
             </div>
           )}
 

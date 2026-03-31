@@ -83,6 +83,7 @@ from .schemas import (
     ProjectCreate,
     ProjectOut,
     ProjectUpdate,
+    ContextCompileIn,
     RecallFeedbackIn,
     RecallFeedbackOut,
     RecallItemOut,
@@ -2164,6 +2165,58 @@ def _query_profile_auto_resolution(profile: QueryProfile | None) -> tuple[str | 
     return preferred_format, "query_profile_preference"
 
 
+def _query_profile_recall_config(profile: QueryProfile | None) -> tuple[HybridRecallConfig, dict[str, Any]]:
+    base_config = HybridRecallConfig(
+        fts_weight=RECALL_WEIGHT_FTS,
+        vector_weight=RECALL_WEIGHT_VECTOR,
+        recency_weight=RECALL_WEIGHT_RECENCY,
+        vector_min_score=RECALL_VECTOR_MIN_SCORE,
+        vector_candidates=RECALL_VECTOR_CANDIDATES,
+    )
+    if profile is None:
+        return base_config, {"applied": False, "reason": "no_query_profile"}
+
+    positive_feedback_count = int(profile.helpful_count or 0) + int(profile.pinned_count or 0)
+    negative_feedback_count = int(profile.wrong_count or 0) + int(profile.stale_count or 0) + int(profile.removed_count or 0)
+    if positive_feedback_count == 0 and negative_feedback_count == 0:
+        return base_config, {"applied": False, "reason": "no_feedback"}
+
+    fts_weight = RECALL_WEIGHT_FTS
+    vector_weight = RECALL_WEIGHT_VECTOR
+    recency_weight = RECALL_WEIGHT_RECENCY
+    reason = "balanced_feedback"
+    if negative_feedback_count > positive_feedback_count:
+        shift = min(0.12, 0.03 * (negative_feedback_count - positive_feedback_count))
+        recency_weight = min(0.35, recency_weight + shift)
+        vector_weight = max(0.10, vector_weight - shift)
+        reason = "negative_feedback_biases_recency"
+    elif positive_feedback_count > negative_feedback_count:
+        shift = min(0.08, 0.02 * (positive_feedback_count - negative_feedback_count))
+        fts_weight = min(0.75, fts_weight + shift)
+        recency_weight = max(0.05, recency_weight - shift)
+        reason = "positive_feedback_preserves_hybrid"
+
+    total = fts_weight + vector_weight + recency_weight
+    tuned_config = HybridRecallConfig(
+        fts_weight=round(fts_weight / total, 4),
+        vector_weight=round(vector_weight / total, 4),
+        recency_weight=round(recency_weight / total, 4),
+        vector_min_score=RECALL_VECTOR_MIN_SCORE,
+        vector_candidates=RECALL_VECTOR_CANDIDATES,
+    )
+    return tuned_config, {
+        "applied": True,
+        "reason": reason,
+        "positive_feedback_count": positive_feedback_count,
+        "negative_feedback_count": negative_feedback_count,
+        "weights": {
+            "fts": tuned_config.fts_weight,
+            "vector": tuned_config.vector_weight,
+            "recency": tuned_config.recency_weight,
+        },
+    }
+
+
 async def _write_context_compilation(
     db: AsyncSession,
     *,
@@ -2176,7 +2229,7 @@ async def _write_context_compilation(
     served_by: str,
     strategy: str,
     latency_ms: int,
-) -> int | None:
+) -> tuple[int, int | None]:
     compilation = ContextCompilation(
         org_id=project.org_id,
         project_id=project.id,
@@ -2210,7 +2263,7 @@ async def _write_context_compilation(
                 source_kind=item.get("kind"),
             )
         )
-    return await _upsert_query_profile(
+    query_profile_id = await _upsert_query_profile(
         db,
         project=project,
         ctx=ctx,
@@ -2220,6 +2273,7 @@ async def _write_context_compilation(
         served_by=served_by,
         compilation_id=compilation.id,
     )
+    return compilation.id, query_profile_id
 
 
 # Phase 4.3: Chaos Theory - Lyapunov Load Balancing
@@ -2271,6 +2325,7 @@ async def _run_rag_recall_with_timing(
     project_id: int,
     query_text: str,
     limit: int,
+    config: HybridRecallConfig | None = None,
 ) -> tuple[dict[str, Any], int]:
     global _ACTIVE_RAG_TASKS
     _ACTIVE_RAG_TASKS += 1
@@ -2283,7 +2338,7 @@ async def _run_rag_recall_with_timing(
                 project_id=project_id,
                 query_text=query_text,
                 limit=limit,
-                config=HybridRecallConfig(
+                config=config or HybridRecallConfig(
                     fts_weight=RECALL_WEIGHT_FTS,
                     vector_weight=RECALL_WEIGHT_VECTOR,
                     recency_weight=RECALL_WEIGHT_RECENCY,
@@ -2304,6 +2359,7 @@ async def _run_rag_recall(
     project_id: int,
     query_text: str,
     limit: int,
+    config: HybridRecallConfig | None = None,
 ) -> tuple[dict[str, Any], int]:
     async with AsyncSessionLocal() as rag_db:
         return await _run_rag_recall_with_timing(
@@ -2311,6 +2367,7 @@ async def _run_rag_recall(
             project_id=project_id,
             query_text=query_text,
             limit=limit,
+            config=config,
         )
 
 
@@ -2918,6 +2975,14 @@ async def recall(
 
     cag_kv_cache_id: str | None = None
     cag_memory_matrix: list[list[float]] | None = None
+    query_profile = await _lookup_query_profile(db, project_id=project.id, query_text=query_clean) if query_clean else None
+    rag_config, profile_tuning = _query_profile_recall_config(query_profile)
+    if profile_tuning["applied"]:
+        weight_details = {
+            "fts": rag_config.fts_weight,
+            "vector": rag_config.vector_weight,
+            "recency": rag_config.recency_weight,
+        }
 
     if query_clean:
         if is_local_cag():
@@ -2942,6 +3007,7 @@ async def recall(
                     project_id=project.id,
                     query_text=query_clean,
                     limit=limit,
+                    config=rag_config,
                 )
                 served_by = "rag"
                 strategy = rag_result["strategy"]
@@ -2977,6 +3043,7 @@ async def recall(
                             project_id=project.id,
                             query_text=query_clean,
                             limit=limit,
+                            config=rag_config,
                         )
                         served_by = "rag"
                         strategy = rag_result["strategy"]
@@ -2989,7 +3056,7 @@ async def recall(
                 else:
                     # CAG is slow: hedge by launching RAG and take the first useful result.
                     rag_task = asyncio.create_task(
-                        _run_rag_recall(project_id=project.id, query_text=query_clean, limit=limit)
+                        _run_rag_recall(project_id=project.id, query_text=query_clean, limit=limit, config=rag_config)
                     )
                     done, _ = await asyncio.wait({cag_task, rag_task}, return_when=asyncio.FIRST_COMPLETED)
                     if rag_task in done:
@@ -3030,9 +3097,9 @@ async def recall(
                                     pass
                         else:
                             if rag_task is None:
-                                rag_task = asyncio.create_task(
-                                    _run_rag_recall(project_id=project.id, query_text=query_clean, limit=limit)
-                                )
+                                    rag_task = asyncio.create_task(
+                                        _run_rag_recall(project_id=project.id, query_text=query_clean, limit=limit, config=rag_config)
+                                    )
                             rag_result, rag_duration_ms = await rag_task
                             served_by = "rag"
                             strategy = rag_result["strategy"]
@@ -3068,12 +3135,14 @@ async def recall(
         score_details = {"reason": "empty_query"}
         rag_duration_ms = int((loop.time() - rag_started) * 1000)
 
+    if query_clean and profile_tuning["applied"]:
+        score_details = {**score_details, "profile_tuning": profile_tuning}
+
     requested_format = format.strip().lower() if format else "text"
     output_format = requested_format
     query_profile_id: int | None = None
     format_resolution_reason: str | None = None
     if output_format == "auto":
-        query_profile = await _lookup_query_profile(db, project_id=project.id, query_text=query_clean)
         query_profile_id = query_profile.id if query_profile is not None else None
         preferred_format, format_resolution_reason = _query_profile_auto_resolution(query_profile)
         output_format = preferred_format or "text"
@@ -3156,7 +3225,7 @@ async def recall(
         rag_duration_ms=rag_duration_ms,
         total_duration_ms=total_duration_ms,
     )
-    await _write_context_compilation(
+    compilation_id, persisted_query_profile_id = await _write_context_compilation(
         db,
         project=project,
         ctx=ctx,
@@ -3168,6 +3237,8 @@ async def recall(
         strategy=strategy,
         latency_ms=total_duration_ms,
     )
+    if query_profile_id is None:
+        query_profile_id = persisted_query_profile_id
     await db.commit()
     response.headers["X-ContextCache-API-Version"] = API_VERSION
     response.headers["X-ContextCache-Recall-Strategy"] = strategy
@@ -3181,6 +3252,7 @@ async def recall(
         query=query_clean,
         memory_pack_text=pack,
         items=out_items,
+        compilation_id=compilation_id,
         renderer=mir.renderer,
         mir=mir,
         requested_format=requested_format or "text",
@@ -3190,6 +3262,29 @@ async def recall(
         global_kv_cache_id=cag_kv_cache_id,
         global_memory_matrix=cag_memory_matrix,
     )
+
+
+@router.post("/projects/{project_id}/context/compile", response_model=RecallOut)
+async def compile_context(
+    project_id: int,
+    payload: ContextCompileIn,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    ctx: RequestContext = Depends(get_actor_context),
+) -> RecallOut:
+    result = await recall(
+        project_id=project_id,
+        request=request,
+        response=response,
+        query=payload.query,
+        limit=payload.limit,
+        format=payload.format,
+        db=db,
+        ctx=ctx,
+    )
+    response.headers["X-ContextCache-Compiler-Surface"] = "context_compile"
+    return result
 
 
 @router.post("/projects/{project_id}/recall/feedback", response_model=RecallFeedbackOut, status_code=201)

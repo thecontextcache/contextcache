@@ -5,12 +5,15 @@ import {
   projects,
   memories,
   recall,
+  compiler,
   inbox,
   orgs,
   type Project,
   type Memory,
   type RecallResult,
   type InboxItem,
+  type RecallFormat,
+  type RecallFeedbackLabel,
   ApiError,
 } from '@/lib/api';
 import { MEMORY_TYPES, ORG_ID_KEY } from '@/lib/constants';
@@ -87,8 +90,11 @@ export function DashboardContent() {
 
   // Recall
   const [recallQuery, setRecallQuery] = useState('');
+  const [recallFormat, setRecallFormat] = useState<RecallFormat>('auto');
   const [recallResult, setRecallResult] = useState<RecallResult | null>(null);
   const [recalling, setRecalling] = useState(false);
+  const [compiling, setCompiling] = useState(false);
+  const [submittingFeedbackLabel, setSubmittingFeedbackLabel] = useState<string | null>(null);
 
   // Inbox
   const [inboxItems, setInboxItems] = useState<InboxItem[]>([]);
@@ -202,12 +208,48 @@ export function DashboardContent() {
     if (!selectedProject || !recallQuery.trim()) return;
     setRecalling(true);
     try {
-      const result = await recall.query(selectedProject.id, recallQuery);
+      const result = await recall.query(selectedProject.id, recallQuery, recallFormat);
       setRecallResult(result);
     } catch (err) {
       toast('error', err instanceof ApiError ? err.message : 'Recall failed');
     } finally {
       setRecalling(false);
+    }
+  }
+
+  async function handleCompileContext() {
+    if (!selectedProject || !recallQuery.trim()) return;
+    setCompiling(true);
+    try {
+      const result = await compiler.compile(selectedProject.id, {
+        query: recallQuery,
+        limit: 10,
+        format: recallFormat,
+      });
+      setRecallResult(result);
+      toast('success', 'Context compiled');
+    } catch (err) {
+      toast('error', err instanceof ApiError ? err.message : 'Compile failed');
+    } finally {
+      setCompiling(false);
+    }
+  }
+
+  async function handleRecallFeedback(label: RecallFeedbackLabel, entityId?: number) {
+    if (!selectedProject || !recallResult?.compilation_id) return;
+    const feedbackKey = `${label}:${entityId ?? 'compilation'}`;
+    setSubmittingFeedbackLabel(feedbackKey);
+    try {
+      await recall.submitFeedback(selectedProject.id, {
+        compilation_id: recallResult.compilation_id,
+        label,
+        entity_id: entityId,
+      });
+      toast('success', entityId ? `Saved ${label} feedback for memory #${entityId}` : `Saved ${label} feedback`);
+    } catch (err) {
+      toast('error', err instanceof ApiError ? err.message : 'Failed to save feedback');
+    } finally {
+      setSubmittingFeedbackLabel(null);
     }
   }
 
@@ -502,28 +544,128 @@ export function DashboardContent() {
               Search across your project&apos;s memory
             </p>
           </div>
-          <form onSubmit={handleRecall} className="flex gap-3">
+          <form onSubmit={handleRecall} className="flex flex-wrap gap-3">
             <Input
               value={recallQuery}
               onChange={(e) => setRecallQuery(e.target.value)}
               placeholder="Ask the project brain..."
               className="flex-1"
             />
+            <select
+              value={recallFormat}
+              onChange={(e) => setRecallFormat(e.target.value as RecallFormat)}
+              className="rounded-lg border border-line bg-panel px-3 py-2 text-sm text-ink"
+            >
+              <option value="auto">Auto</option>
+              <option value="text">Text</option>
+              <option value="toon">Toon</option>
+              <option value="toonx">ToonX</option>
+            </select>
             <Button type="submit" loading={recalling}>
               Search
+            </Button>
+            <Button type="button" variant="secondary" loading={compiling} onClick={handleCompileContext}>
+              Compile context
             </Button>
           </form>
           {recallResult && (
             <div className="mt-5 space-y-4">
-              <p className="text-sm text-muted">
-                {recallResult.items.length} result{recallResult.items.length !== 1 ? 's' : ''} for &quot;{recallResult.query}&quot;
-              </p>
+              <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
+                <span>
+                  {recallResult.items.length} result{recallResult.items.length !== 1 ? 's' : ''} for &quot;{recallResult.query}&quot;
+                </span>
+                <Badge variant="muted">requested {recallResult.requested_format}</Badge>
+                <Badge variant={recallResult.resolved_format === 'toonx' ? 'violet' : recallResult.resolved_format === 'toon' ? 'brand' : 'muted'}>
+                  resolved {recallResult.resolved_format}
+                </Badge>
+                {recallResult.format_resolution_reason && (
+                  <Badge variant="ok">{recallResult.format_resolution_reason.replaceAll('_', ' ')}</Badge>
+                )}
+                {recallResult.query_profile_id != null && (
+                  <Badge variant="warn">profile #{recallResult.query_profile_id}</Badge>
+                )}
+                {recallResult.compilation_id != null && (
+                  <Badge variant="muted">compilation #{recallResult.compilation_id}</Badge>
+                )}
+              </div>
+              {recallResult.compilation_id != null && (
+                <Card className="border-line/70 bg-bg-2/30">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-ink">Was this recall output useful?</p>
+                      <p className="mt-1 text-xs text-muted">
+                        Feedback trains query-profile preferences and helps the admin tooling explain what should auto-apply.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        loading={submittingFeedbackLabel === 'helpful:compilation'}
+                        onClick={() => handleRecallFeedback('helpful')}
+                      >
+                        Helpful
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        loading={submittingFeedbackLabel === 'wrong:compilation'}
+                        onClick={() => handleRecallFeedback('wrong')}
+                      >
+                        Wrong
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        loading={submittingFeedbackLabel === 'stale:compilation'}
+                        onClick={() => handleRecallFeedback('stale')}
+                      >
+                        Stale
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              )}
               {recallResult.items.map((item) => (
                 <Card key={item.id} className="border-brand/20">
-                  <div className="mb-2.5 flex items-center gap-2.5">
+                  <div className="mb-2.5 flex flex-wrap items-center gap-2.5">
                     <Badge variant={typeVariantMap[item.type] || 'muted'}>{item.type}</Badge>
                     {item.rank_score != null && (
                       <span className="text-xs text-muted">score: {item.rank_score.toFixed(3)}</span>
+                    )}
+                    {recallResult.compilation_id != null && (
+                      <div className="ml-auto flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          loading={submittingFeedbackLabel === `helpful:${item.id}`}
+                          onClick={() => handleRecallFeedback('helpful', item.id)}
+                        >
+                          Helpful
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          loading={submittingFeedbackLabel === `wrong:${item.id}`}
+                          onClick={() => handleRecallFeedback('wrong', item.id)}
+                        >
+                          Wrong
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          loading={submittingFeedbackLabel === `pinned:${item.id}`}
+                          onClick={() => handleRecallFeedback('pinned', item.id)}
+                        >
+                          Pin signal
+                        </Button>
+                      </div>
                     )}
                   </div>
                   <h4 className="text-base font-semibold text-ink">{item.title}</h4>

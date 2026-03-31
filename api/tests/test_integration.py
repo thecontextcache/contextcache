@@ -1750,6 +1750,42 @@ async def test_recall_persists_text_context_compilation_with_mir_json(
     assert compilation.compilation_json["renderer"] == "recall-pack/v1"
     assert compilation.compilation_json["bundle"]["target_format"] == "text"
     assert compilation.compilation_text == body["memory_pack_text"]
+    assert body["compilation_id"] == compilation.id
+
+
+async def test_context_compile_endpoint_returns_persisted_compilation(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    viewer_headers = await _login_org_member(client, db_session, app_ctx, role="viewer")
+    create_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=auth_headers(app_ctx, role="owner"),
+        json={"type": "finding", "content": "Dedicated compile endpoint memory"},
+    )
+    assert create_resp.status_code == 201
+
+    compile_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/context/compile",
+        headers=viewer_headers,
+        json={"query": "dedicated compile endpoint", "limit": 5, "format": "toonx"},
+    )
+    assert compile_resp.status_code == 200
+    body = compile_resp.json()
+    assert body["compilation_id"] is not None
+    assert body["resolved_format"] == "toonx"
+    assert body["mir"]["version"] == "mir/1"
+
+    compilation = (
+        await db_session.execute(
+            select(ContextCompilation)
+            .where(ContextCompilation.id == body["compilation_id"])
+            .limit(1)
+        )
+    ).scalar_one()
+    assert compilation.query_text == "dedicated compile endpoint"
+    assert compilation.target_format == "toonx"
 
 
 async def test_admin_recall_compilations_returns_recent_entries(
@@ -2027,6 +2063,60 @@ async def test_recall_auto_format_uses_query_profile_preference(
     assert body["mir"]["bundle"]["target_format"] == "toonx"
 
 
+async def test_recall_applies_query_profile_tuning_to_retrieval_weights(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    viewer_headers = await _login_org_member(client, db_session, app_ctx, role="viewer")
+    create_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=auth_headers(app_ctx, role="owner"),
+        json={"type": "finding", "content": "Fresh deployment runbook for tuned retrieval"},
+    )
+    assert create_resp.status_code == 201
+
+    seed_resp = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=viewer_headers,
+        params={"query": "deployment runbook", "limit": 5, "format": "toonx"},
+    )
+    assert seed_resp.status_code == 200
+    compilation_id = seed_resp.json()["compilation_id"]
+    assert compilation_id is not None
+
+    for label in ["helpful", "pinned"]:
+        feedback_resp = await client.post(
+            f"/projects/{app_ctx.project_id}/recall/feedback",
+            headers=viewer_headers,
+            json={"compilation_id": compilation_id, "label": label},
+        )
+        assert feedback_resp.status_code == 201
+
+    tuned_resp = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=viewer_headers,
+        params={"query": "deployment runbook", "limit": 5},
+    )
+    assert tuned_resp.status_code == 200
+
+    compilation = (
+        await db_session.execute(
+            select(ContextCompilation)
+            .where(
+                ContextCompilation.project_id == app_ctx.project_id,
+                ContextCompilation.query_text == "deployment runbook",
+            )
+            .order_by(ContextCompilation.id.desc())
+            .limit(1)
+        )
+    ).scalar_one()
+    profile_tuning = compilation.compilation_json["retrieval_plan"]["score_details"]["profile_tuning"]
+    assert profile_tuning["applied"] is True
+    assert profile_tuning["reason"] == "positive_feedback_preserves_hybrid"
+    assert profile_tuning["weights"]["fts"] > profile_tuning["weights"]["recency"]
+
+
 async def test_admin_recall_feedback_returns_recent_entries(
     client,
     db_session: AsyncSession,
@@ -2280,6 +2370,58 @@ async def test_admin_recall_feedback_filters_query_profiles_and_eval_metrics(
     assert body["query_profile_count"] >= 1
     assert body["feedback_label_counts"]["helpful"] >= 1
     assert body["preferred_format_counts"]["toonx"] >= 1
+
+
+async def test_admin_recall_memory_signals_aggregates_entity_feedback(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    admin_headers = await _login_org_member(
+        client,
+        db_session,
+        app_ctx,
+        role="owner",
+        is_admin=True,
+    )
+    create_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=admin_headers,
+        json={"type": "decision", "content": "Memory signal target"},
+    )
+    assert create_resp.status_code == 201
+    memory_id = create_resp.json()["id"]
+
+    recall_resp = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=admin_headers,
+        params={"query": "memory signal target", "limit": 5},
+    )
+    assert recall_resp.status_code == 200
+    compilation_id = recall_resp.json()["compilation_id"]
+    assert compilation_id is not None
+
+    for label in ["helpful", "wrong", "pinned"]:
+        feedback_resp = await client.post(
+            f"/projects/{app_ctx.project_id}/recall/feedback",
+            headers=admin_headers,
+            json={"compilation_id": compilation_id, "label": label, "entity_id": memory_id},
+        )
+        assert feedback_resp.status_code == 201
+
+    response = await client.get(
+        "/admin/recall/memory-signals",
+        headers=admin_headers,
+        params={"limit": 20, "project_id": app_ctx.project_id},
+    )
+    assert response.status_code == 200
+    rows = response.json()
+    target = next(row for row in rows if row["memory_id"] == memory_id)
+    assert target["helpful_count"] == 1
+    assert target["wrong_count"] == 1
+    assert target["pinned_count"] == 1
+    assert target["feedback_total"] == 3
+    assert target["net_score"] == 1
 
 
 async def test_recall_auto_format_falls_back_when_negative_feedback_outweighs_positive(

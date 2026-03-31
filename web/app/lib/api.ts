@@ -268,6 +268,12 @@ export interface RecallResult {
   query: string;
   memory_pack_text: string;
   items: RecallItem[];
+  compilation_id: number | null;
+  renderer: string;
+  requested_format: string;
+  resolved_format: string;
+  format_resolution_reason: string | null;
+  query_profile_id: number | null;
 }
 
 function normalizeRecallResult(raw: any): RecallResult {
@@ -275,6 +281,12 @@ function normalizeRecallResult(raw: any): RecallResult {
     project_id: raw.project_id,
     query: raw.query,
     memory_pack_text: raw.memory_pack_text,
+    compilation_id: raw.compilation_id ?? null,
+    renderer: raw.renderer ?? 'recall-pack/v1',
+    requested_format: raw.requested_format ?? 'text',
+    resolved_format: raw.resolved_format ?? raw.requested_format ?? 'text',
+    format_resolution_reason: raw.format_resolution_reason ?? null,
+    query_profile_id: raw.query_profile_id ?? null,
     items: Array.isArray(raw.items) ? raw.items.map((item: any) => ({
       ...normalizeMemory(item),
       rank_score: item.rank_score ?? null,
@@ -282,9 +294,32 @@ function normalizeRecallResult(raw: any): RecallResult {
   };
 }
 
+export type RecallFormat = 'text' | 'toon' | 'toonx' | 'auto';
+export type RecallFeedbackLabel = 'helpful' | 'wrong' | 'stale' | 'removed' | 'pinned';
+
+export interface RecallFeedback {
+  id: number;
+  compilation_id: number;
+  query_profile_id: number | null;
+  label: RecallFeedbackLabel;
+  entity_type: string;
+  entity_id: number | null;
+  note: string | null;
+  created_at: string;
+}
+
 export const recall = {
-  query: (projectId: number, q: string) =>
-    request<any>(`/api/projects/${projectId}/recall?query=${encodeURIComponent(q)}`).then(normalizeRecallResult),
+  query: (projectId: number, q: string, format: RecallFormat = 'text') =>
+    request<any>(`/api/projects/${projectId}/recall?query=${encodeURIComponent(q)}&format=${encodeURIComponent(format)}`).then(normalizeRecallResult),
+
+  submitFeedback: (
+    projectId: number,
+    payload: { compilation_id: number; label: RecallFeedbackLabel; entity_id?: number; note?: string; metadata?: Record<string, unknown> }
+  ) =>
+    request<RecallFeedback>(`/api/projects/${projectId}/recall/feedback`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
 
   search: (projectId: number, q: string) =>
     request<any>(
@@ -298,6 +333,18 @@ export const recall = {
         rank_score: item.rank_score ?? null,
       })) : [],
     })),
+};
+
+export const compiler = {
+  compile: (projectId: number, payload: { query: string; limit?: number; format?: RecallFormat }) =>
+    request<any>(`/api/projects/${projectId}/context/compile`, {
+      method: 'POST',
+      body: JSON.stringify({
+        query: payload.query,
+        limit: payload.limit ?? 10,
+        format: payload.format ?? 'text',
+      }),
+    }).then(normalizeRecallResult),
 };
 
 // ── Inbox ─────────────────────────────────────────────────────
@@ -550,6 +597,83 @@ export interface AdminRecallLog {
   created_at: string;
 }
 
+export interface AdminRecallFeedback {
+  id: number;
+  org_id: number;
+  project_id: number;
+  compilation_id: number;
+  query_profile_id: number | null;
+  actor_user_id: number | null;
+  entity_type: string;
+  entity_id: number | null;
+  label: RecallFeedbackLabel;
+  note: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AdminRecallEval {
+  lookback_days: number;
+  total_queries: number;
+  empty_query_count: number;
+  no_result_count: number;
+  total_feedback: number;
+  query_profile_count: number;
+  strategy_counts: Record<string, number>;
+  served_by_counts: Record<string, number>;
+  source_counts: Record<string, number>;
+  feedback_label_counts: Record<string, number>;
+  preferred_format_counts: Record<string, number>;
+  avg_ranked_results: number | null;
+  avg_total_duration_ms: number | null;
+  avg_cag_duration_ms: number | null;
+  avg_rag_duration_ms: number | null;
+  max_total_duration_ms: number | null;
+}
+
+export interface AdminQueryProfile {
+  id: number;
+  org_id: number;
+  project_id: number;
+  actor_user_id: number | null;
+  normalized_query: string;
+  sample_query: string;
+  preferred_target_format: string | null;
+  last_target_format: string | null;
+  last_strategy: string | null;
+  last_served_by: string | null;
+  total_queries: number;
+  helpful_count: number;
+  wrong_count: number;
+  stale_count: number;
+  removed_count: number;
+  pinned_count: number;
+  feedback_total: number;
+  positive_feedback_count: number;
+  negative_feedback_count: number;
+  auto_apply_enabled: boolean;
+  last_compilation_id: number | null;
+  last_queried_at: string | null;
+  last_feedback_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminRecallMemorySignal {
+  memory_id: number;
+  project_id: number;
+  memory_type: string;
+  title: string | null;
+  helpful_count: number;
+  wrong_count: number;
+  stale_count: number;
+  removed_count: number;
+  pinned_count: number;
+  feedback_total: number;
+  net_score: number;
+  last_feedback_at: string | null;
+}
+
 export interface AdminUsageRow {
   date: string;
   event_type: string;
@@ -627,6 +751,40 @@ export const admin = {
     if (projectId != null) query.set('project_id', String(projectId));
     const suffix = query.toString() ? `?${query}` : '';
     return request<AdminRecallLog[]>(`/api/admin/recall/logs${suffix}`);
+  },
+
+  recallEval: (lookbackDays = 7, projectId?: number) => {
+    const query = new URLSearchParams({ lookback_days: String(lookbackDays) });
+    if (projectId != null) query.set('project_id', String(projectId));
+    return request<AdminRecallEval>(`/api/admin/recall/eval?${query.toString()}`);
+  },
+
+  recallFeedback: (limit?: number, offset?: number, projectId?: number, label?: RecallFeedbackLabel) => {
+    const query = new URLSearchParams();
+    if (limit != null) query.set('limit', String(limit));
+    if (offset != null) query.set('offset', String(offset));
+    if (projectId != null) query.set('project_id', String(projectId));
+    if (label) query.set('label', label);
+    const suffix = query.toString() ? `?${query}` : '';
+    return request<AdminRecallFeedback[]>(`/api/admin/recall/feedback${suffix}`);
+  },
+
+  queryProfiles: (limit?: number, offset?: number, projectId?: number, hasFeedback?: boolean) => {
+    const query = new URLSearchParams();
+    if (limit != null) query.set('limit', String(limit));
+    if (offset != null) query.set('offset', String(offset));
+    if (projectId != null) query.set('project_id', String(projectId));
+    if (hasFeedback != null) query.set('has_feedback', String(hasFeedback));
+    const suffix = query.toString() ? `?${query}` : '';
+    return request<AdminQueryProfile[]>(`/api/admin/recall/query-profiles${suffix}`);
+  },
+
+  recallMemorySignals: (limit?: number, projectId?: number) => {
+    const query = new URLSearchParams();
+    if (limit != null) query.set('limit', String(limit));
+    if (projectId != null) query.set('project_id', String(projectId));
+    const suffix = query.toString() ? `?${query}` : '';
+    return request<AdminRecallMemorySignal[]>(`/api/admin/recall/memory-signals${suffix}`);
   },
 
   cagCacheStats: () => request<CagCacheStats>('/api/admin/cag/cache-stats'),
