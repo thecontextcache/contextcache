@@ -1,7 +1,7 @@
 """query profile auto apply controls
 
 Revision ID: 20260405_0024
-Revises: 20260331_0023
+Revises: 20260331_0023_query_profiles_and_retrieval_feedback
 Create Date: 2026-04-05 00:00:00.000000
 """
 
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 revision = "20260405_0024"
-down_revision = "20260331_0023"
+down_revision = "20260331_0023_query_profiles_and_retrieval_feedback"
 branch_labels = None
 depends_on = None
 
