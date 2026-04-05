@@ -73,6 +73,7 @@ class MIRRetrievalPlan(BaseModel):
     weights: dict[str, float] = Field(default_factory=dict)
     reason: str | None = None
     score_source: str | None = None
+    score_details: dict[str, object] = Field(default_factory=dict)
 
 
 class MIRDocument(BaseModel):
@@ -229,6 +230,7 @@ def build_mir_from_recall(
             weights={str(key): float(value) for key, value in dict(retrieval_weights).items()},
             reason=str(reason) if isinstance(reason, str) and reason else None,
             score_source=str(score_source) if isinstance(score_source, str) and score_source else None,
+            score_details=dict(retrieval_details),
         ),
         items=mir_items,
     )

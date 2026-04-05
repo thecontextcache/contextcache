@@ -3237,7 +3237,7 @@ async def recall(
         strategy=strategy,
         latency_ms=total_duration_ms,
     )
-    if query_profile_id is None:
+    if requested_format == "auto" and query_profile_id is None:
         query_profile_id = persisted_query_profile_id
     await db.commit()
     response.headers["X-ContextCache-API-Version"] = API_VERSION
