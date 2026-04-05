@@ -2243,6 +2243,74 @@ async def test_admin_query_profile_detail_returns_recent_feedback(
     assert body["recent_feedback"][0]["entity_id"] == memory_id
 
 
+async def test_admin_query_profile_controls_disable_and_reset_auto_apply(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    viewer_headers = await _login_org_member(client, db_session, app_ctx, role="viewer")
+    create_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=auth_headers(app_ctx, role="owner"),
+        json={"type": "decision", "content": "Query profile controls memory"},
+    )
+    assert create_resp.status_code == 201
+    memory_id = create_resp.json()["id"]
+
+    recall_resp = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=viewer_headers,
+        params={"query": "query profile controls", "limit": 5, "format": "toonx"},
+    )
+    assert recall_resp.status_code == 200
+    compilation_id = recall_resp.json()["compilation_id"]
+    assert compilation_id is not None
+
+    feedback_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/recall/feedback",
+        headers=viewer_headers,
+        json={"compilation_id": compilation_id, "label": "helpful", "entity_id": memory_id},
+    )
+    assert feedback_resp.status_code == 201
+    profile_id = feedback_resp.json()["query_profile_id"]
+    assert profile_id is not None
+
+    admin_headers = await _login_org_member(
+        client,
+        db_session,
+        app_ctx,
+        role="owner",
+        is_admin=True,
+    )
+    disable_resp = await client.post(
+        f"/admin/recall/query-profiles/{profile_id}/disable-auto-apply",
+        headers=admin_headers,
+        params={"disabled": "true"},
+    )
+    assert disable_resp.status_code == 200
+    disabled_body = disable_resp.json()
+    assert disabled_body["auto_apply_disabled"] is True
+    assert disabled_body["auto_apply_enabled"] is False
+
+    auto_resp = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=viewer_headers,
+        params={"query": "query profile controls", "limit": 5, "format": "auto"},
+    )
+    assert auto_resp.status_code == 200
+    assert auto_resp.json()["format_resolution_reason"] == "auto_apply_disabled"
+
+    reset_resp = await client.post(
+        f"/admin/recall/query-profiles/{profile_id}/reset-feedback",
+        headers=admin_headers,
+    )
+    assert reset_resp.status_code == 200
+    reset_body = reset_resp.json()
+    assert reset_body["helpful_count"] == 0
+    assert reset_body["feedback_total"] == 0
+    assert reset_body["preferred_target_format"] is None
+
+
 async def test_admin_recall_compilation_detail_includes_recent_feedback(
     client,
     db_session: AsyncSession,
@@ -2298,6 +2366,69 @@ async def test_admin_recall_compilation_detail_includes_recent_feedback(
     assert body["recent_feedback"]
     assert body["recent_feedback"][0]["label"] == "stale"
     assert body["recent_feedback"][0]["entity_id"] == memory_id
+
+
+async def test_admin_recall_memory_signal_detail_and_actions(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    admin_headers = await _login_org_member(
+        client,
+        db_session,
+        app_ctx,
+        role="owner",
+        is_admin=True,
+    )
+    create_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=admin_headers,
+        json={"type": "decision", "content": "Signal detail content"},
+    )
+    assert create_resp.status_code == 201
+    memory_id = create_resp.json()["id"]
+
+    recall_resp = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=admin_headers,
+        params={"query": "signal detail content", "limit": 5},
+    )
+    assert recall_resp.status_code == 200
+    compilation_id = recall_resp.json()["compilation_id"]
+    assert compilation_id is not None
+
+    feedback_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/recall/feedback",
+        headers=admin_headers,
+        json={"compilation_id": compilation_id, "label": "wrong", "entity_id": memory_id},
+    )
+    assert feedback_resp.status_code == 201
+
+    detail_resp = await client.get(
+        f"/admin/recall/memory-signals/{memory_id}",
+        headers=admin_headers,
+    )
+    assert detail_resp.status_code == 200
+    detail_body = detail_resp.json()
+    assert detail_body["memory_id"] == memory_id
+    assert detail_body["content"] == "Signal detail content"
+    assert detail_body["wrong_count"] >= 1
+    assert detail_body["marked_for_review"] is False
+    assert detail_body["archived_from_recall_admin"] is False
+
+    review_resp = await client.post(
+        f"/admin/recall/memory-signals/{memory_id}/mark-review",
+        headers=admin_headers,
+    )
+    assert review_resp.status_code == 200
+    assert review_resp.json()["marked_for_review"] is True
+
+    archive_resp = await client.post(
+        f"/admin/recall/memory-signals/{memory_id}/archive",
+        headers=admin_headers,
+    )
+    assert archive_resp.status_code == 200
+    assert archive_resp.json()["archived_from_recall_admin"] is True
 
 
 async def test_admin_recall_feedback_filters_query_profiles_and_eval_metrics(

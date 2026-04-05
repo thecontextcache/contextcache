@@ -522,6 +522,17 @@ class AdminRecallMemorySignalOut(BaseModel):
     last_feedback_at: datetime | None = None
 
 
+class AdminRecallMemorySignalDetailOut(AdminRecallMemorySignalOut):
+    source: str
+    content: str
+    tags: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    marked_for_review: bool = False
+    archived_from_recall_admin: bool = False
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
 class AdminQueryProfileOut(BaseModel):
     id: int
     org_id: int
@@ -543,6 +554,7 @@ class AdminQueryProfileOut(BaseModel):
     positive_feedback_count: int
     negative_feedback_count: int
     auto_apply_enabled: bool
+    auto_apply_disabled: bool = False
     last_compilation_id: int | None = None
     last_queried_at: datetime | None = None
     last_feedback_at: datetime | None = None

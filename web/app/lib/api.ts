@@ -612,6 +612,40 @@ export interface AdminRecallFeedback {
   created_at: string;
 }
 
+export interface AdminContextCompilationItem {
+  id: number;
+  entity_type: string;
+  entity_id: number | null;
+  rank: number | null;
+  token_estimate: number | null;
+  why_included: string | null;
+  source_kind: string | null;
+  created_at: string;
+}
+
+export interface AdminContextCompilationDetail {
+  id: number;
+  org_id: number;
+  project_id: number;
+  actor_user_id: number | null;
+  query_text: string;
+  bundle_id: string | null;
+  target_format: string;
+  renderer: string | null;
+  retrieval_strategy: string | null;
+  served_by: string | null;
+  status: string;
+  latency_ms: number | null;
+  compilation_text: string | null;
+  compilation_json: Record<string, unknown>;
+  item_count: number;
+  feedback_count: number;
+  items: AdminContextCompilationItem[];
+  recent_feedback: AdminRecallFeedback[];
+  query_profile_id: number | null;
+  created_at: string;
+}
+
 export interface AdminRecallEval {
   lookback_days: number;
   total_queries: number;
@@ -652,11 +686,16 @@ export interface AdminQueryProfile {
   positive_feedback_count: number;
   negative_feedback_count: number;
   auto_apply_enabled: boolean;
+  auto_apply_disabled: boolean;
   last_compilation_id: number | null;
   last_queried_at: string | null;
   last_feedback_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface AdminQueryProfileDetail extends AdminQueryProfile {
+  recent_feedback: AdminRecallFeedback[];
 }
 
 export interface AdminRecallMemorySignal {
@@ -672,6 +711,17 @@ export interface AdminRecallMemorySignal {
   feedback_total: number;
   net_score: number;
   last_feedback_at: string | null;
+}
+
+export interface AdminRecallMemorySignalDetail extends AdminRecallMemorySignal {
+  source: string;
+  content: string;
+  tags: string[];
+  metadata: Record<string, unknown>;
+  marked_for_review: boolean;
+  archived_from_recall_admin: boolean;
+  created_at: string;
+  updated_at: string | null;
 }
 
 export interface AdminUsageRow {
@@ -753,6 +803,9 @@ export const admin = {
     return request<AdminRecallLog[]>(`/api/admin/recall/logs${suffix}`);
   },
 
+  recallCompilationDetail: (compilationId: number) =>
+    request<AdminContextCompilationDetail>(`/api/admin/recall/compilations/${compilationId}`),
+
   recallEval: (lookbackDays = 7, projectId?: number) => {
     const query = new URLSearchParams({ lookback_days: String(lookbackDays) });
     if (projectId != null) query.set('project_id', String(projectId));
@@ -779,6 +832,19 @@ export const admin = {
     return request<AdminQueryProfile[]>(`/api/admin/recall/query-profiles${suffix}`);
   },
 
+  queryProfileDetail: (profileId: number) =>
+    request<AdminQueryProfileDetail>(`/api/admin/recall/query-profiles/${profileId}`),
+
+  disableQueryProfileAutoApply: (profileId: number, disabled = true) =>
+    request<AdminQueryProfile>(`/api/admin/recall/query-profiles/${profileId}/disable-auto-apply?disabled=${String(disabled)}`, {
+      method: 'POST',
+    }),
+
+  resetQueryProfileFeedback: (profileId: number) =>
+    request<AdminQueryProfile>(`/api/admin/recall/query-profiles/${profileId}/reset-feedback`, {
+      method: 'POST',
+    }),
+
   recallMemorySignals: (limit?: number, projectId?: number) => {
     const query = new URLSearchParams();
     if (limit != null) query.set('limit', String(limit));
@@ -786,6 +852,19 @@ export const admin = {
     const suffix = query.toString() ? `?${query}` : '';
     return request<AdminRecallMemorySignal[]>(`/api/admin/recall/memory-signals${suffix}`);
   },
+
+  recallMemorySignalDetail: (memoryId: number) =>
+    request<AdminRecallMemorySignalDetail>(`/api/admin/recall/memory-signals/${memoryId}`),
+
+  markMemorySignalForReview: (memoryId: number) =>
+    request<AdminRecallMemorySignalDetail>(`/api/admin/recall/memory-signals/${memoryId}/mark-review`, {
+      method: 'POST',
+    }),
+
+  archiveMemorySignal: (memoryId: number) =>
+    request<AdminRecallMemorySignalDetail>(`/api/admin/recall/memory-signals/${memoryId}/archive`, {
+      method: 'POST',
+    }),
 
   cagCacheStats: () => request<CagCacheStats>('/api/admin/cag/cache-stats'),
   cagStats: () => request<CagCacheStats>('/api/admin/cag/cache-stats'),

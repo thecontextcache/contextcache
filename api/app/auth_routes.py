@@ -35,12 +35,14 @@ from .models import (
     ContextCompilationItem,
     Membership,
     Memory,
+    MemoryTag,
     Organization,
     QueryProfile,
     RawCapture,
     RecallLog,
     RecallTiming,
     RetrievalFeedback,
+    Tag,
     PlanCatalog,
     UserSubscription,
     OrgSubscription,
@@ -64,6 +66,7 @@ from .schemas import (
     AdminCaptureFailureOut,
     AdminRecallLogOut,
     AdminRecallEvalOut,
+    AdminRecallMemorySignalDetailOut,
     AdminRecallMemorySignalOut,
     AdminQueryProfileOut,
     AdminSecurityPostureOut,
@@ -108,8 +111,57 @@ def _query_profile_feedback_stats(profile: QueryProfile) -> tuple[int, int, int,
     positive_feedback_count = int(profile.helpful_count or 0) + int(profile.pinned_count or 0)
     negative_feedback_count = int(profile.wrong_count or 0) + int(profile.stale_count or 0) + int(profile.removed_count or 0)
     feedback_total = positive_feedback_count + negative_feedback_count
-    auto_apply_enabled = bool((profile.preferred_target_format or "").strip()) and positive_feedback_count > negative_feedback_count
+    auto_apply_enabled = (
+        not bool(profile.auto_apply_disabled)
+        and bool((profile.preferred_target_format or "").strip())
+        and positive_feedback_count > negative_feedback_count
+    )
     return feedback_total, positive_feedback_count, negative_feedback_count, auto_apply_enabled
+
+
+def _query_profile_out(profile: QueryProfile) -> AdminQueryProfileOut:
+    feedback_total, positive_feedback_count, negative_feedback_count, auto_apply_enabled = _query_profile_feedback_stats(profile)
+    return AdminQueryProfileOut(
+        id=profile.id,
+        org_id=profile.org_id,
+        project_id=profile.project_id,
+        actor_user_id=profile.actor_user_id,
+        normalized_query=profile.normalized_query,
+        sample_query=profile.sample_query,
+        preferred_target_format=profile.preferred_target_format,
+        last_target_format=profile.last_target_format,
+        last_strategy=profile.last_strategy,
+        last_served_by=profile.last_served_by,
+        total_queries=profile.total_queries,
+        helpful_count=profile.helpful_count,
+        wrong_count=profile.wrong_count,
+        stale_count=profile.stale_count,
+        removed_count=profile.removed_count,
+        pinned_count=profile.pinned_count,
+        feedback_total=feedback_total,
+        positive_feedback_count=positive_feedback_count,
+        negative_feedback_count=negative_feedback_count,
+        auto_apply_enabled=auto_apply_enabled,
+        auto_apply_disabled=bool(profile.auto_apply_disabled),
+        last_compilation_id=profile.last_compilation_id,
+        last_queried_at=profile.last_queried_at,
+        last_feedback_at=profile.last_feedback_at,
+        created_at=profile.created_at,
+        updated_at=profile.updated_at,
+    )
+
+
+async def _load_memory_tag_names(db: AsyncSession, memory_id: int) -> list[str]:
+    rows = (
+        await db.execute(
+            select(Tag.name)
+            .select_from(MemoryTag)
+            .join(Tag, Tag.id == MemoryTag.tag_id)
+            .where(MemoryTag.memory_id == memory_id)
+            .order_by(Tag.name.asc())
+        )
+    ).all()
+    return [str(name) for (name,) in rows]
 
 
 def _client_ip(request: Request) -> str:
@@ -1533,6 +1585,139 @@ async def admin_recall_memory_signals(
     return rows
 
 
+@router.get("/admin/recall/memory-signals/{memory_id}", response_model=AdminRecallMemorySignalDetailOut)
+async def admin_recall_memory_signal_detail(
+    memory_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> AdminRecallMemorySignalDetailOut:
+    _require_admin_auth(request)
+    org_id = getattr(request.state, "org_id", None)
+    if org_id is None:
+        raise HTTPException(status_code=400, detail="X-Org-Id required")
+
+    memory = (
+        await db.execute(
+            select(Memory)
+            .join(Project, Project.id == Memory.project_id)
+            .where(Memory.id == memory_id, Project.org_id == org_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if memory is None:
+        raise HTTPException(status_code=404, detail="Memory not found")
+
+    feedback_rows = (
+        await db.execute(
+            select(RetrievalFeedback)
+            .where(
+                RetrievalFeedback.org_id == org_id,
+                RetrievalFeedback.entity_type == "memory",
+                RetrievalFeedback.entity_id == memory_id,
+            )
+            .order_by(RetrievalFeedback.created_at.desc(), RetrievalFeedback.id.desc())
+        )
+    ).scalars().all()
+    counts = {"helpful": 0, "wrong": 0, "stale": 0, "removed": 0, "pinned": 0}
+    last_feedback_at = None
+    for row in feedback_rows:
+        if row.label in counts:
+            counts[row.label] += 1
+        if last_feedback_at is None or row.created_at > last_feedback_at:
+            last_feedback_at = row.created_at
+    feedback_total = sum(counts.values())
+    net_score = counts["helpful"] + counts["pinned"] - counts["wrong"] - counts["stale"] - counts["removed"]
+    metadata = dict(memory.metadata_json or {})
+    return AdminRecallMemorySignalDetailOut(
+        memory_id=memory.id,
+        project_id=memory.project_id,
+        memory_type=memory.type,
+        title=memory.title,
+        helpful_count=counts["helpful"],
+        wrong_count=counts["wrong"],
+        stale_count=counts["stale"],
+        removed_count=counts["removed"],
+        pinned_count=counts["pinned"],
+        feedback_total=feedback_total,
+        net_score=net_score,
+        last_feedback_at=last_feedback_at,
+        source=memory.source,
+        content=memory.content,
+        tags=await _load_memory_tag_names(db, memory.id),
+        metadata=metadata,
+        marked_for_review=bool(metadata.get("marked_for_review")),
+        archived_from_recall_admin=bool(metadata.get("archived_from_recall_admin")),
+        created_at=memory.created_at,
+        updated_at=memory.updated_at,
+    )
+
+
+@router.post("/admin/recall/memory-signals/{memory_id}/mark-review", response_model=AdminRecallMemorySignalDetailOut)
+async def admin_mark_memory_signal_for_review(
+    memory_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> AdminRecallMemorySignalDetailOut:
+    _require_admin_auth(request)
+    org_id = getattr(request.state, "org_id", None)
+    actor_user_id = getattr(request.state, "auth_user_id", None)
+    if org_id is None:
+        raise HTTPException(status_code=400, detail="X-Org-Id required")
+
+    memory = (
+        await db.execute(
+            select(Memory)
+            .join(Project, Project.id == Memory.project_id)
+            .where(Memory.id == memory_id, Project.org_id == org_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if memory is None:
+        raise HTTPException(status_code=404, detail="Memory not found")
+
+    metadata = dict(memory.metadata_json or {})
+    metadata["marked_for_review"] = True
+    metadata["review_marked_at"] = now_utc().isoformat()
+    metadata["review_marked_by_user_id"] = actor_user_id
+    memory.metadata_json = metadata
+    await db.commit()
+    await db.refresh(memory)
+    return await admin_recall_memory_signal_detail(memory_id=memory_id, request=request, db=db)
+
+
+@router.post("/admin/recall/memory-signals/{memory_id}/archive", response_model=AdminRecallMemorySignalDetailOut)
+async def admin_archive_memory_signal(
+    memory_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> AdminRecallMemorySignalDetailOut:
+    _require_admin_auth(request)
+    org_id = getattr(request.state, "org_id", None)
+    actor_user_id = getattr(request.state, "auth_user_id", None)
+    if org_id is None:
+        raise HTTPException(status_code=400, detail="X-Org-Id required")
+
+    memory = (
+        await db.execute(
+            select(Memory)
+            .join(Project, Project.id == Memory.project_id)
+            .where(Memory.id == memory_id, Project.org_id == org_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if memory is None:
+        raise HTTPException(status_code=404, detail="Memory not found")
+
+    metadata = dict(memory.metadata_json or {})
+    metadata["archived_from_recall_admin"] = True
+    metadata["archived_from_recall_admin_at"] = now_utc().isoformat()
+    metadata["archived_from_recall_admin_by_user_id"] = actor_user_id
+    memory.metadata_json = metadata
+    await db.commit()
+    await db.refresh(memory)
+    return await admin_recall_memory_signal_detail(memory_id=memory_id, request=request, db=db)
+
+
 @router.get("/admin/ops/summary", response_model=AdminOpsSummaryOut)
 async def admin_ops_summary(
     request: Request,
@@ -1761,36 +1946,7 @@ async def admin_recall_query_profiles(
             .limit(limit)
         )
     ).scalars().all()
-    return [
-        AdminQueryProfileOut(
-            id=row.id,
-            org_id=row.org_id,
-            project_id=row.project_id,
-            actor_user_id=row.actor_user_id,
-            normalized_query=row.normalized_query,
-            sample_query=row.sample_query,
-            preferred_target_format=row.preferred_target_format,
-            last_target_format=row.last_target_format,
-            last_strategy=row.last_strategy,
-            last_served_by=row.last_served_by,
-            total_queries=row.total_queries,
-            helpful_count=row.helpful_count,
-            wrong_count=row.wrong_count,
-            stale_count=row.stale_count,
-            removed_count=row.removed_count,
-            pinned_count=row.pinned_count,
-            feedback_total=_query_profile_feedback_stats(row)[0],
-            positive_feedback_count=_query_profile_feedback_stats(row)[1],
-            negative_feedback_count=_query_profile_feedback_stats(row)[2],
-            auto_apply_enabled=_query_profile_feedback_stats(row)[3],
-            last_compilation_id=row.last_compilation_id,
-            last_queried_at=row.last_queried_at,
-            last_feedback_at=row.last_feedback_at,
-            created_at=row.created_at,
-            updated_at=row.updated_at,
-        )
-        for row in rows
-    ]
+    return [_query_profile_out(row) for row in rows]
 
 
 @router.get("/admin/recall/query-profiles/{profile_id}", response_model=AdminQueryProfileDetailOut)
@@ -1824,31 +1980,7 @@ async def admin_recall_query_profile_detail(
         )
     ).scalars().all()
     return AdminQueryProfileDetailOut(
-        id=profile.id,
-        org_id=profile.org_id,
-        project_id=profile.project_id,
-        actor_user_id=profile.actor_user_id,
-        normalized_query=profile.normalized_query,
-        sample_query=profile.sample_query,
-        preferred_target_format=profile.preferred_target_format,
-        last_target_format=profile.last_target_format,
-        last_strategy=profile.last_strategy,
-        last_served_by=profile.last_served_by,
-        total_queries=profile.total_queries,
-        helpful_count=profile.helpful_count,
-        wrong_count=profile.wrong_count,
-        stale_count=profile.stale_count,
-        removed_count=profile.removed_count,
-        pinned_count=profile.pinned_count,
-        feedback_total=_query_profile_feedback_stats(profile)[0],
-        positive_feedback_count=_query_profile_feedback_stats(profile)[1],
-        negative_feedback_count=_query_profile_feedback_stats(profile)[2],
-        auto_apply_enabled=_query_profile_feedback_stats(profile)[3],
-        last_compilation_id=profile.last_compilation_id,
-        last_queried_at=profile.last_queried_at,
-        last_feedback_at=profile.last_feedback_at,
-        created_at=profile.created_at,
-        updated_at=profile.updated_at,
+        **_query_profile_out(profile).model_dump(),
         recent_feedback=[
             AdminRecallFeedbackOut(
                 id=row.id,
@@ -1867,6 +1999,67 @@ async def admin_recall_query_profile_detail(
             for row in feedback_rows
         ],
     )
+
+
+@router.post("/admin/recall/query-profiles/{profile_id}/disable-auto-apply", response_model=AdminQueryProfileOut)
+async def admin_disable_query_profile_auto_apply(
+    profile_id: int,
+    request: Request,
+    disabled: bool = Query(default=True),
+    db: AsyncSession = Depends(get_db),
+) -> AdminQueryProfileOut:
+    _require_admin_auth(request)
+    org_id = getattr(request.state, "org_id", None)
+    if org_id is None:
+        raise HTTPException(status_code=400, detail="X-Org-Id required")
+
+    profile = (
+        await db.execute(
+            select(QueryProfile)
+            .where(QueryProfile.id == profile_id, QueryProfile.org_id == org_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Query profile not found")
+
+    profile.auto_apply_disabled = disabled
+    await db.commit()
+    await db.refresh(profile)
+    return _query_profile_out(profile)
+
+
+@router.post("/admin/recall/query-profiles/{profile_id}/reset-feedback", response_model=AdminQueryProfileOut)
+async def admin_reset_query_profile_feedback(
+    profile_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> AdminQueryProfileOut:
+    _require_admin_auth(request)
+    org_id = getattr(request.state, "org_id", None)
+    if org_id is None:
+        raise HTTPException(status_code=400, detail="X-Org-Id required")
+
+    profile = (
+        await db.execute(
+            select(QueryProfile)
+            .where(QueryProfile.id == profile_id, QueryProfile.org_id == org_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Query profile not found")
+
+    profile.helpful_count = 0
+    profile.wrong_count = 0
+    profile.stale_count = 0
+    profile.removed_count = 0
+    profile.pinned_count = 0
+    profile.last_feedback_at = None
+    profile.preferred_target_format = None
+    await db.commit()
+    await db.refresh(profile)
+    return _query_profile_out(profile)
 
 
 @router.get("/admin/cag/cache-stats", response_model=CagCacheStatsOut)

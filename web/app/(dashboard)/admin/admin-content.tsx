@@ -9,8 +9,11 @@ import {
   type AdminRecallLog,
   type AdminRecallEval,
   type AdminRecallFeedback,
+  type AdminContextCompilationDetail,
   type AdminRecallMemorySignal,
+  type AdminRecallMemorySignalDetail,
   type AdminQueryProfile,
+  type AdminQueryProfileDetail,
   type CagCacheStats,
   type AdminLlmHealth,
   type AdminUsageRow,
@@ -74,6 +77,11 @@ export function AdminContent() {
   const [recallFeedback, setRecallFeedback] = useState<AdminRecallFeedback[]>([]);
   const [memorySignals, setMemorySignals] = useState<AdminRecallMemorySignal[]>([]);
   const [queryProfiles, setQueryProfiles] = useState<AdminQueryProfile[]>([]);
+  const [selectedCompilation, setSelectedCompilation] = useState<AdminContextCompilationDetail | null>(null);
+  const [selectedProfile, setSelectedProfile] = useState<AdminQueryProfileDetail | null>(null);
+  const [selectedMemorySignal, setSelectedMemorySignal] = useState<AdminRecallMemorySignalDetail | null>(null);
+  const [workingProfileId, setWorkingProfileId] = useState<number | null>(null);
+  const [workingMemoryId, setWorkingMemoryId] = useState<number | null>(null);
 
   // System / CAG
   const [cagStats, setCagStats] = useState<CagCacheStats | null>(null);
@@ -235,6 +243,95 @@ export function AdminContent() {
       toast('success', 'Evaporation triggered');
     } catch {
       toast('error', 'Failed to trigger evaporation');
+    }
+  }
+
+  async function openCompilationDetail(compilationId: number) {
+    try {
+      const detail = await admin.recallCompilationDetail(compilationId);
+      setSelectedCompilation(detail);
+    } catch {
+      toast('error', 'Failed to load compilation detail');
+    }
+  }
+
+  async function openQueryProfile(profileId: number) {
+    try {
+      const detail = await admin.queryProfileDetail(profileId);
+      setSelectedProfile(detail);
+    } catch {
+      toast('error', 'Failed to load query profile');
+    }
+  }
+
+  async function toggleQueryProfileAutoApply(profile: AdminQueryProfile) {
+    setWorkingProfileId(profile.id);
+    try {
+      const updated = await admin.disableQueryProfileAutoApply(profile.id, !profile.auto_apply_disabled);
+      setQueryProfiles((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
+      if (selectedProfile?.id === updated.id) {
+        const detail = await admin.queryProfileDetail(updated.id);
+        setSelectedProfile(detail);
+      }
+      toast('success', updated.auto_apply_disabled ? 'Auto-apply disabled' : 'Auto-apply enabled');
+    } catch (err) {
+      toast('error', err instanceof ApiError ? err.message : 'Failed to update query profile');
+    } finally {
+      setWorkingProfileId(null);
+    }
+  }
+
+  async function resetQueryProfile(profileId: number) {
+    setWorkingProfileId(profileId);
+    try {
+      const updated = await admin.resetQueryProfileFeedback(profileId);
+      setQueryProfiles((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
+      if (selectedProfile?.id === updated.id) {
+        const detail = await admin.queryProfileDetail(updated.id);
+        setSelectedProfile(detail);
+      }
+      toast('success', 'Query profile feedback reset');
+    } catch (err) {
+      toast('error', err instanceof ApiError ? err.message : 'Failed to reset query profile');
+    } finally {
+      setWorkingProfileId(null);
+    }
+  }
+
+  async function openMemorySignal(memoryId: number) {
+    try {
+      const detail = await admin.recallMemorySignalDetail(memoryId);
+      setSelectedMemorySignal(detail);
+    } catch {
+      toast('error', 'Failed to load memory detail');
+    }
+  }
+
+  async function markMemorySignalForReview(memoryId: number) {
+    setWorkingMemoryId(memoryId);
+    try {
+      const detail = await admin.markMemorySignalForReview(memoryId);
+      setSelectedMemorySignal(detail);
+      setMemorySignals((prev) => prev.map((row) => (row.memory_id === detail.memory_id ? { ...row, ...detail } : row)));
+      toast('success', 'Memory marked for review');
+    } catch (err) {
+      toast('error', err instanceof ApiError ? err.message : 'Failed to mark memory for review');
+    } finally {
+      setWorkingMemoryId(null);
+    }
+  }
+
+  async function archiveMemorySignal(memoryId: number) {
+    setWorkingMemoryId(memoryId);
+    try {
+      const detail = await admin.archiveMemorySignal(memoryId);
+      setSelectedMemorySignal(detail);
+      setMemorySignals((prev) => prev.map((row) => (row.memory_id === detail.memory_id ? { ...row, ...detail } : row)));
+      toast('success', 'Memory archived from recall admin');
+    } catch (err) {
+      toast('error', err instanceof ApiError ? err.message : 'Failed to archive memory');
+    } finally {
+      setWorkingMemoryId(null);
     }
   }
 
@@ -738,6 +835,27 @@ export function AdminContent() {
                             <span>negative {profile.negative_feedback_count}</span>
                             <span>feedback {profile.feedback_total}</span>
                           </div>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <Button size="sm" variant="secondary" onClick={() => openQueryProfile(profile.id)}>
+                              Inspect
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              loading={workingProfileId === profile.id}
+                              onClick={() => toggleQueryProfileAutoApply(profile)}
+                            >
+                              {profile.auto_apply_disabled ? 'Enable auto' : 'Disable auto'}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              loading={workingProfileId === profile.id}
+                              onClick={() => resetQueryProfile(profile.id)}
+                            >
+                              Reset feedback
+                            </Button>
+                          </div>
                         </div>
                       )) : (
                         <p className="text-sm text-muted">No query profiles with feedback yet.</p>
@@ -763,6 +881,11 @@ export function AdminContent() {
                           <p className="mt-2 text-xs text-muted">
                             project #{entry.project_id} · {new Date(entry.created_at).toLocaleString()}
                           </p>
+                          <div className="mt-3">
+                            <Button size="sm" variant="secondary" onClick={() => openCompilationDetail(entry.compilation_id)}>
+                              Inspect compilation
+                            </Button>
+                          </div>
                         </div>
                       )) : (
                         <p className="text-sm text-muted">No feedback recorded yet.</p>
@@ -788,6 +911,27 @@ export function AdminContent() {
                             <span>wrong {signal.wrong_count}</span>
                             <span>stale {signal.stale_count}</span>
                             <span>pinned {signal.pinned_count}</span>
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <Button size="sm" variant="secondary" onClick={() => openMemorySignal(signal.memory_id)}>
+                              Inspect memory
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              loading={workingMemoryId === signal.memory_id}
+                              onClick={() => markMemorySignalForReview(signal.memory_id)}
+                            >
+                              Mark review
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              loading={workingMemoryId === signal.memory_id}
+                              onClick={() => archiveMemorySignal(signal.memory_id)}
+                            >
+                              Archive
+                            </Button>
                           </div>
                         </div>
                       )) : (
@@ -925,6 +1069,110 @@ export function AdminContent() {
             Send invite
           </Button>
         </form>
+      </Dialog>
+
+      <Dialog open={selectedCompilation !== null} onClose={() => setSelectedCompilation(null)} title="Compilation Detail">
+        {selectedCompilation && (
+          <div className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="muted">{selectedCompilation.target_format}</Badge>
+              {selectedCompilation.renderer && <Badge variant="violet">{selectedCompilation.renderer}</Badge>}
+              {selectedCompilation.retrieval_strategy && <Badge variant="ok">{selectedCompilation.retrieval_strategy}</Badge>}
+              {selectedCompilation.bundle_id && <Badge variant="warn">{selectedCompilation.bundle_id}</Badge>}
+            </div>
+            <div className="text-sm text-ink-2">
+              <p><span className="font-medium text-ink">Query:</span> {selectedCompilation.query_text || '(empty)'}</p>
+              <p><span className="font-medium text-ink">Latency:</span> {selectedCompilation.latency_ms != null ? `${selectedCompilation.latency_ms} ms` : '—'}</p>
+            </div>
+            <div className="rounded-lg border border-line bg-bg-2/30 p-3">
+              <p className="mb-2 text-sm font-medium text-ink">Retrieval Plan</p>
+              <pre className="overflow-auto text-xs text-ink-2 whitespace-pre-wrap">{JSON.stringify((selectedCompilation.compilation_json || {}).retrieval_plan || {}, null, 2)}</pre>
+            </div>
+            <div className="rounded-lg border border-line bg-bg-2/30 p-3">
+              <p className="mb-2 text-sm font-medium text-ink">Compiled Output</p>
+              <pre className="max-h-72 overflow-auto text-xs text-ink-2 whitespace-pre-wrap">{selectedCompilation.compilation_text || ''}</pre>
+            </div>
+          </div>
+        )}
+      </Dialog>
+
+      <Dialog open={selectedProfile !== null} onClose={() => setSelectedProfile(null)} title="Query Profile">
+        {selectedProfile && (
+          <div className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              {selectedProfile.preferred_target_format && <Badge variant="violet">{selectedProfile.preferred_target_format}</Badge>}
+              <Badge variant={selectedProfile.auto_apply_enabled ? 'ok' : 'warn'}>
+                {selectedProfile.auto_apply_enabled ? 'auto applies' : 'not applying'}
+              </Badge>
+              {selectedProfile.auto_apply_disabled && <Badge variant="err">manually disabled</Badge>}
+            </div>
+            <div className="text-sm text-ink-2">
+              <p><span className="font-medium text-ink">Query:</span> {selectedProfile.sample_query}</p>
+              <p><span className="font-medium text-ink">Counts:</span> +{selectedProfile.positive_feedback_count} / -{selectedProfile.negative_feedback_count}</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                loading={workingProfileId === selectedProfile.id}
+                onClick={() => toggleQueryProfileAutoApply(selectedProfile)}
+              >
+                {selectedProfile.auto_apply_disabled ? 'Enable auto' : 'Disable auto'}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                loading={workingProfileId === selectedProfile.id}
+                onClick={() => resetQueryProfile(selectedProfile.id)}
+              >
+                Reset feedback
+              </Button>
+            </div>
+            <div className="rounded-lg border border-line bg-bg-2/30 p-3">
+              <p className="mb-2 text-sm font-medium text-ink">Recent Feedback</p>
+              <pre className="overflow-auto text-xs text-ink-2 whitespace-pre-wrap">{JSON.stringify(selectedProfile.recent_feedback || [], null, 2)}</pre>
+            </div>
+          </div>
+        )}
+      </Dialog>
+
+      <Dialog open={selectedMemorySignal !== null} onClose={() => setSelectedMemorySignal(null)} title="Memory Signal">
+        {selectedMemorySignal && (
+          <div className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              <Badge variant={selectedMemorySignal.net_score >= 0 ? 'ok' : 'err'}>net {selectedMemorySignal.net_score}</Badge>
+              <Badge variant="muted">{selectedMemorySignal.memory_type}</Badge>
+              {selectedMemorySignal.marked_for_review && <Badge variant="warn">marked for review</Badge>}
+              {selectedMemorySignal.archived_from_recall_admin && <Badge variant="err">archived</Badge>}
+            </div>
+            <div className="text-sm text-ink-2">
+              <p><span className="font-medium text-ink">Title:</span> {selectedMemorySignal.title || `Memory #${selectedMemorySignal.memory_id}`}</p>
+              <p><span className="font-medium text-ink">Source:</span> {selectedMemorySignal.source}</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                loading={workingMemoryId === selectedMemorySignal.memory_id}
+                onClick={() => markMemorySignalForReview(selectedMemorySignal.memory_id)}
+              >
+                Mark review
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                loading={workingMemoryId === selectedMemorySignal.memory_id}
+                onClick={() => archiveMemorySignal(selectedMemorySignal.memory_id)}
+              >
+                Archive
+              </Button>
+            </div>
+            <div className="rounded-lg border border-line bg-bg-2/30 p-3">
+              <p className="mb-2 text-sm font-medium text-ink">Content</p>
+              <pre className="max-h-72 overflow-auto text-xs text-ink-2 whitespace-pre-wrap">{selectedMemorySignal.content}</pre>
+            </div>
+          </div>
+        )}
       </Dialog>
     </div>
   );

@@ -2155,6 +2155,8 @@ async def _lookup_query_profile(
 def _query_profile_auto_resolution(profile: QueryProfile | None) -> tuple[str | None, str | None]:
     if profile is None:
         return None, None
+    if bool(profile.auto_apply_disabled):
+        return None, "auto_apply_disabled"
     preferred_format = (profile.preferred_target_format or "").strip().lower()
     if preferred_format not in {"text", "toon", "toonx", "toon-x"}:
         return None, "no_preferred_format"
@@ -2175,6 +2177,8 @@ def _query_profile_recall_config(profile: QueryProfile | None) -> tuple[HybridRe
     )
     if profile is None:
         return base_config, {"applied": False, "reason": "no_query_profile"}
+    if bool(profile.auto_apply_disabled):
+        return base_config, {"applied": False, "reason": "auto_apply_disabled"}
 
     positive_feedback_count = int(profile.helpful_count or 0) + int(profile.pinned_count or 0)
     negative_feedback_count = int(profile.wrong_count or 0) + int(profile.stale_count or 0) + int(profile.removed_count or 0)

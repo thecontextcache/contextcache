@@ -416,6 +416,7 @@ class QueryProfile(Base):
     stale_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     removed_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     pinned_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    auto_apply_disabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     last_compilation_id: Mapped[int | None] = mapped_column(
         ForeignKey("context_compilations.id", ondelete="SET NULL"), nullable=True, index=True
     )
