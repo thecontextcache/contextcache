@@ -1,7 +1,7 @@
 """add ingest reliability fields and batch request storage
 
 Revision ID: 20260320_0021_ingest_reliability_and_batch_request
-Revises: 20260227_0020_batch_action_runs
+Revises: 20260301_0020a_vercol
 Create Date: 2026-03-20 12:00:00
 """
 
@@ -13,7 +13,7 @@ from sqlalchemy.dialects import postgresql
 
 
 revision = "20260320_0021_ingest_reliability_and_batch_request"
-down_revision = "20260227_0020_batch_action_runs"
+down_revision = "20260301_0020a_vercol"
 branch_labels = None
 depends_on = None
 
