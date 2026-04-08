@@ -37,6 +37,7 @@ from .models import (
     Memory,
     MemoryTag,
     Organization,
+    Project,
     QueryProfile,
     RawCapture,
     RecallLog,
