@@ -1437,6 +1437,74 @@ async def admin_recall_compilations(
     ]
 
 
+@router.get("/admin/recall/compilations/history", response_model=list[AdminContextCompilationHistoryEntryOut])
+async def admin_recall_compilation_history(
+    request: Request,
+    compilation_id: int | None = Query(default=None, ge=1),
+    query_text: str | None = Query(default=None),
+    limit: int = Query(default=10, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+) -> list[AdminContextCompilationHistoryEntryOut]:
+    _require_admin_auth(request)
+    org_id = getattr(request.state, "org_id", None)
+    if org_id is None:
+        raise HTTPException(status_code=400, detail="X-Org-Id required")
+
+    resolved_query = (query_text or "").strip()
+    if compilation_id is not None and not resolved_query:
+        base = (
+            await db.execute(
+                select(ContextCompilation)
+                .where(ContextCompilation.id == compilation_id, ContextCompilation.org_id == org_id)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if base is None:
+            raise HTTPException(status_code=404, detail="Compilation not found")
+        resolved_query = base.query_text
+    if not resolved_query:
+        raise HTTPException(status_code=422, detail="query_text or compilation_id is required")
+
+    rows = (
+        await db.execute(
+            select(ContextCompilation)
+            .where(ContextCompilation.org_id == org_id, ContextCompilation.query_text == resolved_query)
+            .order_by(ContextCompilation.created_at.desc(), ContextCompilation.id.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    if not rows:
+        return []
+
+    feedback_counts = {
+        row.compilation_id: int(row.count or 0)
+        for row in (
+            await db.execute(
+                select(
+                    RetrievalFeedback.compilation_id,
+                    func.count(RetrievalFeedback.id).label("count"),
+                )
+                .where(RetrievalFeedback.compilation_id.in_([entry.id for entry in rows]))
+                .group_by(RetrievalFeedback.compilation_id)
+            )
+        ).all()
+    }
+    return [
+        AdminContextCompilationHistoryEntryOut(
+            id=row.id,
+            query_text=row.query_text,
+            target_format=row.target_format,
+            renderer=(row.compilation_json or {}).get("renderer"),
+            retrieval_strategy=((row.compilation_json or {}).get("retrieval_plan") or {}).get("strategy"),
+            served_by=row.served_by,
+            item_count=len((row.compilation_json or {}).get("items") or []),
+            feedback_count=feedback_counts.get(row.id, 0),
+            created_at=row.created_at,
+        )
+        for row in rows
+    ]
+
+
 @router.get("/admin/recall/compilations/{compilation_id}", response_model=AdminContextCompilationDetailOut)
 async def admin_recall_compilation_detail(
     compilation_id: int,
@@ -1519,74 +1587,6 @@ async def admin_recall_compilation_detail(
         query_profile_id=query_profile_id,
         created_at=compilation.created_at,
     )
-
-
-@router.get("/admin/recall/compilations/history", response_model=list[AdminContextCompilationHistoryEntryOut])
-async def admin_recall_compilation_history(
-    request: Request,
-    compilation_id: int | None = Query(default=None, ge=1),
-    query_text: str | None = Query(default=None),
-    limit: int = Query(default=10, ge=1, le=50),
-    db: AsyncSession = Depends(get_db),
-) -> list[AdminContextCompilationHistoryEntryOut]:
-    _require_admin_auth(request)
-    org_id = getattr(request.state, "org_id", None)
-    if org_id is None:
-        raise HTTPException(status_code=400, detail="X-Org-Id required")
-
-    resolved_query = (query_text or "").strip()
-    if compilation_id is not None and not resolved_query:
-        base = (
-            await db.execute(
-                select(ContextCompilation)
-                .where(ContextCompilation.id == compilation_id, ContextCompilation.org_id == org_id)
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-        if base is None:
-            raise HTTPException(status_code=404, detail="Compilation not found")
-        resolved_query = base.query_text
-    if not resolved_query:
-        raise HTTPException(status_code=422, detail="query_text or compilation_id is required")
-
-    rows = (
-        await db.execute(
-            select(ContextCompilation)
-            .where(ContextCompilation.org_id == org_id, ContextCompilation.query_text == resolved_query)
-            .order_by(ContextCompilation.created_at.desc(), ContextCompilation.id.desc())
-            .limit(limit)
-        )
-    ).scalars().all()
-    if not rows:
-        return []
-
-    feedback_counts = {
-        row.compilation_id: int(row.count or 0)
-        for row in (
-            await db.execute(
-                select(
-                    RetrievalFeedback.compilation_id,
-                    func.count(RetrievalFeedback.id).label("count"),
-                )
-                .where(RetrievalFeedback.compilation_id.in_([entry.id for entry in rows]))
-                .group_by(RetrievalFeedback.compilation_id)
-            )
-        ).all()
-    }
-    return [
-        AdminContextCompilationHistoryEntryOut(
-            id=row.id,
-            query_text=row.query_text,
-            target_format=row.target_format,
-            renderer=(row.compilation_json or {}).get("renderer"),
-            retrieval_strategy=((row.compilation_json or {}).get("retrieval_plan") or {}).get("strategy"),
-            served_by=row.served_by,
-            item_count=len((row.compilation_json or {}).get("items") or []),
-            feedback_count=feedback_counts.get(row.id, 0),
-            created_at=row.created_at,
-        )
-        for row in rows
-    ]
 
 
 @router.get("/admin/recall/compilations/{compilation_id}/diff", response_model=AdminContextCompilationDiffOut)
