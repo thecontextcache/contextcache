@@ -10,8 +10,11 @@ import {
   type AdminRecallEval,
   type AdminRecallFeedback,
   type AdminContextCompilationDetail,
+  type AdminContextCompilationHistoryEntry,
+  type AdminContextCompilationDiff,
   type AdminRecallMemorySignal,
   type AdminRecallMemorySignalDetail,
+  type AdminRecallReviewQueueItem,
   type AdminQueryProfile,
   type AdminQueryProfileDetail,
   type CagCacheStats,
@@ -78,8 +81,11 @@ export function AdminContent() {
   const [memorySignals, setMemorySignals] = useState<AdminRecallMemorySignal[]>([]);
   const [queryProfiles, setQueryProfiles] = useState<AdminQueryProfile[]>([]);
   const [selectedCompilation, setSelectedCompilation] = useState<AdminContextCompilationDetail | null>(null);
+  const [selectedCompilationHistory, setSelectedCompilationHistory] = useState<AdminContextCompilationHistoryEntry[]>([]);
+  const [selectedCompilationDiff, setSelectedCompilationDiff] = useState<AdminContextCompilationDiff | null>(null);
   const [selectedProfile, setSelectedProfile] = useState<AdminQueryProfileDetail | null>(null);
   const [selectedMemorySignal, setSelectedMemorySignal] = useState<AdminRecallMemorySignalDetail | null>(null);
+  const [reviewQueue, setReviewQueue] = useState<AdminRecallReviewQueueItem[]>([]);
   const [workingProfileId, setWorkingProfileId] = useState<number | null>(null);
   const [workingMemoryId, setWorkingMemoryId] = useState<number | null>(null);
 
@@ -129,18 +135,20 @@ export function AdminContent() {
           break;
         }
         case 'recall': {
-          const [logs, evalData, feedback, profiles, memorySignalRows] = await Promise.all([
+          const [logs, evalData, feedback, profiles, memorySignalRows, reviewQueueRows] = await Promise.all([
             admin.recallLogs(),
             admin.recallEval(),
             admin.recallFeedback(12),
             admin.queryProfiles(12, 0, undefined, true),
             admin.recallMemorySignals(10),
+            admin.recallReviewQueue(10),
           ]);
           setRecallLogs(logs);
           setRecallEval(evalData);
           setRecallFeedback(feedback);
           setQueryProfiles(profiles);
           setMemorySignals(memorySignalRows);
+          setReviewQueue(reviewQueueRows);
           break;
         }
         case 'system': {
@@ -249,9 +257,25 @@ export function AdminContent() {
   async function openCompilationDetail(compilationId: number) {
     try {
       const detail = await admin.recallCompilationDetail(compilationId);
+      const history = await admin.recallCompilationHistory(compilationId, undefined, 8);
       setSelectedCompilation(detail);
+      setSelectedCompilationHistory(history);
+      if (history.length > 1) {
+        setSelectedCompilationDiff(await admin.recallCompilationDiff(compilationId, history[1].id));
+      } else {
+        setSelectedCompilationDiff(null);
+      }
     } catch {
       toast('error', 'Failed to load compilation detail');
+    }
+  }
+
+  async function compareCompilation(compilationId: number, otherId?: number) {
+    try {
+      const diff = await admin.recallCompilationDiff(compilationId, otherId);
+      setSelectedCompilationDiff(diff);
+    } catch {
+      toast('error', 'Failed to compare compilations');
     }
   }
 
@@ -298,6 +322,23 @@ export function AdminContent() {
     }
   }
 
+  async function setQueryProfilePreferredFormat(profileId: number, preferredTargetFormat: string | null) {
+    setWorkingProfileId(profileId);
+    try {
+      const updated = await admin.setQueryProfilePreferredFormat(profileId, preferredTargetFormat);
+      setQueryProfiles((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
+      if (selectedProfile?.id === updated.id) {
+        const detail = await admin.queryProfileDetail(updated.id);
+        setSelectedProfile(detail);
+      }
+      toast('success', preferredTargetFormat ? `Preferred format set to ${preferredTargetFormat}` : 'Preferred format cleared');
+    } catch (err) {
+      toast('error', err instanceof ApiError ? err.message : 'Failed to update preferred format');
+    } finally {
+      setWorkingProfileId(null);
+    }
+  }
+
   async function openMemorySignal(memoryId: number) {
     try {
       const detail = await admin.recallMemorySignalDetail(memoryId);
@@ -313,6 +354,25 @@ export function AdminContent() {
       const detail = await admin.markMemorySignalForReview(memoryId);
       setSelectedMemorySignal(detail);
       setMemorySignals((prev) => prev.map((row) => (row.memory_id === detail.memory_id ? { ...row, ...detail } : row)));
+      setReviewQueue((prev) => {
+        const next = prev.filter((row) => row.memory_id !== detail.memory_id);
+        return [{
+          memory_id: detail.memory_id,
+          project_id: detail.project_id,
+          memory_type: detail.memory_type,
+          title: detail.title,
+          source: detail.source,
+          feedback_total: detail.feedback_total,
+          net_score: detail.net_score,
+          marked_for_review: detail.marked_for_review,
+          archived_from_recall_admin: detail.archived_from_recall_admin,
+          review_marked_at: String(detail.metadata?.review_marked_at ?? ''),
+          archived_at: detail.metadata?.archived_from_recall_admin_at ? String(detail.metadata.archived_from_recall_admin_at) : null,
+          last_feedback_at: detail.last_feedback_at,
+          created_at: detail.created_at,
+          updated_at: detail.updated_at,
+        }, ...next].slice(0, 10);
+      });
       toast('success', 'Memory marked for review');
     } catch (err) {
       toast('error', err instanceof ApiError ? err.message : 'Failed to mark memory for review');
@@ -327,6 +387,25 @@ export function AdminContent() {
       const detail = await admin.archiveMemorySignal(memoryId);
       setSelectedMemorySignal(detail);
       setMemorySignals((prev) => prev.map((row) => (row.memory_id === detail.memory_id ? { ...row, ...detail } : row)));
+      setReviewQueue((prev) => {
+        const next = prev.filter((row) => row.memory_id !== detail.memory_id);
+        return [{
+          memory_id: detail.memory_id,
+          project_id: detail.project_id,
+          memory_type: detail.memory_type,
+          title: detail.title,
+          source: detail.source,
+          feedback_total: detail.feedback_total,
+          net_score: detail.net_score,
+          marked_for_review: detail.marked_for_review,
+          archived_from_recall_admin: detail.archived_from_recall_admin,
+          review_marked_at: detail.metadata?.review_marked_at ? String(detail.metadata.review_marked_at) : null,
+          archived_at: detail.metadata?.archived_from_recall_admin_at ? String(detail.metadata.archived_from_recall_admin_at) : null,
+          last_feedback_at: detail.last_feedback_at,
+          created_at: detail.created_at,
+          updated_at: detail.updated_at,
+        }, ...next].slice(0, 10);
+      });
       toast('success', 'Memory archived from recall admin');
     } catch (err) {
       toast('error', err instanceof ApiError ? err.message : 'Failed to archive memory');
@@ -843,6 +922,22 @@ export function AdminContent() {
                               size="sm"
                               variant="ghost"
                               loading={workingProfileId === profile.id}
+                              onClick={() => setQueryProfilePreferredFormat(profile.id, 'text')}
+                            >
+                              Prefer text
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              loading={workingProfileId === profile.id}
+                              onClick={() => setQueryProfilePreferredFormat(profile.id, 'toonx')}
+                            >
+                              Prefer toonx
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              loading={workingProfileId === profile.id}
                               onClick={() => toggleQueryProfileAutoApply(profile)}
                             >
                               {profile.auto_apply_disabled ? 'Enable auto' : 'Disable auto'}
@@ -936,6 +1031,35 @@ export function AdminContent() {
                         </div>
                       )) : (
                         <p className="text-sm text-muted">No memory-level signals yet.</p>
+                      )}
+                    </div>
+                  </Card>
+
+                  <Card>
+                    <h2 className="text-lg font-semibold">Review Queue</h2>
+                    <p className="mt-1 text-sm text-muted">Memories flagged for review or archived from recall workflows.</p>
+                    <div className="mt-4 space-y-3">
+                      {reviewQueue.length > 0 ? reviewQueue.map((item) => (
+                        <div key={item.memory_id} className="rounded-lg border border-line/70 bg-bg-2/30 p-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {item.marked_for_review && <Badge variant="warn">review</Badge>}
+                            {item.archived_from_recall_admin && <Badge variant="err">archived</Badge>}
+                            <span className="font-medium text-ink">{item.title || `Memory #${item.memory_id}`}</span>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted">
+                            <span>type {item.memory_type}</span>
+                            <span>source {item.source}</span>
+                            <span>feedback {item.feedback_total}</span>
+                            <span>net {item.net_score}</span>
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <Button size="sm" variant="secondary" onClick={() => openMemorySignal(item.memory_id)}>
+                              Inspect memory
+                            </Button>
+                          </div>
+                        </div>
+                      )) : (
+                        <p className="text-sm text-muted">No memories currently need review.</p>
                       )}
                     </div>
                   </Card>
@@ -1071,7 +1195,11 @@ export function AdminContent() {
         </form>
       </Dialog>
 
-      <Dialog open={selectedCompilation !== null} onClose={() => setSelectedCompilation(null)} title="Compilation Detail">
+      <Dialog open={selectedCompilation !== null} onClose={() => {
+        setSelectedCompilation(null);
+        setSelectedCompilationHistory([]);
+        setSelectedCompilationDiff(null);
+      }} title="Compilation Detail">
         {selectedCompilation && (
           <div className="space-y-4">
             <div className="flex flex-wrap gap-2">
@@ -1092,6 +1220,37 @@ export function AdminContent() {
               <p className="mb-2 text-sm font-medium text-ink">Compiled Output</p>
               <pre className="max-h-72 overflow-auto text-xs text-ink-2 whitespace-pre-wrap">{selectedCompilation.compilation_text || ''}</pre>
             </div>
+            <div className="rounded-lg border border-line bg-bg-2/30 p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-sm font-medium text-ink">History</p>
+                {selectedCompilationHistory.length > 1 && (
+                  <Button size="sm" variant="ghost" onClick={() => compareCompilation(selectedCompilation.id, selectedCompilationHistory[1].id)}>
+                    Compare to previous
+                  </Button>
+                )}
+              </div>
+              <div className="space-y-2">
+                {selectedCompilationHistory.length > 0 ? selectedCompilationHistory.map((entry) => (
+                  <div key={entry.id} className="flex flex-wrap items-center gap-2 text-xs text-ink-2">
+                    <Badge variant={entry.id === selectedCompilation.id ? 'violet' : 'muted'}>#{entry.id}</Badge>
+                    <span>{entry.target_format}</span>
+                    <span>{entry.retrieval_strategy || '—'}</span>
+                    <span>{new Date(entry.created_at).toLocaleString()}</span>
+                    {entry.id !== selectedCompilation.id && (
+                      <Button size="sm" variant="ghost" onClick={() => compareCompilation(selectedCompilation.id, entry.id)}>
+                        Compare
+                      </Button>
+                    )}
+                  </div>
+                )) : (
+                  <p className="text-xs text-muted">No related history yet.</p>
+                )}
+              </div>
+            </div>
+            <div className="rounded-lg border border-line bg-bg-2/30 p-3">
+              <p className="mb-2 text-sm font-medium text-ink">Diff Summary</p>
+              <pre className="overflow-auto text-xs text-ink-2 whitespace-pre-wrap">{JSON.stringify(selectedCompilationDiff || {}, null, 2)}</pre>
+            </div>
           </div>
         )}
       </Dialog>
@@ -1111,6 +1270,38 @@ export function AdminContent() {
               <p><span className="font-medium text-ink">Counts:</span> +{selectedProfile.positive_feedback_count} / -{selectedProfile.negative_feedback_count}</p>
             </div>
             <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                loading={workingProfileId === selectedProfile.id}
+                onClick={() => setQueryProfilePreferredFormat(selectedProfile.id, 'text')}
+              >
+                Prefer text
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                loading={workingProfileId === selectedProfile.id}
+                onClick={() => setQueryProfilePreferredFormat(selectedProfile.id, 'toon')}
+              >
+                Prefer toon
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                loading={workingProfileId === selectedProfile.id}
+                onClick={() => setQueryProfilePreferredFormat(selectedProfile.id, 'toonx')}
+              >
+                Prefer toonx
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                loading={workingProfileId === selectedProfile.id}
+                onClick={() => setQueryProfilePreferredFormat(selectedProfile.id, null)}
+              >
+                Clear preference
+              </Button>
               <Button
                 size="sm"
                 variant="ghost"

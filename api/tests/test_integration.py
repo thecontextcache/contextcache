@@ -2431,6 +2431,156 @@ async def test_admin_recall_memory_signal_detail_and_actions(
     assert archive_resp.json()["archived_from_recall_admin"] is True
 
 
+async def test_admin_query_profile_preferred_format_can_be_set_directly(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    admin_headers = await _login_org_member(
+        client,
+        db_session,
+        app_ctx,
+        role="owner",
+        is_admin=True,
+    )
+    create_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=admin_headers,
+        json={"type": "decision", "content": "Profile preference memory"},
+    )
+    assert create_resp.status_code == 201
+
+    recall_resp = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=admin_headers,
+        params={"query": "profile preference", "limit": 5, "format": "toonx"},
+    )
+    assert recall_resp.status_code == 200
+
+    profile = (
+        await db_session.execute(
+            select(QueryProfile)
+            .where(
+                QueryProfile.project_id == app_ctx.project_id,
+                QueryProfile.normalized_query == "profile preference",
+            )
+            .limit(1)
+        )
+    ).scalar_one()
+
+    update_resp = await client.post(
+        f"/admin/recall/query-profiles/{profile.id}/preferred-format",
+        headers=admin_headers,
+        json={"preferred_target_format": "text"},
+    )
+    assert update_resp.status_code == 200
+    assert update_resp.json()["preferred_target_format"] == "text"
+
+    detail_resp = await client.get(
+        f"/admin/recall/query-profiles/{profile.id}",
+        headers=admin_headers,
+    )
+    assert detail_resp.status_code == 200
+    assert detail_resp.json()["preferred_target_format"] == "text"
+
+
+async def test_admin_recall_review_queue_lists_flagged_memories(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    admin_headers = await _login_org_member(
+        client,
+        db_session,
+        app_ctx,
+        role="owner",
+        is_admin=True,
+    )
+    create_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=admin_headers,
+        json={"type": "decision", "content": "Review queue target"},
+    )
+    assert create_resp.status_code == 201
+    memory_id = create_resp.json()["id"]
+
+    mark_resp = await client.post(
+        f"/admin/recall/memory-signals/{memory_id}/mark-review",
+        headers=admin_headers,
+    )
+    assert mark_resp.status_code == 200
+
+    queue_resp = await client.get(
+        "/admin/recall/review-queue",
+        headers=admin_headers,
+        params={"project_id": app_ctx.project_id, "include_archived": "true"},
+    )
+    assert queue_resp.status_code == 200
+    rows = queue_resp.json()
+    target = next(row for row in rows if row["memory_id"] == memory_id)
+    assert target["marked_for_review"] is True
+    assert target["archived_from_recall_admin"] is False
+
+
+async def test_admin_recall_compilation_history_and_diff(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    admin_headers = await _login_org_member(
+        client,
+        db_session,
+        app_ctx,
+        role="owner",
+        is_admin=True,
+    )
+    create_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=admin_headers,
+        json={"type": "decision", "content": "Compilation history target"},
+    )
+    assert create_resp.status_code == 201
+
+    first_resp = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=admin_headers,
+        params={"query": "history compare", "limit": 5, "format": "text"},
+    )
+    assert first_resp.status_code == 200
+    first_compilation_id = first_resp.json()["compilation_id"]
+    assert first_compilation_id is not None
+
+    second_resp = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=admin_headers,
+        params={"query": "history compare", "limit": 5, "format": "toonx"},
+    )
+    assert second_resp.status_code == 200
+    second_compilation_id = second_resp.json()["compilation_id"]
+    assert second_compilation_id is not None
+
+    history_resp = await client.get(
+        "/admin/recall/compilations/history",
+        headers=admin_headers,
+        params={"compilation_id": second_compilation_id, "limit": 10},
+    )
+    assert history_resp.status_code == 200
+    history_ids = [row["id"] for row in history_resp.json()]
+    assert second_compilation_id in history_ids
+    assert first_compilation_id in history_ids
+
+    diff_resp = await client.get(
+        f"/admin/recall/compilations/{second_compilation_id}/diff",
+        headers=admin_headers,
+        params={"other_id": first_compilation_id},
+    )
+    assert diff_resp.status_code == 200
+    diff_body = diff_resp.json()
+    assert diff_body["base_compilation_id"] == second_compilation_id
+    assert diff_body["other_compilation_id"] == first_compilation_id
+    assert diff_body["target_format_changed"] is True
+
+
 async def test_admin_recall_feedback_filters_query_profiles_and_eval_metrics(
     client,
     db_session: AsyncSession,

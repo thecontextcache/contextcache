@@ -646,6 +646,32 @@ export interface AdminContextCompilationDetail {
   created_at: string;
 }
 
+export interface AdminContextCompilationHistoryEntry {
+  id: number;
+  query_text: string;
+  target_format: string;
+  renderer: string | null;
+  retrieval_strategy: string | null;
+  served_by: string | null;
+  item_count: number;
+  feedback_count: number;
+  created_at: string;
+}
+
+export interface AdminContextCompilationDiff {
+  base_compilation_id: number;
+  other_compilation_id: number;
+  query_text: string;
+  target_format_changed: boolean;
+  retrieval_strategy_changed: boolean;
+  served_by_changed: boolean;
+  bundle_changed: boolean;
+  text_changed: boolean;
+  item_ids_added: number[];
+  item_ids_removed: number[];
+  feedback_delta: number;
+}
+
 export interface AdminRecallEval {
   lookback_days: number;
   total_queries: number;
@@ -720,6 +746,23 @@ export interface AdminRecallMemorySignalDetail extends AdminRecallMemorySignal {
   metadata: Record<string, unknown>;
   marked_for_review: boolean;
   archived_from_recall_admin: boolean;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export interface AdminRecallReviewQueueItem {
+  memory_id: number;
+  project_id: number;
+  memory_type: string;
+  title: string | null;
+  source: string;
+  feedback_total: number;
+  net_score: number;
+  marked_for_review: boolean;
+  archived_from_recall_admin: boolean;
+  review_marked_at: string | null;
+  archived_at: string | null;
+  last_feedback_at: string | null;
   created_at: string;
   updated_at: string | null;
 }
@@ -806,6 +849,20 @@ export const admin = {
   recallCompilationDetail: (compilationId: number) =>
     request<AdminContextCompilationDetail>(`/api/admin/recall/compilations/${compilationId}`),
 
+  recallCompilationHistory: (compilationId?: number, queryText?: string, limit = 10) => {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (compilationId != null) query.set('compilation_id', String(compilationId));
+    if (queryText) query.set('query_text', queryText);
+    return request<AdminContextCompilationHistoryEntry[]>(`/api/admin/recall/compilations/history?${query.toString()}`);
+  },
+
+  recallCompilationDiff: (compilationId: number, otherId?: number) => {
+    const query = new URLSearchParams();
+    if (otherId != null) query.set('other_id', String(otherId));
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return request<AdminContextCompilationDiff>(`/api/admin/recall/compilations/${compilationId}/diff${suffix}`);
+  },
+
   recallEval: (lookbackDays = 7, projectId?: number) => {
     const query = new URLSearchParams({ lookback_days: String(lookbackDays) });
     if (projectId != null) query.set('project_id', String(projectId));
@@ -835,6 +892,12 @@ export const admin = {
   queryProfileDetail: (profileId: number) =>
     request<AdminQueryProfileDetail>(`/api/admin/recall/query-profiles/${profileId}`),
 
+  setQueryProfilePreferredFormat: (profileId: number, preferredTargetFormat: string | null) =>
+    request<AdminQueryProfile>(`/api/admin/recall/query-profiles/${profileId}/preferred-format`, {
+      method: 'POST',
+      body: JSON.stringify({ preferred_target_format: preferredTargetFormat }),
+    }),
+
   disableQueryProfileAutoApply: (profileId: number, disabled = true) =>
     request<AdminQueryProfile>(`/api/admin/recall/query-profiles/${profileId}/disable-auto-apply?disabled=${String(disabled)}`, {
       method: 'POST',
@@ -851,6 +914,14 @@ export const admin = {
     if (projectId != null) query.set('project_id', String(projectId));
     const suffix = query.toString() ? `?${query}` : '';
     return request<AdminRecallMemorySignal[]>(`/api/admin/recall/memory-signals${suffix}`);
+  },
+
+  recallReviewQueue: (limit?: number, projectId?: number, includeArchived = true) => {
+    const query = new URLSearchParams();
+    if (limit != null) query.set('limit', String(limit));
+    if (projectId != null) query.set('project_id', String(projectId));
+    query.set('include_archived', String(includeArchived));
+    return request<AdminRecallReviewQueueItem[]>(`/api/admin/recall/review-queue?${query.toString()}`);
   },
 
   recallMemorySignalDetail: (memoryId: number) =>

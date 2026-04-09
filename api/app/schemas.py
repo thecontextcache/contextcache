@@ -467,6 +467,32 @@ class AdminContextCompilationDetailOut(BaseModel):
     created_at: datetime
 
 
+class AdminContextCompilationHistoryEntryOut(BaseModel):
+    id: int
+    query_text: str
+    target_format: str
+    renderer: str | None = None
+    retrieval_strategy: str | None = None
+    served_by: str | None = None
+    item_count: int = 0
+    feedback_count: int = 0
+    created_at: datetime
+
+
+class AdminContextCompilationDiffOut(BaseModel):
+    base_compilation_id: int
+    other_compilation_id: int
+    query_text: str
+    target_format_changed: bool
+    retrieval_strategy_changed: bool
+    served_by_changed: bool
+    bundle_changed: bool
+    text_changed: bool
+    item_ids_added: list[int] = Field(default_factory=list)
+    item_ids_removed: list[int] = Field(default_factory=list)
+    feedback_delta: int = 0
+
+
 class AdminCaptureFailureOut(BaseModel):
     id: int
     project_id: int | None = None
@@ -533,6 +559,23 @@ class AdminRecallMemorySignalDetailOut(AdminRecallMemorySignalOut):
     updated_at: datetime | None = None
 
 
+class AdminRecallReviewQueueItemOut(BaseModel):
+    memory_id: int
+    project_id: int
+    memory_type: str
+    title: str | None = None
+    source: str
+    feedback_total: int
+    net_score: int
+    marked_for_review: bool = False
+    archived_from_recall_admin: bool = False
+    review_marked_at: str | None = None
+    archived_at: str | None = None
+    last_feedback_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
 class AdminQueryProfileOut(BaseModel):
     id: int
     org_id: int
@@ -564,6 +607,10 @@ class AdminQueryProfileOut(BaseModel):
 
 class AdminQueryProfileDetailOut(AdminQueryProfileOut):
     recent_feedback: list[AdminRecallFeedbackOut] = Field(default_factory=list)
+
+
+class AdminQueryProfilePreferenceIn(BaseModel):
+    preferred_target_format: str | None = Field(default=None, max_length=32)
 
 
 class AdminSecurityPostureOut(BaseModel):

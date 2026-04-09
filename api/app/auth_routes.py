@@ -53,11 +53,14 @@ from .models import (
 )
 from .rate_limit import check_request_link_limits, check_verify_limits
 from .schemas import (
+    AdminContextCompilationDiffOut,
     AdminContextCompilationDetailOut,
+    AdminContextCompilationHistoryEntryOut,
     AdminContextCompilationItemOut,
     AdminContextCompilationOut,
     AdminLlmHealthOut,
     AdminQueryProfileDetailOut,
+    AdminQueryProfilePreferenceIn,
     AdminRecallFeedbackOut,
     AdminInviteCreateIn,
     AdminInviteOut,
@@ -69,6 +72,7 @@ from .schemas import (
     AdminRecallEvalOut,
     AdminRecallMemorySignalDetailOut,
     AdminRecallMemorySignalOut,
+    AdminRecallReviewQueueItemOut,
     AdminQueryProfileOut,
     AdminSecurityPostureOut,
     AdminUsageOut,
@@ -149,6 +153,103 @@ def _query_profile_out(profile: QueryProfile) -> AdminQueryProfileOut:
         last_feedback_at=profile.last_feedback_at,
         created_at=profile.created_at,
         updated_at=profile.updated_at,
+    )
+
+
+def _normalized_target_format(value: str | None) -> str | None:
+    normalized = (value or "").strip().lower()
+    if not normalized:
+        return None
+    if normalized not in {"text", "toon", "toonx"}:
+        raise HTTPException(status_code=422, detail="preferred_target_format must be one of: text, toon, toonx")
+    return normalized
+
+
+def _feedback_out(row: RetrievalFeedback) -> AdminRecallFeedbackOut:
+    return AdminRecallFeedbackOut(
+        id=row.id,
+        org_id=row.org_id,
+        project_id=row.project_id,
+        compilation_id=row.compilation_id,
+        query_profile_id=row.query_profile_id,
+        actor_user_id=row.actor_user_id,
+        entity_type=row.entity_type,
+        entity_id=row.entity_id,
+        label=row.label,
+        note=row.note,
+        metadata=row.metadata_json or {},
+        created_at=row.created_at,
+    )
+
+
+def _memory_feedback_bucket() -> dict[str, int | datetime | None]:
+    return {
+        "helpful_count": 0,
+        "wrong_count": 0,
+        "stale_count": 0,
+        "removed_count": 0,
+        "pinned_count": 0,
+        "last_feedback_at": None,
+    }
+
+
+async def _load_memory_feedback_buckets(
+    db: AsyncSession,
+    org_id: int,
+    memory_ids: list[int],
+) -> dict[int, dict[str, int | datetime | None]]:
+    if not memory_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(RetrievalFeedback)
+            .where(
+                RetrievalFeedback.org_id == org_id,
+                RetrievalFeedback.entity_type == "memory",
+                RetrievalFeedback.entity_id.in_(memory_ids),
+            )
+            .order_by(RetrievalFeedback.created_at.desc(), RetrievalFeedback.id.desc())
+        )
+    ).scalars().all()
+    grouped: dict[int, dict[str, int | datetime | None]] = {}
+    for row in rows:
+        if row.entity_id is None:
+            continue
+        bucket = grouped.setdefault(row.entity_id, _memory_feedback_bucket())
+        count_key = f"{row.label}_count"
+        if count_key in bucket:
+            bucket[count_key] = int(bucket[count_key] or 0) + 1
+        last_feedback_at = bucket["last_feedback_at"]
+        if last_feedback_at is None or row.created_at > last_feedback_at:
+            bucket["last_feedback_at"] = row.created_at
+    return grouped
+
+
+def _memory_signal_from_bucket(
+    memory: Memory,
+    counts: dict[str, int | datetime | None] | None,
+) -> AdminRecallMemorySignalOut:
+    bucket = counts or _memory_feedback_bucket()
+    helpful_count = int(bucket["helpful_count"] or 0)
+    wrong_count = int(bucket["wrong_count"] or 0)
+    stale_count = int(bucket["stale_count"] or 0)
+    removed_count = int(bucket["removed_count"] or 0)
+    pinned_count = int(bucket["pinned_count"] or 0)
+    feedback_total = helpful_count + wrong_count + stale_count + removed_count + pinned_count
+    net_score = helpful_count + pinned_count - wrong_count - stale_count - removed_count
+    return AdminRecallMemorySignalOut(
+        memory_id=memory.id,
+        project_id=memory.project_id,
+        memory_type=memory.type,
+        title=memory.title,
+        helpful_count=helpful_count,
+        wrong_count=wrong_count,
+        stale_count=stale_count,
+        removed_count=removed_count,
+        pinned_count=pinned_count,
+        feedback_total=feedback_total,
+        net_score=net_score,
+        last_feedback_at=bucket["last_feedback_at"],
     )
 
 
@@ -1412,24 +1513,167 @@ async def admin_recall_compilation_detail(
             for row in item_rows
         ],
         recent_feedback=[
-            AdminRecallFeedbackOut(
-                id=row.id,
-                org_id=row.org_id,
-                project_id=row.project_id,
-                compilation_id=row.compilation_id,
-                query_profile_id=row.query_profile_id,
-                actor_user_id=row.actor_user_id,
-                entity_type=row.entity_type,
-                entity_id=row.entity_id,
-                label=row.label,
-                note=row.note,
-                metadata=row.metadata_json or {},
-                created_at=row.created_at,
-            )
+            _feedback_out(row)
             for row in feedback_rows
         ],
         query_profile_id=query_profile_id,
         created_at=compilation.created_at,
+    )
+
+
+@router.get("/admin/recall/compilations/history", response_model=list[AdminContextCompilationHistoryEntryOut])
+async def admin_recall_compilation_history(
+    request: Request,
+    compilation_id: int | None = Query(default=None, ge=1),
+    query_text: str | None = Query(default=None),
+    limit: int = Query(default=10, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+) -> list[AdminContextCompilationHistoryEntryOut]:
+    _require_admin_auth(request)
+    org_id = getattr(request.state, "org_id", None)
+    if org_id is None:
+        raise HTTPException(status_code=400, detail="X-Org-Id required")
+
+    resolved_query = (query_text or "").strip()
+    if compilation_id is not None and not resolved_query:
+        base = (
+            await db.execute(
+                select(ContextCompilation)
+                .where(ContextCompilation.id == compilation_id, ContextCompilation.org_id == org_id)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if base is None:
+            raise HTTPException(status_code=404, detail="Compilation not found")
+        resolved_query = base.query_text
+    if not resolved_query:
+        raise HTTPException(status_code=422, detail="query_text or compilation_id is required")
+
+    rows = (
+        await db.execute(
+            select(ContextCompilation)
+            .where(ContextCompilation.org_id == org_id, ContextCompilation.query_text == resolved_query)
+            .order_by(ContextCompilation.created_at.desc(), ContextCompilation.id.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    if not rows:
+        return []
+
+    feedback_counts = {
+        row.compilation_id: int(row.count or 0)
+        for row in (
+            await db.execute(
+                select(
+                    RetrievalFeedback.compilation_id,
+                    func.count(RetrievalFeedback.id).label("count"),
+                )
+                .where(RetrievalFeedback.compilation_id.in_([entry.id for entry in rows]))
+                .group_by(RetrievalFeedback.compilation_id)
+            )
+        ).all()
+    }
+    return [
+        AdminContextCompilationHistoryEntryOut(
+            id=row.id,
+            query_text=row.query_text,
+            target_format=row.target_format,
+            renderer=(row.compilation_json or {}).get("renderer"),
+            retrieval_strategy=((row.compilation_json or {}).get("retrieval_plan") or {}).get("strategy"),
+            served_by=row.served_by,
+            item_count=len((row.compilation_json or {}).get("items") or []),
+            feedback_count=feedback_counts.get(row.id, 0),
+            created_at=row.created_at,
+        )
+        for row in rows
+    ]
+
+
+@router.get("/admin/recall/compilations/{compilation_id}/diff", response_model=AdminContextCompilationDiffOut)
+async def admin_recall_compilation_diff(
+    compilation_id: int,
+    request: Request,
+    other_id: int | None = Query(default=None, ge=1),
+    db: AsyncSession = Depends(get_db),
+) -> AdminContextCompilationDiffOut:
+    _require_admin_auth(request)
+    org_id = getattr(request.state, "org_id", None)
+    if org_id is None:
+        raise HTTPException(status_code=400, detail="X-Org-Id required")
+
+    base = (
+        await db.execute(
+            select(ContextCompilation)
+            .where(ContextCompilation.id == compilation_id, ContextCompilation.org_id == org_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if base is None:
+        raise HTTPException(status_code=404, detail="Compilation not found")
+
+    if other_id is None:
+        other = (
+            await db.execute(
+                select(ContextCompilation)
+                .where(
+                    ContextCompilation.org_id == org_id,
+                    ContextCompilation.query_text == base.query_text,
+                    ContextCompilation.id != base.id,
+                )
+                .order_by(ContextCompilation.created_at.desc(), ContextCompilation.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if other is None:
+            raise HTTPException(status_code=404, detail="No comparison compilation found for query")
+    else:
+        other = (
+            await db.execute(
+                select(ContextCompilation)
+                .where(ContextCompilation.id == other_id, ContextCompilation.org_id == org_id)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if other is None:
+            raise HTTPException(status_code=404, detail="Comparison compilation not found")
+
+    item_rows = (
+        await db.execute(
+            select(ContextCompilationItem)
+            .where(ContextCompilationItem.compilation_id.in_([base.id, other.id]))
+        )
+    ).scalars().all()
+    by_compilation: dict[int, set[int]] = {base.id: set(), other.id: set()}
+    for row in item_rows:
+        if row.entity_id is not None and row.compilation_id in by_compilation:
+            by_compilation[row.compilation_id].add(row.entity_id)
+    feedback_counts = {
+        row.compilation_id: int(row.count or 0)
+        for row in (
+            await db.execute(
+                select(
+                    RetrievalFeedback.compilation_id,
+                    func.count(RetrievalFeedback.id).label("count"),
+                )
+                .where(RetrievalFeedback.compilation_id.in_([base.id, other.id]))
+                .group_by(RetrievalFeedback.compilation_id)
+            )
+        ).all()
+    }
+    base_json = base.compilation_json or {}
+    other_json = other.compilation_json or {}
+    return AdminContextCompilationDiffOut(
+        base_compilation_id=base.id,
+        other_compilation_id=other.id,
+        query_text=base.query_text,
+        target_format_changed=base.target_format != other.target_format,
+        retrieval_strategy_changed=((base_json.get("retrieval_plan") or {}).get("strategy")) != ((other_json.get("retrieval_plan") or {}).get("strategy")),
+        served_by_changed=base.served_by != other.served_by,
+        bundle_changed=((base_json.get("bundle") or {}).get("bundle_id")) != ((other_json.get("bundle") or {}).get("bundle_id")),
+        text_changed=(base.compilation_text or "") != (other.compilation_text or ""),
+        item_ids_added=sorted(by_compilation[base.id] - by_compilation[other.id]),
+        item_ids_removed=sorted(by_compilation[other.id] - by_compilation[base.id]),
+        feedback_delta=feedback_counts.get(base.id, 0) - feedback_counts.get(other.id, 0),
     )
 
 
@@ -1581,6 +1825,68 @@ async def admin_recall_memory_signals(
                 feedback_total=feedback_total,
                 net_score=net_score,
                 last_feedback_at=counts["last_feedback_at"],
+            )
+        )
+    return rows
+
+
+@router.get("/admin/recall/review-queue", response_model=list[AdminRecallReviewQueueItemOut])
+async def admin_recall_review_queue(
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    project_id: int | None = Query(default=None, ge=1),
+    include_archived: bool = Query(default=True),
+    db: AsyncSession = Depends(get_db),
+) -> list[AdminRecallReviewQueueItemOut]:
+    _require_admin_auth(request)
+    org_id = getattr(request.state, "org_id", None)
+    if org_id is None:
+        raise HTTPException(status_code=400, detail="X-Org-Id required")
+
+    stmt = (
+        select(Memory)
+        .join(Project, Project.id == Memory.project_id)
+        .where(Project.org_id == org_id)
+        .order_by(func.coalesce(Memory.updated_at, Memory.created_at).desc(), Memory.id.desc())
+    )
+    if project_id is not None:
+        stmt = stmt.where(Memory.project_id == project_id)
+
+    memories = (await db.execute(stmt)).scalars().all()
+    flagged: list[Memory] = []
+    for memory in memories:
+        metadata = dict(memory.metadata_json or {})
+        marked_for_review = bool(metadata.get("marked_for_review"))
+        archived = bool(metadata.get("archived_from_recall_admin"))
+        if not marked_for_review and not archived:
+            continue
+        if archived and not include_archived:
+            continue
+        flagged.append(memory)
+
+    page = flagged[offset:offset + limit]
+    buckets = await _load_memory_feedback_buckets(db, org_id, [memory.id for memory in page])
+    rows: list[AdminRecallReviewQueueItemOut] = []
+    for memory in page:
+        signal = _memory_signal_from_bucket(memory, buckets.get(memory.id))
+        metadata = dict(memory.metadata_json or {})
+        rows.append(
+            AdminRecallReviewQueueItemOut(
+                memory_id=memory.id,
+                project_id=memory.project_id,
+                memory_type=memory.type,
+                title=memory.title,
+                source=memory.source,
+                feedback_total=signal.feedback_total,
+                net_score=signal.net_score,
+                marked_for_review=bool(metadata.get("marked_for_review")),
+                archived_from_recall_admin=bool(metadata.get("archived_from_recall_admin")),
+                review_marked_at=metadata.get("review_marked_at"),
+                archived_at=metadata.get("archived_from_recall_admin_at"),
+                last_feedback_at=signal.last_feedback_at,
+                created_at=memory.created_at,
+                updated_at=memory.updated_at,
             )
         )
     return rows
@@ -1983,23 +2289,38 @@ async def admin_recall_query_profile_detail(
     return AdminQueryProfileDetailOut(
         **_query_profile_out(profile).model_dump(),
         recent_feedback=[
-            AdminRecallFeedbackOut(
-                id=row.id,
-                org_id=row.org_id,
-                project_id=row.project_id,
-                compilation_id=row.compilation_id,
-                query_profile_id=row.query_profile_id,
-                actor_user_id=row.actor_user_id,
-                entity_type=row.entity_type,
-                entity_id=row.entity_id,
-                label=row.label,
-                note=row.note,
-                metadata=row.metadata_json or {},
-                created_at=row.created_at,
-            )
+            _feedback_out(row)
             for row in feedback_rows
         ],
     )
+
+
+@router.post("/admin/recall/query-profiles/{profile_id}/preferred-format", response_model=AdminQueryProfileOut)
+async def admin_set_query_profile_preferred_format(
+    profile_id: int,
+    payload: AdminQueryProfilePreferenceIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> AdminQueryProfileOut:
+    _require_admin_auth(request)
+    org_id = getattr(request.state, "org_id", None)
+    if org_id is None:
+        raise HTTPException(status_code=400, detail="X-Org-Id required")
+
+    profile = (
+        await db.execute(
+            select(QueryProfile)
+            .where(QueryProfile.id == profile_id, QueryProfile.org_id == org_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Query profile not found")
+
+    profile.preferred_target_format = _normalized_target_format(payload.preferred_target_format)
+    await db.commit()
+    await db.refresh(profile)
+    return _query_profile_out(profile)
 
 
 @router.post("/admin/recall/query-profiles/{profile_id}/disable-auto-apply", response_model=AdminQueryProfileOut)
