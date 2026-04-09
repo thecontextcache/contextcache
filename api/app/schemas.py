@@ -483,13 +483,25 @@ class AdminContextCompilationDiffOut(BaseModel):
     base_compilation_id: int
     other_compilation_id: int
     query_text: str
+    base_target_format: str
+    other_target_format: str
+    base_retrieval_strategy: str | None = None
+    other_retrieval_strategy: str | None = None
+    base_served_by: str | None = None
+    other_served_by: str | None = None
     target_format_changed: bool
     retrieval_strategy_changed: bool
     served_by_changed: bool
     bundle_changed: bool
     text_changed: bool
+    base_bundle_id: str | None = None
+    other_bundle_id: str | None = None
+    base_item_count: int = 0
+    other_item_count: int = 0
     item_ids_added: list[int] = Field(default_factory=list)
     item_ids_removed: list[int] = Field(default_factory=list)
+    retrieval_plan_before: Dict[str, Any] = Field(default_factory=dict)
+    retrieval_plan_after: Dict[str, Any] = Field(default_factory=dict)
     feedback_delta: int = 0
 
 
@@ -555,6 +567,8 @@ class AdminRecallMemorySignalDetailOut(AdminRecallMemorySignalOut):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     marked_for_review: bool = False
     archived_from_recall_admin: bool = False
+    review_status: str = "open"
+    review_notes: List[Dict[str, Any]] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime | None = None
 
@@ -567,10 +581,13 @@ class AdminRecallReviewQueueItemOut(BaseModel):
     source: str
     feedback_total: int
     net_score: int
+    review_status: str = "open"
     marked_for_review: bool = False
     archived_from_recall_admin: bool = False
     review_marked_at: str | None = None
     archived_at: str | None = None
+    latest_note: str | None = None
+    notes_count: int = 0
     last_feedback_at: datetime | None = None
     created_at: datetime
     updated_at: datetime | None = None
@@ -598,6 +615,10 @@ class AdminQueryProfileOut(BaseModel):
     negative_feedback_count: int
     auto_apply_enabled: bool
     auto_apply_disabled: bool = False
+    suggested_target_format: str | None = None
+    suggestion_reason: str | None = None
+    suggestion_confidence: float | None = None
+    suggestion_state: str = "none"
     last_compilation_id: int | None = None
     last_queried_at: datetime | None = None
     last_feedback_at: datetime | None = None
@@ -611,6 +632,10 @@ class AdminQueryProfileDetailOut(AdminQueryProfileOut):
 
 class AdminQueryProfilePreferenceIn(BaseModel):
     preferred_target_format: str | None = Field(default=None, max_length=32)
+
+
+class AdminReviewNoteIn(BaseModel):
+    note: str | None = Field(default=None, max_length=2000)
 
 
 class AdminSecurityPostureOut(BaseModel):

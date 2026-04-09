@@ -73,6 +73,7 @@ from .schemas import (
     AdminRecallMemorySignalDetailOut,
     AdminRecallMemorySignalOut,
     AdminRecallReviewQueueItemOut,
+    AdminReviewNoteIn,
     AdminQueryProfileOut,
     AdminSecurityPostureOut,
     AdminUsageOut,
@@ -124,8 +125,46 @@ def _query_profile_feedback_stats(profile: QueryProfile) -> tuple[int, int, int,
     return feedback_total, positive_feedback_count, negative_feedback_count, auto_apply_enabled
 
 
+def _query_profile_recommendation(profile: QueryProfile) -> tuple[str | None, str | None, float | None, str]:
+    feedback_total, positive_feedback_count, negative_feedback_count, auto_apply_enabled = _query_profile_feedback_stats(profile)
+    preferred = (profile.preferred_target_format or "").strip().lower() or None
+    last_format = (profile.last_target_format or "").strip().lower() or None
+    if feedback_total == 0 and not preferred:
+        return None, None, None, "none"
+
+    suggested = preferred or last_format
+    if suggested is None and positive_feedback_count > 0:
+        suggested = "toonx"
+    if suggested is None and negative_feedback_count > 0:
+        suggested = "text"
+    if suggested is None:
+        return None, None, None, "none"
+
+    confidence = round(
+        (max(positive_feedback_count, negative_feedback_count) / max(feedback_total, 1)),
+        2,
+    )
+    if profile.auto_apply_disabled:
+        state = "rejected"
+        reason = "manually_disabled"
+    elif auto_apply_enabled and preferred == suggested:
+        state = "accepted"
+        reason = "positive_feedback_dominates"
+    elif positive_feedback_count > negative_feedback_count:
+        state = "suggested"
+        reason = "positive_feedback_dominates"
+    elif negative_feedback_count > positive_feedback_count:
+        state = "suggested"
+        reason = "negative_feedback_dominates"
+    else:
+        state = "suggested"
+        reason = "recent_usage_pattern"
+    return suggested, reason, confidence, state
+
+
 def _query_profile_out(profile: QueryProfile) -> AdminQueryProfileOut:
     feedback_total, positive_feedback_count, negative_feedback_count, auto_apply_enabled = _query_profile_feedback_stats(profile)
+    suggested_target_format, suggestion_reason, suggestion_confidence, suggestion_state = _query_profile_recommendation(profile)
     return AdminQueryProfileOut(
         id=profile.id,
         org_id=profile.org_id,
@@ -148,6 +187,10 @@ def _query_profile_out(profile: QueryProfile) -> AdminQueryProfileOut:
         negative_feedback_count=negative_feedback_count,
         auto_apply_enabled=auto_apply_enabled,
         auto_apply_disabled=bool(profile.auto_apply_disabled),
+        suggested_target_format=suggested_target_format,
+        suggestion_reason=suggestion_reason,
+        suggestion_confidence=suggestion_confidence,
+        suggestion_state=suggestion_state,
         last_compilation_id=profile.last_compilation_id,
         last_queried_at=profile.last_queried_at,
         last_feedback_at=profile.last_feedback_at,
@@ -251,6 +294,13 @@ def _memory_signal_from_bucket(
         net_score=net_score,
         last_feedback_at=bucket["last_feedback_at"],
     )
+
+
+def _memory_review_metadata(memory: Memory) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
+    metadata = dict(memory.metadata_json or {})
+    notes = list(metadata.get("review_notes") or [])
+    status = str(metadata.get("review_status") or ("archived" if metadata.get("archived_from_recall_admin") else "open"))
+    return status, notes, metadata
 
 
 async def _load_memory_tag_names(db: AsyncSession, memory_id: int) -> list[str]:
@@ -1666,13 +1716,25 @@ async def admin_recall_compilation_diff(
         base_compilation_id=base.id,
         other_compilation_id=other.id,
         query_text=base.query_text,
+        base_target_format=base.target_format,
+        other_target_format=other.target_format,
+        base_retrieval_strategy=(base_json.get("retrieval_plan") or {}).get("strategy"),
+        other_retrieval_strategy=(other_json.get("retrieval_plan") or {}).get("strategy"),
+        base_served_by=base.served_by,
+        other_served_by=other.served_by,
         target_format_changed=base.target_format != other.target_format,
         retrieval_strategy_changed=((base_json.get("retrieval_plan") or {}).get("strategy")) != ((other_json.get("retrieval_plan") or {}).get("strategy")),
         served_by_changed=base.served_by != other.served_by,
         bundle_changed=((base_json.get("bundle") or {}).get("bundle_id")) != ((other_json.get("bundle") or {}).get("bundle_id")),
         text_changed=(base.compilation_text or "") != (other.compilation_text or ""),
+        base_bundle_id=(base_json.get("bundle") or {}).get("bundle_id"),
+        other_bundle_id=(other_json.get("bundle") or {}).get("bundle_id"),
+        base_item_count=len((base_json.get("items") or [])),
+        other_item_count=len((other_json.get("items") or [])),
         item_ids_added=sorted(by_compilation[base.id] - by_compilation[other.id]),
         item_ids_removed=sorted(by_compilation[other.id] - by_compilation[base.id]),
+        retrieval_plan_before=other_json.get("retrieval_plan") or {},
+        retrieval_plan_after=base_json.get("retrieval_plan") or {},
         feedback_delta=feedback_counts.get(base.id, 0) - feedback_counts.get(other.id, 0),
     )
 
@@ -1837,6 +1899,7 @@ async def admin_recall_review_queue(
     offset: int = Query(default=0, ge=0),
     project_id: int | None = Query(default=None, ge=1),
     include_archived: bool = Query(default=True),
+    include_resolved: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
 ) -> list[AdminRecallReviewQueueItemOut]:
     _require_admin_auth(request)
@@ -1856,12 +1919,14 @@ async def admin_recall_review_queue(
     memories = (await db.execute(stmt)).scalars().all()
     flagged: list[Memory] = []
     for memory in memories:
-        metadata = dict(memory.metadata_json or {})
+        review_status, review_notes, metadata = _memory_review_metadata(memory)
         marked_for_review = bool(metadata.get("marked_for_review"))
         archived = bool(metadata.get("archived_from_recall_admin"))
-        if not marked_for_review and not archived:
+        if not marked_for_review and not archived and review_status != "resolved":
             continue
         if archived and not include_archived:
+            continue
+        if review_status == "resolved" and not include_resolved:
             continue
         flagged.append(memory)
 
@@ -1870,7 +1935,7 @@ async def admin_recall_review_queue(
     rows: list[AdminRecallReviewQueueItemOut] = []
     for memory in page:
         signal = _memory_signal_from_bucket(memory, buckets.get(memory.id))
-        metadata = dict(memory.metadata_json or {})
+        review_status, review_notes, metadata = _memory_review_metadata(memory)
         rows.append(
             AdminRecallReviewQueueItemOut(
                 memory_id=memory.id,
@@ -1880,10 +1945,13 @@ async def admin_recall_review_queue(
                 source=memory.source,
                 feedback_total=signal.feedback_total,
                 net_score=signal.net_score,
+                review_status=review_status,
                 marked_for_review=bool(metadata.get("marked_for_review")),
                 archived_from_recall_admin=bool(metadata.get("archived_from_recall_admin")),
                 review_marked_at=metadata.get("review_marked_at"),
                 archived_at=metadata.get("archived_from_recall_admin_at"),
+                latest_note=str((review_notes[0] or {}).get("note")) if review_notes else None,
+                notes_count=len(review_notes),
                 last_feedback_at=signal.last_feedback_at,
                 created_at=memory.created_at,
                 updated_at=memory.updated_at,
@@ -1934,7 +2002,7 @@ async def admin_recall_memory_signal_detail(
             last_feedback_at = row.created_at
     feedback_total = sum(counts.values())
     net_score = counts["helpful"] + counts["pinned"] - counts["wrong"] - counts["stale"] - counts["removed"]
-    metadata = dict(memory.metadata_json or {})
+    review_status, review_notes, metadata = _memory_review_metadata(memory)
     return AdminRecallMemorySignalDetailOut(
         memory_id=memory.id,
         project_id=memory.project_id,
@@ -1954,6 +2022,8 @@ async def admin_recall_memory_signal_detail(
         metadata=metadata,
         marked_for_review=bool(metadata.get("marked_for_review")),
         archived_from_recall_admin=bool(metadata.get("archived_from_recall_admin")),
+        review_status=review_status,
+        review_notes=review_notes,
         created_at=memory.created_at,
         updated_at=memory.updated_at,
     )
@@ -1984,6 +2054,7 @@ async def admin_mark_memory_signal_for_review(
 
     metadata = dict(memory.metadata_json or {})
     metadata["marked_for_review"] = True
+    metadata["review_status"] = "open"
     metadata["review_marked_at"] = now_utc().isoformat()
     metadata["review_marked_by_user_id"] = actor_user_id
     memory.metadata_json = metadata
@@ -2017,8 +2088,120 @@ async def admin_archive_memory_signal(
 
     metadata = dict(memory.metadata_json or {})
     metadata["archived_from_recall_admin"] = True
+    metadata["review_status"] = "archived"
     metadata["archived_from_recall_admin_at"] = now_utc().isoformat()
     metadata["archived_from_recall_admin_by_user_id"] = actor_user_id
+    memory.metadata_json = metadata
+    await db.commit()
+    await db.refresh(memory)
+    return await admin_recall_memory_signal_detail(memory_id=memory_id, request=request, db=db)
+
+
+@router.post("/admin/recall/memory-signals/{memory_id}/resolve", response_model=AdminRecallMemorySignalDetailOut)
+async def admin_resolve_memory_signal_review(
+    memory_id: int,
+    payload: AdminReviewNoteIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> AdminRecallMemorySignalDetailOut:
+    _require_admin_auth(request)
+    org_id = getattr(request.state, "org_id", None)
+    actor_user_id = getattr(request.state, "auth_user_id", None)
+    if org_id is None:
+        raise HTTPException(status_code=400, detail="X-Org-Id required")
+
+    memory = (
+        await db.execute(
+            select(Memory)
+            .join(Project, Project.id == Memory.project_id)
+            .where(Memory.id == memory_id, Project.org_id == org_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if memory is None:
+        raise HTTPException(status_code=404, detail="Memory not found")
+
+    _, review_notes, metadata = _memory_review_metadata(memory)
+    metadata["marked_for_review"] = False
+    metadata["review_status"] = "resolved"
+    metadata["review_resolved_at"] = now_utc().isoformat()
+    metadata["review_resolved_by_user_id"] = actor_user_id
+    if payload.note:
+        review_notes.insert(0, {"status": "resolved", "note": payload.note, "created_at": now_utc().isoformat(), "user_id": actor_user_id})
+    metadata["review_notes"] = review_notes[:20]
+    memory.metadata_json = metadata
+    await db.commit()
+    await db.refresh(memory)
+    return await admin_recall_memory_signal_detail(memory_id=memory_id, request=request, db=db)
+
+
+@router.post("/admin/recall/memory-signals/{memory_id}/reopen", response_model=AdminRecallMemorySignalDetailOut)
+async def admin_reopen_memory_signal_review(
+    memory_id: int,
+    payload: AdminReviewNoteIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> AdminRecallMemorySignalDetailOut:
+    _require_admin_auth(request)
+    org_id = getattr(request.state, "org_id", None)
+    actor_user_id = getattr(request.state, "auth_user_id", None)
+    if org_id is None:
+        raise HTTPException(status_code=400, detail="X-Org-Id required")
+
+    memory = (
+        await db.execute(
+            select(Memory)
+            .join(Project, Project.id == Memory.project_id)
+            .where(Memory.id == memory_id, Project.org_id == org_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if memory is None:
+        raise HTTPException(status_code=404, detail="Memory not found")
+
+    _, review_notes, metadata = _memory_review_metadata(memory)
+    metadata["marked_for_review"] = True
+    metadata["review_status"] = "open"
+    metadata["review_reopened_at"] = now_utc().isoformat()
+    metadata["review_reopened_by_user_id"] = actor_user_id
+    if payload.note:
+        review_notes.insert(0, {"status": "reopened", "note": payload.note, "created_at": now_utc().isoformat(), "user_id": actor_user_id})
+    metadata["review_notes"] = review_notes[:20]
+    memory.metadata_json = metadata
+    await db.commit()
+    await db.refresh(memory)
+    return await admin_recall_memory_signal_detail(memory_id=memory_id, request=request, db=db)
+
+
+@router.post("/admin/recall/memory-signals/{memory_id}/note", response_model=AdminRecallMemorySignalDetailOut)
+async def admin_note_memory_signal_review(
+    memory_id: int,
+    payload: AdminReviewNoteIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> AdminRecallMemorySignalDetailOut:
+    _require_admin_auth(request)
+    org_id = getattr(request.state, "org_id", None)
+    actor_user_id = getattr(request.state, "auth_user_id", None)
+    if org_id is None:
+        raise HTTPException(status_code=400, detail="X-Org-Id required")
+    if not (payload.note or "").strip():
+        raise HTTPException(status_code=422, detail="note is required")
+
+    memory = (
+        await db.execute(
+            select(Memory)
+            .join(Project, Project.id == Memory.project_id)
+            .where(Memory.id == memory_id, Project.org_id == org_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if memory is None:
+        raise HTTPException(status_code=404, detail="Memory not found")
+
+    review_status, review_notes, metadata = _memory_review_metadata(memory)
+    review_notes.insert(0, {"status": review_status, "note": payload.note, "created_at": now_utc().isoformat(), "user_id": actor_user_id})
+    metadata["review_notes"] = review_notes[:20]
     memory.metadata_json = metadata
     await db.commit()
     await db.refresh(memory)
@@ -2318,6 +2501,64 @@ async def admin_set_query_profile_preferred_format(
         raise HTTPException(status_code=404, detail="Query profile not found")
 
     profile.preferred_target_format = _normalized_target_format(payload.preferred_target_format)
+    await db.commit()
+    await db.refresh(profile)
+    return _query_profile_out(profile)
+
+
+@router.post("/admin/recall/query-profiles/{profile_id}/accept-suggestion", response_model=AdminQueryProfileOut)
+async def admin_accept_query_profile_suggestion(
+    profile_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> AdminQueryProfileOut:
+    _require_admin_auth(request)
+    org_id = getattr(request.state, "org_id", None)
+    if org_id is None:
+        raise HTTPException(status_code=400, detail="X-Org-Id required")
+
+    profile = (
+        await db.execute(
+            select(QueryProfile)
+            .where(QueryProfile.id == profile_id, QueryProfile.org_id == org_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Query profile not found")
+
+    suggested, _, _, _ = _query_profile_recommendation(profile)
+    if not suggested:
+        raise HTTPException(status_code=409, detail="No suggestion available")
+    profile.preferred_target_format = suggested
+    profile.auto_apply_disabled = False
+    await db.commit()
+    await db.refresh(profile)
+    return _query_profile_out(profile)
+
+
+@router.post("/admin/recall/query-profiles/{profile_id}/reject-suggestion", response_model=AdminQueryProfileOut)
+async def admin_reject_query_profile_suggestion(
+    profile_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> AdminQueryProfileOut:
+    _require_admin_auth(request)
+    org_id = getattr(request.state, "org_id", None)
+    if org_id is None:
+        raise HTTPException(status_code=400, detail="X-Org-Id required")
+
+    profile = (
+        await db.execute(
+            select(QueryProfile)
+            .where(QueryProfile.id == profile_id, QueryProfile.org_id == org_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Query profile not found")
+
+    profile.auto_apply_disabled = True
     await db.commit()
     await db.refresh(profile)
     return _query_profile_out(profile)

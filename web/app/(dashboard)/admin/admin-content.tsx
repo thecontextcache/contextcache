@@ -339,6 +339,60 @@ export function AdminContent() {
     }
   }
 
+  async function acceptQueryProfileSuggestion(profileId: number) {
+    setWorkingProfileId(profileId);
+    try {
+      const updated = await admin.acceptQueryProfileSuggestion(profileId);
+      setQueryProfiles((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
+      if (selectedProfile?.id === updated.id) {
+        setSelectedProfile(await admin.queryProfileDetail(updated.id));
+      }
+      toast('success', 'Suggestion accepted');
+    } catch (err) {
+      toast('error', err instanceof ApiError ? err.message : 'Failed to accept suggestion');
+    } finally {
+      setWorkingProfileId(null);
+    }
+  }
+
+  async function rejectQueryProfileSuggestion(profileId: number) {
+    setWorkingProfileId(profileId);
+    try {
+      const updated = await admin.rejectQueryProfileSuggestion(profileId);
+      setQueryProfiles((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
+      if (selectedProfile?.id === updated.id) {
+        setSelectedProfile(await admin.queryProfileDetail(updated.id));
+      }
+      toast('success', 'Suggestion rejected');
+    } catch (err) {
+      toast('error', err instanceof ApiError ? err.message : 'Failed to reject suggestion');
+    } finally {
+      setWorkingProfileId(null);
+    }
+  }
+
+  function queueRowFromDetail(detail: AdminRecallMemorySignalDetail): AdminRecallReviewQueueItem {
+    return {
+      memory_id: detail.memory_id,
+      project_id: detail.project_id,
+      memory_type: detail.memory_type,
+      title: detail.title,
+      source: detail.source,
+      feedback_total: detail.feedback_total,
+      net_score: detail.net_score,
+      review_status: detail.review_status,
+      marked_for_review: detail.marked_for_review,
+      archived_from_recall_admin: detail.archived_from_recall_admin,
+      review_marked_at: detail.metadata?.review_marked_at ? String(detail.metadata.review_marked_at) : null,
+      archived_at: detail.metadata?.archived_from_recall_admin_at ? String(detail.metadata.archived_from_recall_admin_at) : null,
+      latest_note: detail.review_notes?.[0]?.note ? String(detail.review_notes[0].note) : null,
+      notes_count: detail.review_notes?.length ?? 0,
+      last_feedback_at: detail.last_feedback_at,
+      created_at: detail.created_at,
+      updated_at: detail.updated_at,
+    };
+  }
+
   async function openMemorySignal(memoryId: number) {
     try {
       const detail = await admin.recallMemorySignalDetail(memoryId);
@@ -356,22 +410,7 @@ export function AdminContent() {
       setMemorySignals((prev) => prev.map((row) => (row.memory_id === detail.memory_id ? { ...row, ...detail } : row)));
       setReviewQueue((prev) => {
         const next = prev.filter((row) => row.memory_id !== detail.memory_id);
-        return [{
-          memory_id: detail.memory_id,
-          project_id: detail.project_id,
-          memory_type: detail.memory_type,
-          title: detail.title,
-          source: detail.source,
-          feedback_total: detail.feedback_total,
-          net_score: detail.net_score,
-          marked_for_review: detail.marked_for_review,
-          archived_from_recall_admin: detail.archived_from_recall_admin,
-          review_marked_at: String(detail.metadata?.review_marked_at ?? ''),
-          archived_at: detail.metadata?.archived_from_recall_admin_at ? String(detail.metadata.archived_from_recall_admin_at) : null,
-          last_feedback_at: detail.last_feedback_at,
-          created_at: detail.created_at,
-          updated_at: detail.updated_at,
-        }, ...next].slice(0, 10);
+        return [queueRowFromDetail(detail), ...next].slice(0, 10);
       });
       toast('success', 'Memory marked for review');
     } catch (err) {
@@ -389,26 +428,66 @@ export function AdminContent() {
       setMemorySignals((prev) => prev.map((row) => (row.memory_id === detail.memory_id ? { ...row, ...detail } : row)));
       setReviewQueue((prev) => {
         const next = prev.filter((row) => row.memory_id !== detail.memory_id);
-        return [{
-          memory_id: detail.memory_id,
-          project_id: detail.project_id,
-          memory_type: detail.memory_type,
-          title: detail.title,
-          source: detail.source,
-          feedback_total: detail.feedback_total,
-          net_score: detail.net_score,
-          marked_for_review: detail.marked_for_review,
-          archived_from_recall_admin: detail.archived_from_recall_admin,
-          review_marked_at: detail.metadata?.review_marked_at ? String(detail.metadata.review_marked_at) : null,
-          archived_at: detail.metadata?.archived_from_recall_admin_at ? String(detail.metadata.archived_from_recall_admin_at) : null,
-          last_feedback_at: detail.last_feedback_at,
-          created_at: detail.created_at,
-          updated_at: detail.updated_at,
-        }, ...next].slice(0, 10);
+        return [queueRowFromDetail(detail), ...next].slice(0, 10);
       });
       toast('success', 'Memory archived from recall admin');
     } catch (err) {
       toast('error', err instanceof ApiError ? err.message : 'Failed to archive memory');
+    } finally {
+      setWorkingMemoryId(null);
+    }
+  }
+
+  async function resolveMemorySignal(memoryId: number) {
+    const note = window.prompt('Optional note for resolving this review:') ?? undefined;
+    setWorkingMemoryId(memoryId);
+    try {
+      const detail = await admin.resolveMemorySignalReview(memoryId, note);
+      setSelectedMemorySignal(detail);
+      setReviewQueue((prev) => {
+        const next = prev.filter((row) => row.memory_id !== detail.memory_id);
+        return [queueRowFromDetail(detail), ...next].slice(0, 10);
+      });
+      toast('success', 'Review resolved');
+    } catch (err) {
+      toast('error', err instanceof ApiError ? err.message : 'Failed to resolve review');
+    } finally {
+      setWorkingMemoryId(null);
+    }
+  }
+
+  async function reopenMemorySignal(memoryId: number) {
+    const note = window.prompt('Optional note for reopening this review:') ?? undefined;
+    setWorkingMemoryId(memoryId);
+    try {
+      const detail = await admin.reopenMemorySignalReview(memoryId, note);
+      setSelectedMemorySignal(detail);
+      setReviewQueue((prev) => {
+        const next = prev.filter((row) => row.memory_id !== detail.memory_id);
+        return [queueRowFromDetail(detail), ...next].slice(0, 10);
+      });
+      toast('success', 'Review reopened');
+    } catch (err) {
+      toast('error', err instanceof ApiError ? err.message : 'Failed to reopen review');
+    } finally {
+      setWorkingMemoryId(null);
+    }
+  }
+
+  async function addMemorySignalNote(memoryId: number) {
+    const note = window.prompt('Add a review note:');
+    if (!note) return;
+    setWorkingMemoryId(memoryId);
+    try {
+      const detail = await admin.noteMemorySignalReview(memoryId, note);
+      setSelectedMemorySignal(detail);
+      setReviewQueue((prev) => {
+        const next = prev.filter((row) => row.memory_id !== detail.memory_id);
+        return [queueRowFromDetail(detail), ...next].slice(0, 10);
+      });
+      toast('success', 'Note added');
+    } catch (err) {
+      toast('error', err instanceof ApiError ? err.message : 'Failed to add note');
     } finally {
       setWorkingMemoryId(null);
     }
@@ -914,10 +993,38 @@ export function AdminContent() {
                             <span>negative {profile.negative_feedback_count}</span>
                             <span>feedback {profile.feedback_total}</span>
                           </div>
+                          {profile.suggested_target_format && (
+                            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted">
+                              <Badge variant="warn">suggest {profile.suggested_target_format}</Badge>
+                              <span>{profile.suggestion_reason || 'signal-based recommendation'}</span>
+                              {profile.suggestion_confidence != null && <span>confidence {profile.suggestion_confidence}</span>}
+                              <span>state {profile.suggestion_state}</span>
+                            </div>
+                          )}
                           <div className="mt-3 flex flex-wrap gap-2">
                             <Button size="sm" variant="secondary" onClick={() => openQueryProfile(profile.id)}>
                               Inspect
                             </Button>
+                            {profile.suggested_target_format && profile.suggestion_state !== 'accepted' && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                loading={workingProfileId === profile.id}
+                                onClick={() => acceptQueryProfileSuggestion(profile.id)}
+                              >
+                                Accept suggestion
+                              </Button>
+                            )}
+                            {profile.suggested_target_format && profile.suggestion_state !== 'rejected' && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                loading={workingProfileId === profile.id}
+                                onClick={() => rejectQueryProfileSuggestion(profile.id)}
+                              >
+                                Reject suggestion
+                              </Button>
+                            )}
                             <Button
                               size="sm"
                               variant="ghost"
@@ -1051,12 +1158,27 @@ export function AdminContent() {
                             <span>source {item.source}</span>
                             <span>feedback {item.feedback_total}</span>
                             <span>net {item.net_score}</span>
+                            <span>status {item.review_status}</span>
+                            <span>notes {item.notes_count}</span>
                           </div>
                           <div className="mt-3 flex flex-wrap gap-2">
                             <Button size="sm" variant="secondary" onClick={() => openMemorySignal(item.memory_id)}>
                               Inspect memory
                             </Button>
+                            {item.review_status !== 'resolved' ? (
+                              <Button size="sm" variant="ghost" loading={workingMemoryId === item.memory_id} onClick={() => resolveMemorySignal(item.memory_id)}>
+                                Resolve
+                              </Button>
+                            ) : (
+                              <Button size="sm" variant="ghost" loading={workingMemoryId === item.memory_id} onClick={() => reopenMemorySignal(item.memory_id)}>
+                                Reopen
+                              </Button>
+                            )}
+                            <Button size="sm" variant="ghost" loading={workingMemoryId === item.memory_id} onClick={() => addMemorySignalNote(item.memory_id)}>
+                              Add note
+                            </Button>
                           </div>
+                          {item.latest_note && <p className="mt-2 text-xs text-muted">{item.latest_note}</p>}
                         </div>
                       )) : (
                         <p className="text-sm text-muted">No memories currently need review.</p>
@@ -1249,7 +1371,22 @@ export function AdminContent() {
             </div>
             <div className="rounded-lg border border-line bg-bg-2/30 p-3">
               <p className="mb-2 text-sm font-medium text-ink">Diff Summary</p>
-              <pre className="overflow-auto text-xs text-ink-2 whitespace-pre-wrap">{JSON.stringify(selectedCompilationDiff || {}, null, 2)}</pre>
+              {selectedCompilationDiff ? (
+                <div className="space-y-2 text-xs text-ink-2">
+                  <p>Formats: {selectedCompilationDiff.other_target_format} -> {selectedCompilationDiff.base_target_format}</p>
+                  <p>Strategies: {selectedCompilationDiff.other_retrieval_strategy || '—'} -> {selectedCompilationDiff.base_retrieval_strategy || '—'}</p>
+                  <p>Served by: {selectedCompilationDiff.other_served_by || '—'} -> {selectedCompilationDiff.base_served_by || '—'}</p>
+                  <p>Items: {selectedCompilationDiff.other_item_count} -> {selectedCompilationDiff.base_item_count}</p>
+                  <p>Added item ids: {selectedCompilationDiff.item_ids_added.join(', ') || 'none'}</p>
+                  <p>Removed item ids: {selectedCompilationDiff.item_ids_removed.join(', ') || 'none'}</p>
+                  <pre className="overflow-auto whitespace-pre-wrap">{JSON.stringify({
+                    before: selectedCompilationDiff.retrieval_plan_before,
+                    after: selectedCompilationDiff.retrieval_plan_after,
+                  }, null, 2)}</pre>
+                </div>
+              ) : (
+                <p className="text-xs text-muted">No comparison loaded.</p>
+              )}
             </div>
           </div>
         )}
@@ -1268,8 +1405,31 @@ export function AdminContent() {
             <div className="text-sm text-ink-2">
               <p><span className="font-medium text-ink">Query:</span> {selectedProfile.sample_query}</p>
               <p><span className="font-medium text-ink">Counts:</span> +{selectedProfile.positive_feedback_count} / -{selectedProfile.negative_feedback_count}</p>
+              {selectedProfile.suggested_target_format && (
+                <p><span className="font-medium text-ink">Suggestion:</span> {selectedProfile.suggested_target_format} ({selectedProfile.suggestion_reason || 'signal-based'})</p>
+              )}
             </div>
             <div className="flex flex-wrap gap-2">
+              {selectedProfile.suggested_target_format && selectedProfile.suggestion_state !== 'accepted' && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  loading={workingProfileId === selectedProfile.id}
+                  onClick={() => acceptQueryProfileSuggestion(selectedProfile.id)}
+                >
+                  Accept suggestion
+                </Button>
+              )}
+              {selectedProfile.suggested_target_format && selectedProfile.suggestion_state !== 'rejected' && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  loading={workingProfileId === selectedProfile.id}
+                  onClick={() => rejectQueryProfileSuggestion(selectedProfile.id)}
+                >
+                  Reject suggestion
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="ghost"
@@ -1349,6 +1509,33 @@ export function AdminContent() {
               >
                 Mark review
               </Button>
+              {selectedMemorySignal.review_status !== 'resolved' ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  loading={workingMemoryId === selectedMemorySignal.memory_id}
+                  onClick={() => resolveMemorySignal(selectedMemorySignal.memory_id)}
+                >
+                  Resolve
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  loading={workingMemoryId === selectedMemorySignal.memory_id}
+                  onClick={() => reopenMemorySignal(selectedMemorySignal.memory_id)}
+                >
+                  Reopen
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant="ghost"
+                loading={workingMemoryId === selectedMemorySignal.memory_id}
+                onClick={() => addMemorySignalNote(selectedMemorySignal.memory_id)}
+              >
+                Add note
+              </Button>
               <Button
                 size="sm"
                 variant="ghost"
@@ -1361,6 +1548,10 @@ export function AdminContent() {
             <div className="rounded-lg border border-line bg-bg-2/30 p-3">
               <p className="mb-2 text-sm font-medium text-ink">Content</p>
               <pre className="max-h-72 overflow-auto text-xs text-ink-2 whitespace-pre-wrap">{selectedMemorySignal.content}</pre>
+            </div>
+            <div className="rounded-lg border border-line bg-bg-2/30 p-3">
+              <p className="mb-2 text-sm font-medium text-ink">Review Notes</p>
+              <pre className="max-h-72 overflow-auto text-xs text-ink-2 whitespace-pre-wrap">{JSON.stringify(selectedMemorySignal.review_notes || [], null, 2)}</pre>
             </div>
           </div>
         )}

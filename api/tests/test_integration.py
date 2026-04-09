@@ -2579,6 +2579,130 @@ async def test_admin_recall_compilation_history_and_diff(
     assert diff_body["base_compilation_id"] == second_compilation_id
     assert diff_body["other_compilation_id"] == first_compilation_id
     assert diff_body["target_format_changed"] is True
+    assert diff_body["base_target_format"] == "toonx"
+    assert diff_body["other_target_format"] == "text"
+    assert "retrieval_plan_before" in diff_body
+    assert "retrieval_plan_after" in diff_body
+
+
+async def test_admin_query_profile_suggestion_accept_and_reject(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    admin_headers = await _login_org_member(
+        client,
+        db_session,
+        app_ctx,
+        role="owner",
+        is_admin=True,
+    )
+    create_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=admin_headers,
+        json={"type": "decision", "content": "Suggestion acceptance memory"},
+    )
+    assert create_resp.status_code == 201
+    memory_id = create_resp.json()["id"]
+
+    recall_resp = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=admin_headers,
+        params={"query": "suggestion acceptance", "limit": 5, "format": "toonx"},
+    )
+    assert recall_resp.status_code == 200
+    compilation_id = recall_resp.json()["compilation_id"]
+    assert compilation_id is not None
+
+    feedback_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/recall/feedback",
+        headers=admin_headers,
+        json={"compilation_id": compilation_id, "label": "helpful", "entity_id": memory_id},
+    )
+    assert feedback_resp.status_code == 201
+    profile_id = feedback_resp.json()["query_profile_id"]
+    assert profile_id is not None
+
+    detail_resp = await client.get(f"/admin/recall/query-profiles/{profile_id}", headers=admin_headers)
+    assert detail_resp.status_code == 200
+    detail_body = detail_resp.json()
+    assert detail_body["suggested_target_format"] in {"toonx", "text", "toon"}
+
+    accept_resp = await client.post(
+        f"/admin/recall/query-profiles/{profile_id}/accept-suggestion",
+        headers=admin_headers,
+    )
+    assert accept_resp.status_code == 200
+    assert accept_resp.json()["suggestion_state"] == "accepted"
+
+    reject_resp = await client.post(
+        f"/admin/recall/query-profiles/{profile_id}/reject-suggestion",
+        headers=admin_headers,
+    )
+    assert reject_resp.status_code == 200
+    assert reject_resp.json()["auto_apply_disabled"] is True
+    assert reject_resp.json()["suggestion_state"] == "rejected"
+
+
+async def test_admin_recall_review_queue_resolve_reopen_and_note(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    admin_headers = await _login_org_member(
+        client,
+        db_session,
+        app_ctx,
+        role="owner",
+        is_admin=True,
+    )
+    create_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=admin_headers,
+        json={"type": "decision", "content": "Resolve reopen queue target"},
+    )
+    assert create_resp.status_code == 201
+    memory_id = create_resp.json()["id"]
+
+    mark_resp = await client.post(
+        f"/admin/recall/memory-signals/{memory_id}/mark-review",
+        headers=admin_headers,
+    )
+    assert mark_resp.status_code == 200
+
+    note_resp = await client.post(
+        f"/admin/recall/memory-signals/{memory_id}/note",
+        headers=admin_headers,
+        json={"note": "Investigating this memory"},
+    )
+    assert note_resp.status_code == 200
+    assert len(note_resp.json()["review_notes"]) >= 1
+
+    resolve_resp = await client.post(
+        f"/admin/recall/memory-signals/{memory_id}/resolve",
+        headers=admin_headers,
+        json={"note": "Resolved after review"},
+    )
+    assert resolve_resp.status_code == 200
+    assert resolve_resp.json()["review_status"] == "resolved"
+
+    queue_resp = await client.get(
+        "/admin/recall/review-queue",
+        headers=admin_headers,
+        params={"project_id": app_ctx.project_id, "include_resolved": "true"},
+    )
+    assert queue_resp.status_code == 200
+    target = next(row for row in queue_resp.json() if row["memory_id"] == memory_id)
+    assert target["review_status"] == "resolved"
+    assert target["notes_count"] >= 1
+
+    reopen_resp = await client.post(
+        f"/admin/recall/memory-signals/{memory_id}/reopen",
+        headers=admin_headers,
+        json={"note": "Needs another pass"},
+    )
+    assert reopen_resp.status_code == 200
+    assert reopen_resp.json()["review_status"] == "open"
 
 
 async def test_admin_recall_feedback_filters_query_profiles_and_eval_metrics(

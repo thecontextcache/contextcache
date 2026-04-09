@@ -662,13 +662,25 @@ export interface AdminContextCompilationDiff {
   base_compilation_id: number;
   other_compilation_id: number;
   query_text: string;
+  base_target_format: string;
+  other_target_format: string;
+  base_retrieval_strategy: string | null;
+  other_retrieval_strategy: string | null;
+  base_served_by: string | null;
+  other_served_by: string | null;
   target_format_changed: boolean;
   retrieval_strategy_changed: boolean;
   served_by_changed: boolean;
   bundle_changed: boolean;
   text_changed: boolean;
+  base_bundle_id: string | null;
+  other_bundle_id: string | null;
+  base_item_count: number;
+  other_item_count: number;
   item_ids_added: number[];
   item_ids_removed: number[];
+  retrieval_plan_before: Record<string, unknown>;
+  retrieval_plan_after: Record<string, unknown>;
   feedback_delta: number;
 }
 
@@ -713,6 +725,10 @@ export interface AdminQueryProfile {
   negative_feedback_count: number;
   auto_apply_enabled: boolean;
   auto_apply_disabled: boolean;
+  suggested_target_format: string | null;
+  suggestion_reason: string | null;
+  suggestion_confidence: number | null;
+  suggestion_state: string;
   last_compilation_id: number | null;
   last_queried_at: string | null;
   last_feedback_at: string | null;
@@ -746,6 +762,8 @@ export interface AdminRecallMemorySignalDetail extends AdminRecallMemorySignal {
   metadata: Record<string, unknown>;
   marked_for_review: boolean;
   archived_from_recall_admin: boolean;
+  review_status: string;
+  review_notes: Array<Record<string, unknown>>;
   created_at: string;
   updated_at: string | null;
 }
@@ -758,10 +776,13 @@ export interface AdminRecallReviewQueueItem {
   source: string;
   feedback_total: number;
   net_score: number;
+  review_status: string;
   marked_for_review: boolean;
   archived_from_recall_admin: boolean;
   review_marked_at: string | null;
   archived_at: string | null;
+  latest_note: string | null;
+  notes_count: number;
   last_feedback_at: string | null;
   created_at: string;
   updated_at: string | null;
@@ -898,6 +919,16 @@ export const admin = {
       body: JSON.stringify({ preferred_target_format: preferredTargetFormat }),
     }),
 
+  acceptQueryProfileSuggestion: (profileId: number) =>
+    request<AdminQueryProfile>(`/api/admin/recall/query-profiles/${profileId}/accept-suggestion`, {
+      method: 'POST',
+    }),
+
+  rejectQueryProfileSuggestion: (profileId: number) =>
+    request<AdminQueryProfile>(`/api/admin/recall/query-profiles/${profileId}/reject-suggestion`, {
+      method: 'POST',
+    }),
+
   disableQueryProfileAutoApply: (profileId: number, disabled = true) =>
     request<AdminQueryProfile>(`/api/admin/recall/query-profiles/${profileId}/disable-auto-apply?disabled=${String(disabled)}`, {
       method: 'POST',
@@ -916,11 +947,12 @@ export const admin = {
     return request<AdminRecallMemorySignal[]>(`/api/admin/recall/memory-signals${suffix}`);
   },
 
-  recallReviewQueue: (limit?: number, projectId?: number, includeArchived = true) => {
+  recallReviewQueue: (limit?: number, projectId?: number, includeArchived = true, includeResolved = false) => {
     const query = new URLSearchParams();
     if (limit != null) query.set('limit', String(limit));
     if (projectId != null) query.set('project_id', String(projectId));
     query.set('include_archived', String(includeArchived));
+    query.set('include_resolved', String(includeResolved));
     return request<AdminRecallReviewQueueItem[]>(`/api/admin/recall/review-queue?${query.toString()}`);
   },
 
@@ -935,6 +967,24 @@ export const admin = {
   archiveMemorySignal: (memoryId: number) =>
     request<AdminRecallMemorySignalDetail>(`/api/admin/recall/memory-signals/${memoryId}/archive`, {
       method: 'POST',
+    }),
+
+  resolveMemorySignalReview: (memoryId: number, note?: string) =>
+    request<AdminRecallMemorySignalDetail>(`/api/admin/recall/memory-signals/${memoryId}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note ?? null }),
+    }),
+
+  reopenMemorySignalReview: (memoryId: number, note?: string) =>
+    request<AdminRecallMemorySignalDetail>(`/api/admin/recall/memory-signals/${memoryId}/reopen`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note ?? null }),
+    }),
+
+  noteMemorySignalReview: (memoryId: number, note: string) =>
+    request<AdminRecallMemorySignalDetail>(`/api/admin/recall/memory-signals/${memoryId}/note`, {
+      method: 'POST',
+      body: JSON.stringify({ note }),
     }),
 
   cagCacheStats: () => request<CagCacheStats>('/api/admin/cag/cache-stats'),
