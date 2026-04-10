@@ -415,7 +415,7 @@ def refresh_recall_hedge_p95_cache(
                         COUNT(*) AS sample_count
                     FROM recall_timings
                     WHERE cag_duration_ms IS NOT NULL
-                      AND created_at >= (NOW() - (:lookback_hours || ' hours')::interval)
+                      AND created_at >= (NOW() - (:lookback_hours * INTERVAL '1 hour'))
                     GROUP BY org_id
                     """
                 ),
