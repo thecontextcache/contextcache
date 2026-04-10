@@ -349,14 +349,14 @@ async def test_recall_returns_503_when_private_engine_raises(
     app_ctx: Ctx,
     monkeypatch,
 ) -> None:
-    from app.analyzer import algorithm as analyzer_algorithm
+    from app.analyzer import _algorithm_fallback as analyzer_fallback
 
-    analyzer_algorithm.reset_private_engine_runtime_state()
+    analyzer_fallback.reset_private_engine_runtime_state()
 
     async def _boom(*args, **kwargs):
         raise ValueError("ambiguous vector truthiness")
 
-    monkeypatch.setattr("app.analyzer.algorithm._private_run_hybrid_rag_recall", _boom)
+    monkeypatch.setattr("app.analyzer._algorithm_fallback._private_run_hybrid_rag_recall", _boom)
 
     try:
         owner_headers = await _login_org_member(client, db_session, app_ctx, role="owner")
@@ -391,7 +391,7 @@ async def test_recall_returns_503_when_private_engine_raises(
         assert status_body["circuit_open"] is True
         assert status_body["last_error_type"] == "ValueError"
     finally:
-        analyzer_algorithm.reset_private_engine_runtime_state()
+        analyzer_fallback.reset_private_engine_runtime_state()
 
 
 async def test_local_recall_fallback_caps_candidate_set(
@@ -400,11 +400,11 @@ async def test_local_recall_fallback_caps_candidate_set(
     app_ctx: Ctx,
     monkeypatch,
 ) -> None:
-    from app.analyzer import algorithm as analyzer_algorithm
+    from app.analyzer import _algorithm_fallback as analyzer_fallback
 
-    analyzer_algorithm.reset_private_engine_runtime_state()
-    monkeypatch.setattr("app.analyzer.algorithm._private_run_hybrid_rag_recall", None)
-    monkeypatch.setattr("app.analyzer.algorithm.LOCAL_RECALL_FALLBACK_MAX_MEMORIES", 5)
+    analyzer_fallback.reset_private_engine_runtime_state()
+    monkeypatch.setattr("app.analyzer._algorithm_fallback._private_run_hybrid_rag_recall", None)
+    monkeypatch.setattr("app.analyzer._algorithm_fallback.LOCAL_RECALL_FALLBACK_MAX_MEMORIES", 5)
 
     owner_headers = await _login_org_member(client, db_session, app_ctx, role="owner")
     for idx in range(8):
