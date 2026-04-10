@@ -2705,6 +2705,63 @@ async def test_admin_recall_review_queue_resolve_reopen_and_note(
     assert reopen_resp.json()["review_status"] == "open"
 
 
+async def test_admin_recall_review_queue_filters_and_search(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    admin_headers = await _login_org_member(
+        client,
+        db_session,
+        app_ctx,
+        role="owner",
+        is_admin=True,
+    )
+    open_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=admin_headers,
+        json={"type": "decision", "title": "Alpha queue item", "content": "Queue filter open target"},
+    )
+    assert open_resp.status_code == 201
+    open_memory_id = open_resp.json()["id"]
+
+    resolved_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=admin_headers,
+        json={"type": "decision", "title": "Beta queue item", "content": "Queue filter resolved target"},
+    )
+    assert resolved_resp.status_code == 201
+    resolved_memory_id = resolved_resp.json()["id"]
+
+    for memory_id in [open_memory_id, resolved_memory_id]:
+        mark_resp = await client.post(
+            f"/admin/recall/memory-signals/{memory_id}/mark-review",
+            headers=admin_headers,
+        )
+        assert mark_resp.status_code == 200
+
+    resolve_resp = await client.post(
+        f"/admin/recall/memory-signals/{resolved_memory_id}/resolve",
+        headers=admin_headers,
+        json={"note": "Resolved for queue filter"},
+    )
+    assert resolve_resp.status_code == 200
+
+    filtered_resp = await client.get(
+        "/admin/recall/review-queue",
+        headers=admin_headers,
+        params={
+            "search": "Beta",
+            "review_status": "resolved",
+            "include_resolved": "true",
+        },
+    )
+    assert filtered_resp.status_code == 200
+    body = filtered_resp.json()
+    assert [row["memory_id"] for row in body] == [resolved_memory_id]
+    assert body[0]["review_status"] == "resolved"
+
+
 async def test_admin_recall_feedback_filters_query_profiles_and_eval_metrics(
     client,
     db_session: AsyncSession,
@@ -2775,6 +2832,125 @@ async def test_admin_recall_feedback_filters_query_profiles_and_eval_metrics(
     assert body["query_profile_count"] >= 1
     assert body["feedback_label_counts"]["helpful"] >= 1
     assert body["preferred_format_counts"]["toonx"] >= 1
+
+
+async def test_admin_query_profile_detail_includes_recent_admin_actions(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    admin_headers = await _login_org_member(
+        client,
+        db_session,
+        app_ctx,
+        role="owner",
+        is_admin=True,
+    )
+    create_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=admin_headers,
+        json={"type": "decision", "content": "Audit profile memory"},
+    )
+    assert create_resp.status_code == 201
+    memory_id = create_resp.json()["id"]
+
+    recall_resp = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=admin_headers,
+        params={"query": "audit profile", "limit": 5, "format": "toonx"},
+    )
+    assert recall_resp.status_code == 200
+    compilation_id = recall_resp.json()["compilation_id"]
+    assert compilation_id is not None
+
+    feedback_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/recall/feedback",
+        headers=admin_headers,
+        json={"compilation_id": compilation_id, "label": "helpful", "entity_id": memory_id},
+    )
+    assert feedback_resp.status_code == 201
+    profile_id = feedback_resp.json()["query_profile_id"]
+    assert profile_id is not None
+
+    set_pref_resp = await client.post(
+        f"/admin/recall/query-profiles/{profile_id}/preferred-format",
+        headers=admin_headers,
+        json={"preferred_target_format": "text"},
+    )
+    assert set_pref_resp.status_code == 200
+
+    reject_resp = await client.post(
+        f"/admin/recall/query-profiles/{profile_id}/reject-suggestion",
+        headers=admin_headers,
+    )
+    assert reject_resp.status_code == 200
+
+    detail_resp = await client.get(
+        f"/admin/recall/query-profiles/{profile_id}",
+        headers=admin_headers,
+    )
+    assert detail_resp.status_code == 200
+    actions = [row["action"] for row in detail_resp.json()["recent_admin_actions"]]
+    assert "admin.recall.query_profile.set_preferred_format" in actions
+    assert "admin.recall.query_profile.reject_suggestion" in actions
+
+
+async def test_admin_recall_compilation_export_endpoints(
+    client,
+    db_session: AsyncSession,
+    app_ctx: Ctx,
+) -> None:
+    admin_headers = await _login_org_member(
+        client,
+        db_session,
+        app_ctx,
+        role="owner",
+        is_admin=True,
+    )
+    create_resp = await client.post(
+        f"/projects/{app_ctx.project_id}/memories",
+        headers=admin_headers,
+        json={"type": "decision", "content": "Compilation export target"},
+    )
+    assert create_resp.status_code == 201
+
+    first_resp = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=admin_headers,
+        params={"query": "export compare", "limit": 5, "format": "text"},
+    )
+    assert first_resp.status_code == 200
+    first_compilation_id = first_resp.json()["compilation_id"]
+    assert first_compilation_id is not None
+
+    second_resp = await client.get(
+        f"/projects/{app_ctx.project_id}/recall",
+        headers=admin_headers,
+        params={"query": "export compare", "limit": 5, "format": "toonx"},
+    )
+    assert second_resp.status_code == 200
+    second_compilation_id = second_resp.json()["compilation_id"]
+    assert second_compilation_id is not None
+
+    export_detail_resp = await client.get(
+        f"/admin/recall/compilations/{second_compilation_id}/export",
+        headers=admin_headers,
+    )
+    assert export_detail_resp.status_code == 200
+    export_detail_body = export_detail_resp.json()
+    assert export_detail_body["export_kind"] == "context_compilation_detail"
+    assert export_detail_body["payload"]["id"] == second_compilation_id
+
+    export_diff_resp = await client.get(
+        f"/admin/recall/compilations/{second_compilation_id}/diff/export",
+        headers=admin_headers,
+        params={"other_id": first_compilation_id},
+    )
+    assert export_diff_resp.status_code == 200
+    export_diff_body = export_diff_resp.json()
+    assert export_diff_body["export_kind"] == "context_compilation_diff"
+    assert export_diff_body["payload"]["base_compilation_id"] == second_compilation_id
+    assert export_diff_body["payload"]["other_compilation_id"] == first_compilation_id
 
 
 async def test_admin_recall_memory_signals_aggregates_entity_feedback(

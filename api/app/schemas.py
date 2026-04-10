@@ -505,6 +505,12 @@ class AdminContextCompilationDiffOut(BaseModel):
     feedback_delta: int = 0
 
 
+class AdminExportPayloadOut(BaseModel):
+    export_kind: str
+    filename: str
+    payload: Dict[str, Any] = Field(default_factory=dict)
+
+
 class AdminCaptureFailureOut(BaseModel):
     id: int
     project_id: int | None = None
@@ -628,6 +634,7 @@ class AdminQueryProfileOut(BaseModel):
 
 class AdminQueryProfileDetailOut(AdminQueryProfileOut):
     recent_feedback: list[AdminRecallFeedbackOut] = Field(default_factory=list)
+    recent_admin_actions: list[AuditLogOut] = Field(default_factory=list)
 
 
 class AdminQueryProfilePreferenceIn(BaseModel):

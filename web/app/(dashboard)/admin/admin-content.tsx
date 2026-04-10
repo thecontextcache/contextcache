@@ -88,6 +88,12 @@ export function AdminContent() {
   const [reviewQueue, setReviewQueue] = useState<AdminRecallReviewQueueItem[]>([]);
   const [workingProfileId, setWorkingProfileId] = useState<number | null>(null);
   const [workingMemoryId, setWorkingMemoryId] = useState<number | null>(null);
+  const [workingCompilationId, setWorkingCompilationId] = useState<number | null>(null);
+  const [reviewSearch, setReviewSearch] = useState('');
+  const [reviewStatusFilter, setReviewStatusFilter] = useState<'all' | 'open' | 'resolved' | 'archived'>('all');
+  const [reviewNetDirection, setReviewNetDirection] = useState<'all' | 'positive' | 'negative' | 'neutral'>('all');
+  const [reviewIncludeArchived, setReviewIncludeArchived] = useState(true);
+  const [reviewIncludeResolved, setReviewIncludeResolved] = useState(false);
 
   // System / CAG
   const [cagStats, setCagStats] = useState<CagCacheStats | null>(null);
@@ -104,6 +110,61 @@ export function AdminContent() {
   useEffect(() => {
     loadTab(tab);
   }, [tab]);
+
+  useEffect(() => {
+    if (tab !== 'recall') return;
+    loadRecallPanel();
+  }, [tab, reviewSearch, reviewStatusFilter, reviewNetDirection, reviewIncludeArchived, reviewIncludeResolved]);
+
+  async function loadRecallPanel() {
+    const [logs, evalData, feedback, profiles, memorySignalRows, reviewQueueRows] = await Promise.all([
+      admin.recallLogs(),
+      admin.recallEval(),
+      admin.recallFeedback(12),
+      admin.queryProfiles(12, 0, undefined, true),
+      admin.recallMemorySignals(10),
+      admin.recallReviewQueue({
+        limit: 20,
+        includeArchived: reviewIncludeArchived,
+        includeResolved: reviewIncludeResolved,
+        reviewStatus: reviewStatusFilter === 'all' ? undefined : reviewStatusFilter,
+        search: reviewSearch.trim() || undefined,
+        netDirection: reviewNetDirection === 'all' ? undefined : reviewNetDirection,
+      }),
+    ]);
+    setRecallLogs(logs);
+    setRecallEval(evalData);
+    setRecallFeedback(feedback);
+    setQueryProfiles(profiles);
+    setMemorySignals(memorySignalRows);
+    setReviewQueue(reviewQueueRows);
+  }
+
+  async function refreshRecallSignals() {
+    const [memorySignalRows, reviewQueueRows] = await Promise.all([
+      admin.recallMemorySignals(10),
+      admin.recallReviewQueue({
+        limit: 20,
+        includeArchived: reviewIncludeArchived,
+        includeResolved: reviewIncludeResolved,
+        reviewStatus: reviewStatusFilter === 'all' ? undefined : reviewStatusFilter,
+        search: reviewSearch.trim() || undefined,
+        netDirection: reviewNetDirection === 'all' ? undefined : reviewNetDirection,
+      }),
+    ]);
+    setMemorySignals(memorySignalRows);
+    setReviewQueue(reviewQueueRows);
+  }
+
+  function downloadJson(filename: string, payload: unknown) {
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
 
   async function loadTab(t: Tab) {
     setLoading(true);
@@ -135,20 +196,7 @@ export function AdminContent() {
           break;
         }
         case 'recall': {
-          const [logs, evalData, feedback, profiles, memorySignalRows, reviewQueueRows] = await Promise.all([
-            admin.recallLogs(),
-            admin.recallEval(),
-            admin.recallFeedback(12),
-            admin.queryProfiles(12, 0, undefined, true),
-            admin.recallMemorySignals(10),
-            admin.recallReviewQueue(10),
-          ]);
-          setRecallLogs(logs);
-          setRecallEval(evalData);
-          setRecallFeedback(feedback);
-          setQueryProfiles(profiles);
-          setMemorySignals(memorySignalRows);
-          setReviewQueue(reviewQueueRows);
+          await loadRecallPanel();
           break;
         }
         case 'system': {
@@ -408,10 +456,7 @@ export function AdminContent() {
       const detail = await admin.markMemorySignalForReview(memoryId);
       setSelectedMemorySignal(detail);
       setMemorySignals((prev) => prev.map((row) => (row.memory_id === detail.memory_id ? { ...row, ...detail } : row)));
-      setReviewQueue((prev) => {
-        const next = prev.filter((row) => row.memory_id !== detail.memory_id);
-        return [queueRowFromDetail(detail), ...next].slice(0, 10);
-      });
+      await refreshRecallSignals();
       toast('success', 'Memory marked for review');
     } catch (err) {
       toast('error', err instanceof ApiError ? err.message : 'Failed to mark memory for review');
@@ -426,10 +471,7 @@ export function AdminContent() {
       const detail = await admin.archiveMemorySignal(memoryId);
       setSelectedMemorySignal(detail);
       setMemorySignals((prev) => prev.map((row) => (row.memory_id === detail.memory_id ? { ...row, ...detail } : row)));
-      setReviewQueue((prev) => {
-        const next = prev.filter((row) => row.memory_id !== detail.memory_id);
-        return [queueRowFromDetail(detail), ...next].slice(0, 10);
-      });
+      await refreshRecallSignals();
       toast('success', 'Memory archived from recall admin');
     } catch (err) {
       toast('error', err instanceof ApiError ? err.message : 'Failed to archive memory');
@@ -444,10 +486,7 @@ export function AdminContent() {
     try {
       const detail = await admin.resolveMemorySignalReview(memoryId, note);
       setSelectedMemorySignal(detail);
-      setReviewQueue((prev) => {
-        const next = prev.filter((row) => row.memory_id !== detail.memory_id);
-        return [queueRowFromDetail(detail), ...next].slice(0, 10);
-      });
+      await refreshRecallSignals();
       toast('success', 'Review resolved');
     } catch (err) {
       toast('error', err instanceof ApiError ? err.message : 'Failed to resolve review');
@@ -462,10 +501,7 @@ export function AdminContent() {
     try {
       const detail = await admin.reopenMemorySignalReview(memoryId, note);
       setSelectedMemorySignal(detail);
-      setReviewQueue((prev) => {
-        const next = prev.filter((row) => row.memory_id !== detail.memory_id);
-        return [queueRowFromDetail(detail), ...next].slice(0, 10);
-      });
+      await refreshRecallSignals();
       toast('success', 'Review reopened');
     } catch (err) {
       toast('error', err instanceof ApiError ? err.message : 'Failed to reopen review');
@@ -481,15 +517,38 @@ export function AdminContent() {
     try {
       const detail = await admin.noteMemorySignalReview(memoryId, note);
       setSelectedMemorySignal(detail);
-      setReviewQueue((prev) => {
-        const next = prev.filter((row) => row.memory_id !== detail.memory_id);
-        return [queueRowFromDetail(detail), ...next].slice(0, 10);
-      });
+      await refreshRecallSignals();
       toast('success', 'Note added');
     } catch (err) {
       toast('error', err instanceof ApiError ? err.message : 'Failed to add note');
     } finally {
       setWorkingMemoryId(null);
+    }
+  }
+
+  async function exportCompilationDetail(compilationId: number) {
+    setWorkingCompilationId(compilationId);
+    try {
+      const exported = await admin.exportCompilationDetail(compilationId);
+      downloadJson(exported.filename, exported.payload);
+      toast('success', 'Compilation detail exported');
+    } catch (err) {
+      toast('error', err instanceof ApiError ? err.message : 'Failed to export compilation detail');
+    } finally {
+      setWorkingCompilationId(null);
+    }
+  }
+
+  async function exportCompilationDiff(compilationId: number, otherId?: number) {
+    setWorkingCompilationId(compilationId);
+    try {
+      const exported = await admin.exportCompilationDiff(compilationId, otherId);
+      downloadJson(exported.filename, exported.payload);
+      toast('success', 'Compilation diff exported');
+    } catch (err) {
+      toast('error', err instanceof ApiError ? err.message : 'Failed to export compilation diff');
+    } finally {
+      setWorkingCompilationId(null);
     }
   }
 
@@ -1145,6 +1204,49 @@ export function AdminContent() {
                   <Card>
                     <h2 className="text-lg font-semibold">Review Queue</h2>
                     <p className="mt-1 text-sm text-muted">Memories flagged for review or archived from recall workflows.</p>
+                    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                      <Input
+                        value={reviewSearch}
+                        onChange={(e) => setReviewSearch(e.target.value)}
+                        placeholder="Search title, content, source"
+                      />
+                      <select
+                        className="rounded-md border border-line bg-panel px-3 py-2 text-sm text-ink"
+                        value={reviewStatusFilter}
+                        onChange={(e) => setReviewStatusFilter(e.target.value as 'all' | 'open' | 'resolved' | 'archived')}
+                      >
+                        <option value="all">All statuses</option>
+                        <option value="open">Open</option>
+                        <option value="resolved">Resolved</option>
+                        <option value="archived">Archived</option>
+                      </select>
+                      <select
+                        className="rounded-md border border-line bg-panel px-3 py-2 text-sm text-ink"
+                        value={reviewNetDirection}
+                        onChange={(e) => setReviewNetDirection(e.target.value as 'all' | 'positive' | 'negative' | 'neutral')}
+                      >
+                        <option value="all">All net scores</option>
+                        <option value="negative">Negative</option>
+                        <option value="neutral">Neutral</option>
+                        <option value="positive">Positive</option>
+                      </select>
+                      <label className="flex items-center gap-2 rounded-md border border-line bg-panel px-3 py-2 text-sm text-ink">
+                        <input
+                          type="checkbox"
+                          checked={reviewIncludeArchived}
+                          onChange={(e) => setReviewIncludeArchived(e.target.checked)}
+                        />
+                        Include archived
+                      </label>
+                      <label className="flex items-center gap-2 rounded-md border border-line bg-panel px-3 py-2 text-sm text-ink">
+                        <input
+                          type="checkbox"
+                          checked={reviewIncludeResolved}
+                          onChange={(e) => setReviewIncludeResolved(e.target.checked)}
+                        />
+                        Include resolved
+                      </label>
+                    </div>
                     <div className="mt-4 space-y-3">
                       {reviewQueue.length > 0 ? reviewQueue.map((item) => (
                         <div key={item.memory_id} className="rounded-lg border border-line/70 bg-bg-2/30 p-3">
@@ -1345,11 +1447,21 @@ export function AdminContent() {
             <div className="rounded-lg border border-line bg-bg-2/30 p-3">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <p className="text-sm font-medium text-ink">History</p>
-                {selectedCompilationHistory.length > 1 && (
-                  <Button size="sm" variant="ghost" onClick={() => compareCompilation(selectedCompilation.id, selectedCompilationHistory[1].id)}>
-                    Compare to previous
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    loading={workingCompilationId === selectedCompilation.id}
+                    onClick={() => exportCompilationDetail(selectedCompilation.id)}
+                  >
+                    Export detail JSON
                   </Button>
-                )}
+                  {selectedCompilationHistory.length > 1 && (
+                    <Button size="sm" variant="ghost" onClick={() => compareCompilation(selectedCompilation.id, selectedCompilationHistory[1].id)}>
+                      Compare to previous
+                    </Button>
+                  )}
+                </div>
               </div>
               <div className="space-y-2">
                 {selectedCompilationHistory.length > 0 ? selectedCompilationHistory.map((entry) => (
@@ -1370,7 +1482,19 @@ export function AdminContent() {
               </div>
             </div>
             <div className="rounded-lg border border-line bg-bg-2/30 p-3">
-              <p className="mb-2 text-sm font-medium text-ink">Diff Summary</p>
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-sm font-medium text-ink">Diff Summary</p>
+                {selectedCompilationDiff && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    loading={workingCompilationId === selectedCompilation.id}
+                    onClick={() => exportCompilationDiff(selectedCompilation.id, selectedCompilationDiff.other_compilation_id)}
+                  >
+                    Export diff JSON
+                  </Button>
+                )}
+              </div>
               {selectedCompilationDiff ? (
                 <div className="space-y-2 text-xs text-ink-2">
                   <p>Formats: {selectedCompilationDiff.other_target_format} -> {selectedCompilationDiff.base_target_format}</p>
@@ -1482,6 +1606,25 @@ export function AdminContent() {
             <div className="rounded-lg border border-line bg-bg-2/30 p-3">
               <p className="mb-2 text-sm font-medium text-ink">Recent Feedback</p>
               <pre className="overflow-auto text-xs text-ink-2 whitespace-pre-wrap">{JSON.stringify(selectedProfile.recent_feedback || [], null, 2)}</pre>
+            </div>
+            <div className="rounded-lg border border-line bg-bg-2/30 p-3">
+              <p className="mb-2 text-sm font-medium text-ink">Recent Admin Actions</p>
+              {selectedProfile.recent_admin_actions?.length ? (
+                <div className="space-y-2 text-xs text-ink-2">
+                  {selectedProfile.recent_admin_actions.map((entry) => (
+                    <div key={entry.id} className="rounded border border-line/70 bg-panel/60 p-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="muted">{entry.action}</Badge>
+                        <span>{new Date(entry.created_at).toLocaleString()}</span>
+                        <span>{String(entry.metadata?.actor_email || entry.actor_user_id || 'system')}</span>
+                      </div>
+                      <pre className="mt-2 overflow-auto whitespace-pre-wrap">{JSON.stringify(entry.metadata || {}, null, 2)}</pre>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted">No admin actions recorded yet.</p>
+              )}
             </div>
           </div>
         )}

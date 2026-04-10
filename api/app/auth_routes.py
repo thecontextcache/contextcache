@@ -5,7 +5,8 @@ import logging
 import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from sqlalchemy import delete, func, select
+from fastapi.encoders import jsonable_encoder
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from urllib.parse import urlparse
 
@@ -55,6 +56,7 @@ from .rate_limit import check_request_link_limits, check_verify_limits
 from .schemas import (
     AdminContextCompilationDiffOut,
     AdminContextCompilationDetailOut,
+    AdminExportPayloadOut,
     AdminContextCompilationHistoryEntryOut,
     AdminContextCompilationItemOut,
     AdminContextCompilationOut,
@@ -80,6 +82,7 @@ from .schemas import (
     AdminUserOut,
     AdminUserStatsOut,
     AdminWaitlistOut,
+    AuditLogOut,
     AuthMeOut,
     AuthRequestLinkIn,
     AuthRequestLinkOut,
@@ -223,6 +226,43 @@ def _feedback_out(row: RetrievalFeedback) -> AdminRecallFeedbackOut:
         metadata=row.metadata_json or {},
         created_at=row.created_at,
     )
+
+
+def _audit_log_out(row: AuditLog) -> AuditLogOut:
+    return AuditLogOut(
+        id=row.id,
+        org_id=row.org_id,
+        actor_user_id=row.actor_user_id,
+        api_key_prefix=row.api_key_prefix,
+        action=row.action,
+        entity_type=row.entity_type,
+        entity_id=row.entity_id,
+        metadata=row.metadata_json or {},
+        created_at=row.created_at,
+    )
+
+
+async def _load_admin_entity_audit(
+    db: AsyncSession,
+    *,
+    org_id: int,
+    entity_type: str,
+    entity_id: int,
+    limit: int = 20,
+) -> list[AuditLogOut]:
+    rows = (
+        await db.execute(
+            select(AuditLog)
+            .where(
+                AuditLog.org_id == org_id,
+                AuditLog.entity_type == entity_type,
+                AuditLog.entity_id == entity_id,
+            )
+            .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return [_audit_log_out(row) for row in rows]
 
 
 def _memory_feedback_bucket() -> dict[str, int | datetime | None]:
@@ -1739,6 +1779,64 @@ async def admin_recall_compilation_diff(
     )
 
 
+@router.get("/admin/recall/compilations/{compilation_id}/export", response_model=AdminExportPayloadOut)
+async def admin_export_compilation_detail(
+    compilation_id: int,
+    request: Request,
+    feedback_limit: int = Query(default=20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+) -> AdminExportPayloadOut:
+    detail = await admin_recall_compilation_detail(
+        compilation_id=compilation_id,
+        request=request,
+        feedback_limit=feedback_limit,
+        db=db,
+    )
+    await _write_admin_audit(
+        db,
+        request,
+        action="admin.recall.compilation.export",
+        entity_type="context_compilation",
+        entity_id=compilation_id,
+        metadata={"export_kind": "detail", "feedback_limit": feedback_limit},
+    )
+    await db.commit()
+    return AdminExportPayloadOut(
+        export_kind="context_compilation_detail",
+        filename=f"context-compilation-{compilation_id}.json",
+        payload=jsonable_encoder(detail),
+    )
+
+
+@router.get("/admin/recall/compilations/{compilation_id}/diff/export", response_model=AdminExportPayloadOut)
+async def admin_export_compilation_diff(
+    compilation_id: int,
+    request: Request,
+    other_id: int | None = Query(default=None, ge=1),
+    db: AsyncSession = Depends(get_db),
+) -> AdminExportPayloadOut:
+    diff = await admin_recall_compilation_diff(
+        compilation_id=compilation_id,
+        request=request,
+        other_id=other_id,
+        db=db,
+    )
+    await _write_admin_audit(
+        db,
+        request,
+        action="admin.recall.compilation_diff.export",
+        entity_type="context_compilation",
+        entity_id=compilation_id,
+        metadata={"export_kind": "diff", "other_id": diff.other_compilation_id},
+    )
+    await db.commit()
+    return AdminExportPayloadOut(
+        export_kind="context_compilation_diff",
+        filename=f"context-compilation-diff-{compilation_id}-vs-{diff.other_compilation_id}.json",
+        payload=jsonable_encoder(diff),
+    )
+
+
 @router.get("/admin/recall/feedback", response_model=list[AdminRecallFeedbackOut])
 async def admin_recall_feedback(
     request: Request,
@@ -1898,6 +1996,9 @@ async def admin_recall_review_queue(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     project_id: int | None = Query(default=None, ge=1),
+    review_status: str | None = Query(default=None),
+    search: str | None = Query(default=None),
+    net_direction: str | None = Query(default=None),
     include_archived: bool = Query(default=True),
     include_resolved: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
@@ -1915,8 +2016,24 @@ async def admin_recall_review_queue(
     )
     if project_id is not None:
         stmt = stmt.where(Memory.project_id == project_id)
+    normalized_search = (search or "").strip()
+    if normalized_search:
+        pattern = f"%{normalized_search}%"
+        stmt = stmt.where(
+            or_(
+                Memory.title.ilike(pattern),
+                Memory.content.ilike(pattern),
+                Memory.source.ilike(pattern),
+            )
+        )
 
     memories = (await db.execute(stmt)).scalars().all()
+    normalized_status = (review_status or "").strip().lower()
+    if normalized_status and normalized_status not in {"open", "resolved", "archived"}:
+        raise HTTPException(status_code=422, detail="review_status must be one of: open, resolved, archived")
+    normalized_net = (net_direction or "").strip().lower()
+    if normalized_net and normalized_net not in {"positive", "negative", "neutral"}:
+        raise HTTPException(status_code=422, detail="net_direction must be one of: positive, negative, neutral")
     flagged: list[Memory] = []
     for memory in memories:
         review_status, review_notes, metadata = _memory_review_metadata(memory)
@@ -1928,14 +2045,26 @@ async def admin_recall_review_queue(
             continue
         if review_status == "resolved" and not include_resolved:
             continue
+        if normalized_status and review_status != normalized_status:
+            continue
         flagged.append(memory)
 
-    page = flagged[offset:offset + limit]
-    buckets = await _load_memory_feedback_buckets(db, org_id, [memory.id for memory in page])
-    rows: list[AdminRecallReviewQueueItemOut] = []
-    for memory in page:
+    buckets = await _load_memory_feedback_buckets(db, org_id, [memory.id for memory in flagged])
+    filtered: list[tuple[Memory, AdminRecallMemorySignalOut, str, list[dict[str, Any]], dict[str, Any]]] = []
+    for memory in flagged:
         signal = _memory_signal_from_bucket(memory, buckets.get(memory.id))
-        review_status, review_notes, metadata = _memory_review_metadata(memory)
+        if normalized_net == "positive" and signal.net_score <= 0:
+            continue
+        if normalized_net == "negative" and signal.net_score >= 0:
+            continue
+        if normalized_net == "neutral" and signal.net_score != 0:
+            continue
+        status, review_notes, metadata = _memory_review_metadata(memory)
+        filtered.append((memory, signal, status, review_notes, metadata))
+
+    page = filtered[offset:offset + limit]
+    rows: list[AdminRecallReviewQueueItemOut] = []
+    for memory, signal, review_status, review_notes, metadata in page:
         rows.append(
             AdminRecallReviewQueueItemOut(
                 memory_id=memory.id,
@@ -2475,6 +2604,13 @@ async def admin_recall_query_profile_detail(
             _feedback_out(row)
             for row in feedback_rows
         ],
+        recent_admin_actions=await _load_admin_entity_audit(
+            db,
+            org_id=org_id,
+            entity_type="query_profile",
+            entity_id=profile.id,
+            limit=20,
+        ),
     )
 
 
@@ -2501,6 +2637,14 @@ async def admin_set_query_profile_preferred_format(
         raise HTTPException(status_code=404, detail="Query profile not found")
 
     profile.preferred_target_format = _normalized_target_format(payload.preferred_target_format)
+    await _write_admin_audit(
+        db,
+        request,
+        action="admin.recall.query_profile.set_preferred_format",
+        entity_type="query_profile",
+        entity_id=profile.id,
+        metadata={"preferred_target_format": profile.preferred_target_format},
+    )
     await db.commit()
     await db.refresh(profile)
     return _query_profile_out(profile)
@@ -2532,6 +2676,14 @@ async def admin_accept_query_profile_suggestion(
         raise HTTPException(status_code=409, detail="No suggestion available")
     profile.preferred_target_format = suggested
     profile.auto_apply_disabled = False
+    await _write_admin_audit(
+        db,
+        request,
+        action="admin.recall.query_profile.accept_suggestion",
+        entity_type="query_profile",
+        entity_id=profile.id,
+        metadata={"accepted_target_format": suggested},
+    )
     await db.commit()
     await db.refresh(profile)
     return _query_profile_out(profile)
@@ -2559,6 +2711,14 @@ async def admin_reject_query_profile_suggestion(
         raise HTTPException(status_code=404, detail="Query profile not found")
 
     profile.auto_apply_disabled = True
+    await _write_admin_audit(
+        db,
+        request,
+        action="admin.recall.query_profile.reject_suggestion",
+        entity_type="query_profile",
+        entity_id=profile.id,
+        metadata={},
+    )
     await db.commit()
     await db.refresh(profile)
     return _query_profile_out(profile)
@@ -2587,6 +2747,14 @@ async def admin_disable_query_profile_auto_apply(
         raise HTTPException(status_code=404, detail="Query profile not found")
 
     profile.auto_apply_disabled = disabled
+    await _write_admin_audit(
+        db,
+        request,
+        action="admin.recall.query_profile.disable_auto_apply",
+        entity_type="query_profile",
+        entity_id=profile.id,
+        metadata={"disabled": disabled},
+    )
     await db.commit()
     await db.refresh(profile)
     return _query_profile_out(profile)
@@ -2620,6 +2788,14 @@ async def admin_reset_query_profile_feedback(
     profile.pinned_count = 0
     profile.last_feedback_at = None
     profile.preferred_target_format = None
+    await _write_admin_audit(
+        db,
+        request,
+        action="admin.recall.query_profile.reset_feedback",
+        entity_type="query_profile",
+        entity_id=profile.id,
+        metadata={},
+    )
     await db.commit()
     await db.refresh(profile)
     return _query_profile_out(profile)

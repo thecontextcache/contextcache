@@ -684,6 +684,12 @@ export interface AdminContextCompilationDiff {
   feedback_delta: number;
 }
 
+export interface AdminExportPayload {
+  export_kind: string;
+  filename: string;
+  payload: Record<string, unknown>;
+}
+
 export interface AdminRecallEval {
   lookback_days: number;
   total_queries: number;
@@ -738,6 +744,7 @@ export interface AdminQueryProfile {
 
 export interface AdminQueryProfileDetail extends AdminQueryProfile {
   recent_feedback: AdminRecallFeedback[];
+  recent_admin_actions: AuditLog[];
 }
 
 export interface AdminRecallMemorySignal {
@@ -884,6 +891,16 @@ export const admin = {
     return request<AdminContextCompilationDiff>(`/api/admin/recall/compilations/${compilationId}/diff${suffix}`);
   },
 
+  exportCompilationDetail: (compilationId: number, feedbackLimit = 20) =>
+    request<AdminExportPayload>(`/api/admin/recall/compilations/${compilationId}/export?feedback_limit=${String(feedbackLimit)}`),
+
+  exportCompilationDiff: (compilationId: number, otherId?: number) => {
+    const query = new URLSearchParams();
+    if (otherId != null) query.set('other_id', String(otherId));
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return request<AdminExportPayload>(`/api/admin/recall/compilations/${compilationId}/diff/export${suffix}`);
+  },
+
   recallEval: (lookbackDays = 7, projectId?: number) => {
     const query = new URLSearchParams({ lookback_days: String(lookbackDays) });
     if (projectId != null) query.set('project_id', String(projectId));
@@ -947,12 +964,23 @@ export const admin = {
     return request<AdminRecallMemorySignal[]>(`/api/admin/recall/memory-signals${suffix}`);
   },
 
-  recallReviewQueue: (limit?: number, projectId?: number, includeArchived = true, includeResolved = false) => {
+  recallReviewQueue: (params?: {
+    limit?: number;
+    projectId?: number;
+    includeArchived?: boolean;
+    includeResolved?: boolean;
+    reviewStatus?: string;
+    search?: string;
+    netDirection?: 'positive' | 'negative' | 'neutral';
+  }) => {
     const query = new URLSearchParams();
-    if (limit != null) query.set('limit', String(limit));
-    if (projectId != null) query.set('project_id', String(projectId));
-    query.set('include_archived', String(includeArchived));
-    query.set('include_resolved', String(includeResolved));
+    if (params?.limit != null) query.set('limit', String(params.limit));
+    if (params?.projectId != null) query.set('project_id', String(params.projectId));
+    if (params?.reviewStatus) query.set('review_status', params.reviewStatus);
+    if (params?.search) query.set('search', params.search);
+    if (params?.netDirection) query.set('net_direction', params.netDirection);
+    query.set('include_archived', String(params?.includeArchived ?? true));
+    query.set('include_resolved', String(params?.includeResolved ?? false));
     return request<AdminRecallReviewQueueItem[]>(`/api/admin/recall/review-queue?${query.toString()}`);
   },
 
