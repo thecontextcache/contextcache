@@ -61,6 +61,10 @@ require_file "api/app/analyzer/core.py"
 forbid_pattern_in_file '^\s*def\s+' "api/app/analyzer/core.py"
 forbid_pattern_in_file '^\s*class\s+' "api/app/analyzer/core.py"
 
+echo "[exposure-guard] Checking fallback boundaries..."
+require_file "api/app/analyzer/_algorithm_fallback.py"
+forbid_pattern_in_file "from contextcache_engine\\." "api/app/analyzer/_algorithm_fallback.py"
+
 echo "[exposure-guard] Checking public refinery surface..."
 require_file "api/app/worker/tasks.py"
 require_pattern_in_file "from contextcache_engine\\.refinery import refine_content_with_llm" "api/app/worker/tasks.py"

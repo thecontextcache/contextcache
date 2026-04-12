@@ -1,9 +1,8 @@
-"""ContextCache ranking algorithm adapter.
+"""Generic public-safe analyzer fallback.
 
-Production prefers the private ``contextcache-engine`` package. When that
-package is unavailable, or when it raises during recall, this module falls
-back to a deterministic local implementation that preserves the public API
-contract.
+This module preserves the public analyzer contract for local development and CI
+without embedding private engine implementation details in the public repo.
+The private engine boundary lives in ``app.analyzer.algorithm``.
 """
 
 from __future__ import annotations
@@ -26,7 +25,7 @@ from app.models import Memory
 logger = logging.getLogger(__name__)
 
 TOKEN_RE = re.compile(r"[a-z0-9_]{2,}", re.IGNORECASE)
-DEFAULT_EMBEDDING_DIMS = int(os.getenv("EMBEDDING_DIMS", "1536"))
+DEFAULT_EMBEDDING_DIMS = max(32, int(os.getenv("EMBEDDING_DIMS", "1536")))
 DEFAULT_HILBERT_SEED = int(os.getenv("HILBERT_SEED", "1337"))
 LOCAL_RECALL_FALLBACK_MAX_MEMORIES = max(
     1,
@@ -56,18 +55,7 @@ class HybridRecallConfig:
     hilbert_window: int = 5_000_000
 
 
-_private_build_vector_candidate_stmt = None
-_private_compute_embedding = None
-_private_compute_hilbert_index = None
-_private_fetch_memories_by_ids = None
-_private_merge_hybrid_scores = None
-_private_normalize_positive = None
-_private_recency_boost = None
 _private_run_hybrid_rag_recall = None
-_private_score_memories_local = None
-_private_token_overlap_score = None
-_private_tokenize = None
-_private_build_pack = None
 _private_engine_circuit_open_until: datetime | None = None
 _private_engine_last_error_at: datetime | None = None
 _private_engine_last_error_type: str | None = None
@@ -76,36 +64,55 @@ _private_engine_last_error_type: str | None = None
 class RecallEngineUnavailableError(RuntimeError):
     """Raised when a configured private recall engine is currently unavailable."""
 
-try:  # pragma: no cover - covered when the private engine is installed
-    from contextcache_engine.algorithm import (  # type: ignore[import-untyped]
-        _build_pack as _private_build_pack,
-        build_vector_candidate_stmt as _private_build_vector_candidate_stmt,
-        compute_embedding as _private_compute_embedding,
-        compute_hilbert_index as _private_compute_hilbert_index,
-        fetch_memories_by_ids as _private_fetch_memories_by_ids,
-        merge_hybrid_scores as _private_merge_hybrid_scores,
-        normalize_positive as _private_normalize_positive,
-        recency_boost as _private_recency_boost,
-        run_hybrid_rag_recall as _private_run_hybrid_rag_recall,
-        score_memories_local as _private_score_memories_local,
-        token_overlap_score as _private_token_overlap_score,
-        tokenize as _private_tokenize,
-    )
-except ModuleNotFoundError:  # pragma: no cover - exercised via integration paths
-    logger.warning(
-        "Private contextcache-engine package is unavailable; using local ranking fallback."
-    )
-except Exception:  # pragma: no cover - defensive import guard
-    logger.exception(
-        "Private contextcache-engine package failed to import; using local ranking fallback."
-    )
-
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _private_engine_circuit_is_open(now: datetime | None = None) -> bool:
+def _sequence_values(vector: Sequence[float] | None) -> list[float]:
+    if vector is None or isinstance(vector, (str, bytes, bytearray)):
+        return []
+    try:
+        return [float(value) for value in vector]
+    except TypeError:
+        return []
+
+
+def _memory_get(memory: Memory | Mapping[str, Any], key: str, default: Any = None) -> Any:
+    if isinstance(memory, Mapping):
+        return memory.get(key, default)
+    return getattr(memory, key, default)
+
+
+def _memory_id(memory: Memory | Mapping[str, Any]) -> int | None:
+    value = _memory_get(memory, "id")
+    return int(value) if value is not None else None
+
+
+def _memory_created_at(memory: Memory | Mapping[str, Any]) -> datetime | None:
+    value = _memory_get(memory, "created_at")
+    return value if isinstance(value, datetime) else None
+
+
+def _memory_text(memory: Memory | Mapping[str, Any]) -> str:
+    return " ".join(
+        part
+        for part in [
+            str(_memory_get(memory, "title", "") or ""),
+            str(_memory_get(memory, "content", "") or ""),
+        ]
+        if part
+    ).strip()
+
+
+def _memory_vector(memory: Memory | Mapping[str, Any]) -> Sequence[float] | None:
+    embedding = _memory_get(memory, "embedding_vector")
+    if embedding is not None:
+        return embedding
+    return _memory_get(memory, "search_vector")
+
+
+def _circuit_is_open(now: datetime | None = None) -> bool:
     now = now or _utc_now()
     return _private_engine_circuit_open_until is not None and now < _private_engine_circuit_open_until
 
@@ -131,15 +138,16 @@ def reset_private_engine_runtime_state() -> None:
 
 
 def get_private_engine_runtime_state() -> dict[str, Any]:
-    circuit_open = _private_engine_circuit_is_open()
-    if _private_run_hybrid_rag_recall is None:
+    configured = _private_run_hybrid_rag_recall is not None
+    circuit_open = _circuit_is_open()
+    if not configured:
         mode = "local_fallback_only"
     elif circuit_open:
         mode = "circuit_open"
     else:
         mode = "private_engine"
     return {
-        "configured": _private_run_hybrid_rag_recall is not None,
+        "configured": configured,
         "mode": mode,
         "circuit_open": circuit_open,
         "circuit_open_until": _private_engine_circuit_open_until,
@@ -150,69 +158,23 @@ def get_private_engine_runtime_state() -> dict[str, Any]:
     }
 
 
-def _sequence_values(vector: Sequence[float] | None) -> list[float]:
-    if vector is None:
-        return []
-    if isinstance(vector, (str, bytes, bytearray)):
-        return []
-    try:
-        return [float(value) for value in vector]
-    except TypeError:
-        return []
-
-
-def _memory_get(memory: Memory | Mapping[str, Any], key: str, default: Any = None) -> Any:
-    if isinstance(memory, Mapping):
-        return memory.get(key, default)
-    return getattr(memory, key, default)
-
-
-def _memory_text(memory: Memory | Mapping[str, Any]) -> str:
-    return " ".join(
-        part
-        for part in [
-            str(_memory_get(memory, "title", "") or ""),
-            str(_memory_get(memory, "content", "") or ""),
-        ]
-        if part
-    ).strip()
-
-
-def _memory_vector(memory: Memory | Mapping[str, Any]) -> Sequence[float] | None:
-    embedding = _memory_get(memory, "embedding_vector")
-    if embedding is not None:
-        return embedding
-    return _memory_get(memory, "search_vector")
-
-
-def _memory_created_at(memory: Memory | Mapping[str, Any]) -> datetime | None:
-    value = _memory_get(memory, "created_at")
-    return value if isinstance(value, datetime) else None
-
-
-def _memory_id(memory: Memory | Mapping[str, Any]) -> int | None:
-    value = _memory_get(memory, "id")
-    return int(value) if value is not None else None
-
-
-def _tokenize_local(text: str | None) -> list[str]:
+def tokenize(text: str | None) -> list[str]:
     if not text:
         return []
     return [match.group(0).lower() for match in TOKEN_RE.finditer(text)]
 
 
-def _token_overlap_score_local(query: str | Sequence[str], text: str | Sequence[str]) -> float:
-    query_tokens = query if not isinstance(query, str) else _tokenize_local(query)
-    text_tokens = text if not isinstance(text, str) else _tokenize_local(text)
+def token_overlap_score(query: str | Sequence[str], text: str | Sequence[str]) -> float:
+    query_tokens = query if not isinstance(query, str) else tokenize(query)
+    text_tokens = text if not isinstance(text, str) else tokenize(text)
     query_set = set(query_tokens)
     text_set = set(text_tokens)
     if not query_set or not text_set:
         return 0.0
-    overlap = len(query_set & text_set)
-    return overlap / max(len(query_set), 1)
+    return len(query_set & text_set) / max(len(query_set), 1)
 
 
-def _normalize_positive_local(values: Sequence[float]) -> list[float]:
+def normalize_positive(values: Sequence[float]) -> list[float]:
     if not values:
         return []
     max_value = max(values)
@@ -221,49 +183,43 @@ def _normalize_positive_local(values: Sequence[float]) -> list[float]:
     return [max(value, 0.0) / max_value for value in values]
 
 
-def _recency_boost_local(created_at: datetime | None, now: datetime | None = None) -> float:
+def recency_boost(created_at: datetime | None, now: datetime | None = None) -> float:
     if created_at is None:
         return 0.0
-    now = now or datetime.now(timezone.utc)
+    now = now or _utc_now()
     if created_at.tzinfo is None:
         created_at = created_at.replace(tzinfo=timezone.utc)
     age_hours = max((now - created_at).total_seconds() / 3600.0, 0.0)
     return math.exp(-age_hours / (24.0 * 14.0))
 
 
-def _merge_hybrid_scores_local(
+def merge_hybrid_scores(
     *,
     token_scores: Sequence[float],
     vector_scores: Sequence[float],
     recency_scores: Sequence[float],
     weights: HybridWeights,
 ) -> list[float]:
-    merged: list[float] = []
-    for token_score, vector_score, recency_score in zip(token_scores, vector_scores, recency_scores):
-        merged.append(
-            (weights.fts * token_score)
-            + (weights.vector * vector_score)
-            + (weights.recency * recency_score)
-        )
-    return merged
+    return [
+        (weights.fts * token_score)
+        + (weights.vector * vector_score)
+        + (weights.recency * recency_score)
+        for token_score, vector_score, recency_score in zip(token_scores, vector_scores, recency_scores)
+    ]
 
 
-def _embedding_dimensions() -> int:
-    return max(DEFAULT_EMBEDDING_DIMS, 32)
-
-
-def _compute_embedding_local(text: str, *args: Any, **kwargs: Any) -> list[float]:
-    dims = _embedding_dimensions()
+def compute_embedding(text: str, *args: Any, **kwargs: Any) -> list[float]:
+    del args, kwargs
     payload = (text or "").encode("utf-8")
     if not payload:
-        return [0.0] * dims
+        return [0.0] * DEFAULT_EMBEDDING_DIMS
 
     vector: list[float] = []
     counter = 0
-    while len(vector) < dims:
+    while len(vector) < DEFAULT_EMBEDDING_DIMS:
         digest = hashlib.sha256(payload + counter.to_bytes(4, "big")).digest()
         for idx in range(0, len(digest), 2):
-            if len(vector) >= dims:
+            if len(vector) >= DEFAULT_EMBEDDING_DIMS:
                 break
             chunk = int.from_bytes(digest[idx : idx + 2], "big")
             vector.append((chunk / 65535.0) * 2.0 - 1.0)
@@ -271,7 +227,7 @@ def _compute_embedding_local(text: str, *args: Any, **kwargs: Any) -> list[float
     return vector
 
 
-def _compute_hilbert_index_local(vector: Sequence[float] | None) -> int | None:
+def compute_hilbert_index(vector: Sequence[float] | None):
     values = _sequence_values(vector)
     if not values:
         return None
@@ -281,7 +237,7 @@ def _compute_hilbert_index_local(vector: Sequence[float] | None) -> int | None:
     return abs((folded * 1_000_003) ^ DEFAULT_HILBERT_SEED)
 
 
-async def _fetch_memories_by_ids_local(db: AsyncSession, memory_ids: Sequence[int]) -> list[Memory]:
+async def fetch_memories_by_ids(db: AsyncSession, memory_ids: Sequence[int]) -> list[Memory]:
     if not memory_ids:
         return []
     rows = (await db.execute(select(Memory).where(Memory.id.in_(list(memory_ids))))).scalars().all()
@@ -303,25 +259,26 @@ def _cosine_similarity(a: Sequence[float] | None, b: Sequence[float] | None) -> 
     return max(0.0, dot / (mag_left * mag_right))
 
 
-def _score_memories_local(
+def score_memories_local(
     query: str,
-    memories: Sequence[Memory] | Sequence[Mapping[str, Any]],
+    memories,
     *,
     weights: HybridWeights | None = None,
     limit: int | None = None,
 ):
     if not memories:
         return []
+
     weights = weights or HybridWeights()
-    query_tokens = _tokenize_local(query)
-    query_embedding = _compute_embedding_local(query)
-    token_scores = [_token_overlap_score_local(query_tokens, _memory_text(memory)) for memory in memories]
+    query_tokens = tokenize(query)
+    query_embedding = compute_embedding(query)
+    token_scores = [token_overlap_score(query_tokens, _memory_text(memory)) for memory in memories]
     vector_scores = [_cosine_similarity(query_embedding, _memory_vector(memory)) for memory in memories]
-    recency_scores = [_recency_boost_local(_memory_created_at(memory)) for memory in memories]
-    merged = _merge_hybrid_scores_local(
-        token_scores=_normalize_positive_local(token_scores),
-        vector_scores=_normalize_positive_local(vector_scores),
-        recency_scores=_normalize_positive_local(recency_scores),
+    recency_scores = [recency_boost(_memory_created_at(memory)) for memory in memories]
+    merged = merge_hybrid_scores(
+        token_scores=normalize_positive(token_scores),
+        vector_scores=normalize_positive(vector_scores),
+        recency_scores=normalize_positive(recency_scores),
         weights=weights,
     )
 
@@ -365,12 +322,12 @@ async def _run_hybrid_rag_recall_local(
             .limit(LOCAL_RECALL_FALLBACK_MAX_MEMORIES)
         )
     ).scalars().all()
+
     base_score_details = {
-        "source": "local-fallback",
+        "source": "generic-public-fallback",
         "candidate_count": len(memories),
         "fallback_max_memories": LOCAL_RECALL_FALLBACK_MAX_MEMORIES,
     }
-
     if not memories:
         return {
             "strategy": "recency",
@@ -380,21 +337,7 @@ async def _run_hybrid_rag_recall_local(
             "score_details": {**base_score_details, "reason": "no_memories"},
         }
 
-    query_tokens = _tokenize_local(query_text)
-    lexical_matches = [
-        memory for memory in memories if _token_overlap_score_local(query_tokens, _memory_text(memory)) > 0
-    ]
-    if not lexical_matches:
-        recent = memories[:limit]
-        return {
-            "strategy": "recency",
-            "input_ids": [memory.id for memory in memories],
-            "ranked_ids": [memory.id for memory in recent],
-            "scores": {},
-            "score_details": {**base_score_details, "reason": "no_hybrid_match"},
-        }
-
-    ranked = _score_memories_local(
+    ranked = score_memories_local(
         query_text,
         memories,
         weights=HybridWeights(
@@ -421,7 +364,7 @@ async def _run_hybrid_rag_recall_local(
             },
         }
 
-    recent = lexical_matches[:limit]
+    recent = memories[:limit]
     return {
         "strategy": "recency",
         "input_ids": [memory.id for memory in memories],
@@ -431,7 +374,7 @@ async def _run_hybrid_rag_recall_local(
     }
 
 
-def _build_vector_candidate_stmt_local(
+def build_vector_candidate_stmt(
     *,
     project_id: int,
     query_vector: Sequence[float],
@@ -447,132 +390,16 @@ def _build_vector_candidate_stmt_local(
     if use_hilbert:
         resolved_hilbert = query_hilbert
         if resolved_hilbert is None:
-            resolved_hilbert = _compute_hilbert_index_local(query_vector)
+            resolved_hilbert = compute_hilbert_index(query_vector)
         if resolved_hilbert is not None:
             stmt = stmt.where(
                 Memory.hilbert_index.is_not(None),
                 Memory.hilbert_index >= resolved_hilbert - hilbert_window,
                 Memory.hilbert_index <= resolved_hilbert + hilbert_window,
             )
-    vector_param = bindparam(
-        "query_vector",
-        list(query_vector),
-        type_=ARRAY(Float()),
-    )
+
+    vector_param = bindparam("query_vector", list(query_vector), type_=ARRAY(Float()))
     return stmt.order_by(Memory.embedding_vector.op("<=>")(vector_param)).limit(vector_candidates)
-
-
-def _build_pack_local(query: str, items: Iterable[tuple[str, str]]) -> str:
-    grouped: dict[str, list[str]] = {}
-    ordered_types: list[str] = []
-    for memory_type, content in items:
-        key = (memory_type or "note").upper()
-        if key not in grouped:
-            grouped[key] = []
-            ordered_types.append(key)
-        grouped[key].append((content or "").strip())
-
-    if not ordered_types:
-        return f"PROJECT MEMORY PACK\nQuery: {query or '(empty)'}\n\n(no memories)"
-
-    lines = ["PROJECT MEMORY PACK", f"Query: {query or '(empty)'}"]
-    for memory_type in ordered_types:
-        lines.append("")
-        lines.append(f"{memory_type}:")
-        for content in grouped[memory_type]:
-            lines.append(f"- {content}")
-    return "\n".join(lines)
-
-
-def tokenize(text: str | None) -> list[str]:
-    if _private_tokenize is not None:
-        return _private_tokenize(text)
-    return _tokenize_local(text)
-
-
-def token_overlap_score(query: str | Sequence[str], text: str | Sequence[str]) -> float:
-    if _private_token_overlap_score is not None:
-        return _private_token_overlap_score(query, text)
-    return _token_overlap_score_local(query, text)
-
-
-def normalize_positive(values: Sequence[float]) -> list[float]:
-    if _private_normalize_positive is not None:
-        return _private_normalize_positive(values)
-    return _normalize_positive_local(values)
-
-
-def recency_boost(created_at: datetime | None, now: datetime | None = None) -> float:
-    if _private_recency_boost is not None:
-        return _private_recency_boost(created_at, now)
-    return _recency_boost_local(created_at, now)
-
-
-def merge_hybrid_scores(*, token_scores: Sequence[float], vector_scores: Sequence[float], recency_scores: Sequence[float], weights: HybridWeights):
-    if _private_merge_hybrid_scores is not None:
-        return _private_merge_hybrid_scores(
-            token_scores=token_scores,
-            vector_scores=vector_scores,
-            recency_scores=recency_scores,
-            weights=weights,
-        )
-    return _merge_hybrid_scores_local(
-        token_scores=token_scores,
-        vector_scores=vector_scores,
-        recency_scores=recency_scores,
-        weights=weights,
-    )
-
-
-def compute_embedding(text: str, *args: Any, **kwargs: Any):
-    if _private_compute_embedding is not None:
-        return _private_compute_embedding(text, *args, **kwargs)
-    return _compute_embedding_local(text, *args, **kwargs)
-
-
-def compute_hilbert_index(vector: Sequence[float] | None):
-    if _private_compute_hilbert_index is not None:
-        return _private_compute_hilbert_index(vector)
-    return _compute_hilbert_index_local(vector)
-
-
-async def fetch_memories_by_ids(db: AsyncSession, memory_ids: Sequence[int]) -> list[Memory]:
-    if _private_fetch_memories_by_ids is not None:
-        return await _private_fetch_memories_by_ids(db, memory_ids)
-    return await _fetch_memories_by_ids_local(db, memory_ids)
-
-
-def score_memories_local(query: str, memories, *, weights: HybridWeights | None = None, limit: int | None = None):
-    if _private_score_memories_local is not None:
-        kwargs: dict[str, Any] = {}
-        if weights is not None:
-            kwargs["weights"] = weights
-        if limit is not None:
-            kwargs["limit"] = limit
-        return _private_score_memories_local(query, memories, **kwargs)
-    return _score_memories_local(query, memories, weights=weights, limit=limit)
-
-
-def build_vector_candidate_stmt(*, project_id: int, query_vector: Sequence[float], vector_candidates: int, use_hilbert: bool = False, hilbert_window: int = 5_000_000, query_hilbert: int | None = None):
-    if _private_build_vector_candidate_stmt is not None:
-        kwargs = {
-            "project_id": project_id,
-            "query_vector": query_vector,
-            "vector_candidates": vector_candidates,
-            "use_hilbert": use_hilbert,
-            "hilbert_window": hilbert_window,
-        }
-        if query_hilbert is not None:
-            kwargs["query_hilbert"] = query_hilbert
-        return _private_build_vector_candidate_stmt(**kwargs)
-    return _build_vector_candidate_stmt_local(
-        project_id=project_id,
-        query_vector=query_vector,
-        vector_candidates=vector_candidates,
-        use_hilbert=use_hilbert,
-        hilbert_window=hilbert_window,
-        query_hilbert=query_hilbert,
-    )
 
 
 async def run_hybrid_rag_recall(
@@ -584,7 +411,7 @@ async def run_hybrid_rag_recall(
     config: HybridRecallConfig | None = None,
 ) -> dict[str, Any]:
     if _private_run_hybrid_rag_recall is not None:
-        if _private_engine_circuit_is_open():
+        if _circuit_is_open():
             raise RecallEngineUnavailableError("Recall engine temporarily unavailable")
         try:
             result = await _private_run_hybrid_rag_recall(
@@ -597,7 +424,7 @@ async def run_hybrid_rag_recall(
         except Exception as exc:
             _mark_private_engine_failure(exc)
             logger.exception(
-                "Private hybrid recall failed; opening engine circuit and refusing degraded fallback.",
+                "Private recall engine failed; opening circuit and refusing degraded fallback.",
                 extra={
                     "project_id": project_id,
                     "limit": limit,
@@ -619,14 +446,32 @@ async def run_hybrid_rag_recall(
 
 
 def _build_pack(query: str, items: Iterable[tuple[str, str]]) -> str:
-    if _private_build_pack is not None:
-        return _private_build_pack(query, items)
-    return _build_pack_local(query, items)
+    grouped: dict[str, list[str]] = {}
+    ordered_types: list[str] = []
+    for memory_type, content in items:
+        key = (memory_type or "note").upper()
+        if key not in grouped:
+            grouped[key] = []
+            ordered_types.append(key)
+        grouped[key].append((content or "").strip())
+
+    if not ordered_types:
+        return f"PROJECT MEMORY PACK\nQuery: {query or '(empty)'}\n\n(no memories)"
+
+    lines = ["PROJECT MEMORY PACK", f"Query: {query or '(empty)'}"]
+    for memory_type in ordered_types:
+        lines.append("")
+        lines.append(f"{memory_type}:")
+        for content in grouped[memory_type]:
+            lines.append(f"- {content}")
+    return "\n".join(lines)
 
 
 __all__ = [
     "HybridRecallConfig",
     "HybridWeights",
+    "RecallEngineUnavailableError",
+    "_build_pack",
     "build_vector_candidate_stmt",
     "compute_embedding",
     "compute_hilbert_index",
@@ -634,12 +479,10 @@ __all__ = [
     "get_private_engine_runtime_state",
     "merge_hybrid_scores",
     "normalize_positive",
-    "RecallEngineUnavailableError",
     "recency_boost",
     "reset_private_engine_runtime_state",
     "run_hybrid_rag_recall",
     "score_memories_local",
     "token_overlap_score",
     "tokenize",
-    "_build_pack",
 ]
