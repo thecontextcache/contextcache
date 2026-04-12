@@ -324,7 +324,7 @@ async def _run_hybrid_rag_recall_local(
     ).scalars().all()
 
     base_score_details = {
-        "source": "generic-public-fallback",
+        "source": "local-fallback",
         "candidate_count": len(memories),
         "fallback_max_memories": LOCAL_RECALL_FALLBACK_MAX_MEMORIES,
     }
